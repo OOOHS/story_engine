@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Story Engine Web</title>
+    <link rel="stylesheet" href="/assets/style.css" />
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero__copy">
+          <p class="eyebrow">Story Engine</p>
+          <h1 id="title">载入中</h1>
+          <p id="subtitle" class="hero__subtitle"></p>
+          <p id="playerLine" class="hero__playerline"></p>
+        </div>
+        <div class="hero__controls">
+          <button id="resetButton" class="ghost-button" type="button">重开一局</button>
+          <div class="status-pill">
+            <span class="status-pill__label">Step</span>
+            <strong id="stepCount">0</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel transcript-panel">
+          <div class="panel__head">
+            <h2>现场文本</h2>
+            <p id="leadText">只保留玩家视角的信息，不向前端暴露引擎内部状态。</p>
+          </div>
+          <div id="transcript" class="transcript"></div>
+        </section>
+      </main>
+
+      <section class="composer panel">
+        <div class="panel__head composer__head">
+          <div>
+            <h2>你的回合</h2>
+            <p>输入玩家意图。留空则让玩家角色本轮自主行动。</p>
+          </div>
+          <button id="autoButton" class="ghost-button" type="button">本轮自主</button>
+        </div>
+
+        <div id="progressBox" class="progress-box" aria-hidden="true">
+          <div class="progress-box__head">
+            <strong id="progressLabel">本轮执行中</strong>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="progress-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div id="progressFill" class="progress-bar__fill"></div>
+          </div>
+          <div class="progress-stages">
+            <span class="progress-stage" data-stage="input">输入</span>
+            <span class="progress-stage" data-stage="simulation">裁决</span>
+            <span class="progress-stage" data-stage="rendering">渲染</span>
+            <span class="progress-stage" data-stage="memory">收束</span>
+          </div>
+        </div>
+
+        <label class="field">
+          <span>行动</span>
+          <textarea id="commandInput" rows="3" placeholder="例如：向旅馆老板追问码头仓库附近的失踪案，并观察他的表情。"></textarea>
+        </label>
+
+        <details class="director-box">
+          <summary>导演注入</summary>
+          <label class="field">
+            <span>世界事件</span>
+            <input id="injectInput" type="text" placeholder="例如：门外忽然传来急促的敲门声。" />
+          </label>
+        </details>
+
+        <div class="composer__actions">
+          <button id="submitButton" class="primary-button" type="button">执行一步</button>
+          <p id="statusText" class="status-text">准备就绪。</p>
+        </div>
+      </section>
+    </div>
+
+    <template id="entryTemplate">
+      <article class="entry">
+        <div class="entry__meta">
+          <span class="entry__step"></span>
+          <span class="entry__kind"></span>
+        </div>
+        <h3 class="entry__title"></h3>
+        <p class="entry__command"></p>
+        <p class="entry__injected"></p>
+        <div class="entry__narration"></div>
+      </article>
+    </template>
+
+    <script src="/assets/app.js"></script>
+  </body>
+</html>

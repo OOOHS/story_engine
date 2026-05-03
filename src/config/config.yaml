@@ -1,0 +1,23 @@
+components:
+  game_master:
+    llm:
+      model: "deepseek/deepseek-chat"
+      base_url: "https://api.deepseek.com"
+      # api_key: "" # Leave empty to use env var
+
+  narrator:
+    llm:
+      model: "deepseek/deepseek-chat"
+      base_url: "https://api.deepseek.com"
+  
+  agent:
+    llm:
+      model: "deepseek/deepseek-chat"
+      base_url: "https://api.deepseek.com"
+
+llm:
+  timeout: 120
+  num_retries: 2
+
+system:
+  chromadb_persist_dir: "./data/chromadb"
