@@ -1,4 +1,5 @@
-from typing import Dict, Any, Optional
+from copy import deepcopy
+from typing import ClassVar, Dict, Any, Optional
 from pydantic import Field
 from src.story_engine.core.component import Component
 
@@ -12,6 +13,62 @@ class SceneState(Component):
     world_objects: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     actor_states: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     scene_flags: Dict[str, Any] = Field(default_factory=dict)
+    public_scene_fields: list[str] = Field(default_factory=list)
+    private_scene_fields: list[str] = Field(default_factory=list)
+
+    DEFAULT_PUBLIC_SCENE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "day_phase",
+            "weather",
+            "alarm",
+            "ambient_condition",
+            "public_status",
+        }
+    )
+    SCENE_VISIBILITY_SCHEMA_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"public_scene_fields", "private_scene_fields"}
+    )
+
+    PUBLIC_ACTOR_STATE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "location",
+            "sub_location",
+            "stance",
+            "posture",
+            "expression",
+            "appearance",
+            "visible_condition",
+            "activity",
+            "public_status",
+            "focus_target",
+            "side_with",
+            "attitude",
+        }
+    )
+    HOST_ONLY_ACTOR_STATE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {
+            "dramatic_motive",
+            "dramatic_push",
+            "pressure_profile",
+            "public_lever",
+            "signature_templates",
+            "bias",
+            "framing_style",
+            "territorial",
+            "family_support",
+            "loyalty",
+            "pressure",
+        }
+    )
+    ACTOR_VISIBILITY_SCHEMA_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"public_state_fields", "private_state_fields"}
+    )
+    HOST_ONLY_OBJECT_STATE_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"affordances", "policy_tags", "stack_key"}
+    )
+    OBJECT_VISIBILITY_SCHEMA_FIELDS: ClassVar[frozenset[str]] = frozenset(
+        {"public_state_fields", "private_state_fields"}
+    )
 
     def update_description(self, new_description: str):
         self.description = new_description
@@ -32,11 +89,246 @@ class SceneState(Component):
     def get_scene_flag(self, key: str, default: Any = None) -> Any:
         return self.scene_flags.get(key, default)
 
+    def public_scene_field_names(self) -> set[str]:
+        return (
+            set(self.DEFAULT_PUBLIC_SCENE_FIELDS)
+            | self._state_field_set(self.public_scene_fields)
+        ) - self._state_field_set(self.private_scene_fields)
+
+    def get_public_scene_state(self) -> Dict[str, Any]:
+        allowed = self.public_scene_field_names()
+        return {
+            "description": self.description,
+            "flags": {
+                key: deepcopy(value)
+                for key, value in self.scene_flags.items()
+                if key in allowed and not str(key).startswith("_")
+            },
+        }
+
     def get_object_state(self, object_name: str) -> Dict[str, Any]:
         return self.world_objects.get(object_name, {})
 
+    def is_location(self, object_name: str) -> bool:
+        """Return whether a world-object entry is a spatial graph node.
+
+        Legacy scenarios did not distinguish places from props, so missing
+        ``is_location`` remains location-like.  Lifecycle-created tangible
+        objects always opt out explicitly.
+        """
+        state = self.get_object_state(object_name)
+        return bool(state.get("is_location", True)) if isinstance(state, dict) else False
+
+    def get_known_locations(self) -> set[str]:
+        return {
+            name for name in self.world_objects
+            if self.is_location(name)
+        }
+
+    def get_effective_object_location(self, object_name: str) -> Optional[str]:
+        """Resolve an object's physical location through nested containers.
+
+        Container references are authoritative placement, not a denormalized
+        copy of the parent's owner/location.  Moving a bag therefore moves all
+        of its contents without rewriting every child object.
+        """
+        current = str(object_name or "").strip()
+        visited: set[str] = set()
+        while current:
+            if current in visited:
+                return None
+            visited.add(current)
+            state = self.get_object_state(current)
+            if not isinstance(state, dict) or self.is_location(current):
+                return None
+            owner = str(state.get("owner") or "").strip()
+            if owner:
+                return self.get_actor_location(owner)
+            location = str(state.get("location") or "").strip()
+            if location:
+                return location
+            current = str(state.get("container") or "").strip()
+        return None
+
+    def get_object_container_chain(self, object_name: str) -> list[str]:
+        """Return direct-to-outer container ids, stopping safely on bad data."""
+        chain: list[str] = []
+        current = str(object_name or "").strip()
+        visited = {current}
+        while current:
+            state = self.get_object_state(current)
+            if not isinstance(state, dict) or self.is_location(current):
+                break
+            container = str(state.get("container") or "").strip()
+            if not container or container in visited:
+                break
+            chain.append(container)
+            visited.add(container)
+            current = container
+        return chain
+
+    def is_object_accessible(
+        self,
+        object_name: str,
+        actor_name: Optional[str] = None,
+    ) -> bool:
+        """Whether the object can be physically manipulated out of its containers."""
+        for container in self.get_object_container_chain(object_name):
+            state = self.get_object_state(container)
+            if not bool(state.get("container_open", True)):
+                return False
+            if actor_name and bool(state.get("hidden", False)) and str(
+                state.get("owner") or ""
+            ).strip() != str(actor_name).strip():
+                return False
+        return True
+
+    def is_object_visible_through_containers(
+        self,
+        object_name: str,
+        viewer_name: Optional[str] = None,
+    ) -> bool:
+        """Whether every enclosing container permits line of sight to contents."""
+        for container in self.get_object_container_chain(object_name):
+            state = self.get_object_state(container)
+            if bool(state.get("hidden", False)) and str(
+                state.get("owner") or ""
+            ).strip() != str(viewer_name or "").strip():
+                return False
+            if bool(state.get("container_open", True)):
+                continue
+            if bool(state.get("container_opaque", True)):
+                return False
+        return True
+
+    def get_contained_objects(self, container_name: str) -> Dict[str, Dict[str, Any]]:
+        return {
+            name: state
+            for name, state in self.world_objects.items()
+            if isinstance(state, dict)
+            and not self.is_location(name)
+            and str(state.get("container") or "").strip() == container_name
+        }
+
+    def get_visible_objects(self, viewer_name: Optional[str]) -> Dict[str, Dict[str, Any]]:
+        if not viewer_name:
+            return {}
+        viewer_location = self.get_actor_location(viewer_name)
+        visible: Dict[str, Dict[str, Any]] = {}
+        for name, state in self.world_objects.items():
+            if not isinstance(state, dict) or self.is_location(name):
+                continue
+            owner = str(state.get("owner") or "").strip()
+            hidden = bool(state.get("hidden", False))
+            if owner == viewer_name:
+                visible[name] = state
+                continue
+            if hidden:
+                continue
+            if (
+                viewer_location
+                and self.get_effective_object_location(name) == viewer_location
+                and self.is_object_visible_through_containers(name, viewer_name)
+            ):
+                visible[name] = state
+        return visible
+
+    def get_public_object_state(self, object_name: str) -> Dict[str, Any]:
+        """Project observable object facts without Host policy metadata."""
+        state = self.get_object_state(object_name)
+        if not isinstance(state, dict):
+            return {}
+        private = self._state_field_set(state.get("private_state_fields", []))
+        hidden = (
+            set(self.HOST_ONLY_OBJECT_STATE_FIELDS)
+            | set(self.OBJECT_VISIBILITY_SCHEMA_FIELDS)
+            | private
+        )
+        return {
+            key: deepcopy(value)
+            for key, value in state.items()
+            if key not in hidden and not str(key).startswith("_")
+        }
+
+    def get_semantic_snapshot(self) -> Dict[str, Any]:
+        """Project facts needed by semantic settlement, excluding Host policy."""
+        world_objects = {}
+        for name, raw_state in self.world_objects.items():
+            state = deepcopy(raw_state) if isinstance(raw_state, dict) else {}
+            state.pop("policy_tags", None)
+            state.pop("stack_key", None)
+            state.pop("public_state_fields", None)
+            state.pop("private_state_fields", None)
+            affordances = state.get("affordances", [])
+            if isinstance(affordances, list):
+                state["affordances"] = [
+                    {
+                        key: deepcopy(value)
+                        for key, value in item.items()
+                        if key != "policy_tags" and not str(key).startswith("_")
+                    }
+                    for item in affordances
+                    if isinstance(item, dict)
+                ]
+            world_objects[name] = state
+        actor_states = {}
+        actor_hidden = set(self.HOST_ONLY_ACTOR_STATE_FIELDS) | set(
+            self.ACTOR_VISIBILITY_SCHEMA_FIELDS
+        )
+        for name, raw_state in self.actor_states.items():
+            actor_states[name] = {
+                key: deepcopy(value)
+                for key, value in raw_state.items()
+                if key not in actor_hidden and not str(key).startswith("_")
+            } if isinstance(raw_state, dict) else {}
+        return {
+            "description": self.description,
+            "world_objects": world_objects,
+            "actor_states": actor_states,
+            "scene_flags": deepcopy(self.scene_flags),
+        }
+
     def get_actor_state(self, actor_name: str) -> Dict[str, Any]:
         return self.actor_states.get(actor_name, {})
+
+    def get_public_actor_state(self, actor_name: str) -> Dict[str, Any]:
+        """Project one actor into facts another character may directly see."""
+        state = self.get_actor_state(actor_name)
+        if not isinstance(state, dict):
+            return {}
+        additional = self._state_field_set(state.get("public_state_fields", []))
+        private = self._state_field_set(state.get("private_state_fields", []))
+        allowed = (set(self.PUBLIC_ACTOR_STATE_FIELDS) | additional) - private
+        allowed -= set(self.ACTOR_VISIBILITY_SCHEMA_FIELDS)
+        return {
+            key: deepcopy(value)
+            for key, value in state.items()
+            if key in allowed and not str(key).startswith("_")
+        }
+
+    def get_self_actor_state(self, actor_name: str) -> Dict[str, Any]:
+        """Project embodied self-state while withholding director controls."""
+        state = self.get_actor_state(actor_name)
+        if not isinstance(state, dict):
+            return {}
+        hidden = set(self.HOST_ONLY_ACTOR_STATE_FIELDS) | set(
+            self.ACTOR_VISIBILITY_SCHEMA_FIELDS
+        )
+        return {
+            key: deepcopy(value)
+            for key, value in state.items()
+            if key not in hidden and not str(key).startswith("_")
+        }
+
+    @staticmethod
+    def _state_field_set(value: Any) -> set[str]:
+        if not isinstance(value, (list, tuple, set)):
+            return set()
+        return {
+            str(item).strip()
+            for item in value
+            if isinstance(item, str) and str(item).strip()
+        }
 
     def get_actor_location(self, actor_name: str) -> Optional[str]:
         state = self.get_actor_state(actor_name)
@@ -56,20 +348,38 @@ class SceneState(Component):
         if not viewer_name:
             return {
                 "viewer": None,
+                "public_scene": self.get_public_scene_state(),
                 "location": None,
                 "visible_actors": [],
                 "visible_actor_states": {},
                 "visible_world": {},
+                "visible_objects": [],
                 "viewer_zone": None,
                 "spatial_layout": {},
                 "visible_spatial_facts": [],
             }
 
         location = self.get_actor_location(viewer_name)
-        visible_actor_states = self.get_actors_in_location(location) if location else dict(self.actor_states)
+        visible_actor_names = (
+            list(self.get_actors_in_location(location))
+            if location
+            else [viewer_name] if viewer_name in self.actor_states else []
+        )
+        visible_actor_states = {
+            name: self.get_public_actor_state(name)
+            for name in visible_actor_names
+        }
+        raw_visible_objects = self.get_visible_objects(viewer_name)
+        projected_visible_objects = {
+            name: self.get_public_object_state(name)
+            for name in raw_visible_objects
+        }
         visible_world = {}
         if location:
-            visible_world[location] = self.get_object_state(location)
+            visible_world[location] = self.get_public_object_state(location)
+            visible_world.update(projected_visible_objects)
+        elif viewer_name:
+            visible_world.update(projected_visible_objects)
         elif self.world_objects:
             visible_world = dict(self.world_objects)
 
@@ -80,10 +390,12 @@ class SceneState(Component):
         )
         return {
             "viewer": viewer_name,
+            "public_scene": self.get_public_scene_state(),
             "location": location,
             "visible_actors": list(visible_actor_states.keys()),
             "visible_actor_states": visible_actor_states,
             "visible_world": visible_world,
+            "visible_objects": list(raw_visible_objects),
             "viewer_zone": spatial_layout.get("viewer_zone"),
             "spatial_layout": spatial_layout,
             "visible_spatial_facts": list(spatial_layout.get("facts", [])),
@@ -117,12 +429,16 @@ class SceneState(Component):
                 self.update_description(description)
             self.update_scene_flags(scene_flags)
 
-        # Backward-compatible fallback: unknown top-level keys are treated as world objects.
-        for key, value in updates.items():
-            if key in {"world_objects", "actor_states", "scene"}:
-                continue
-            if isinstance(value, dict):
-                self.update_object_state(key, value)
+        unknown_sections = sorted(
+            str(key)
+            for key in updates
+            if key not in {"world_objects", "actor_states", "scene"}
+        )
+        if unknown_sections:
+            raise ValueError(
+                "unknown SceneState update sections: "
+                + ", ".join(unknown_sections)
+            )
 
     def get_snapshot(self) -> Dict[str, Any]:
         return {
@@ -130,6 +446,8 @@ class SceneState(Component):
             "world_objects": self.world_objects,
             "actor_states": self.actor_states,
             "scene_flags": self.scene_flags,
+            "public_scene_fields": list(self.public_scene_fields),
+            "private_scene_fields": list(self.private_scene_fields),
         }
 
     def _default_zone_for_location(self, location: str) -> Optional[str]:
@@ -247,6 +565,8 @@ class SceneState(Component):
 
     @staticmethod
     def _get_nested_value(data: Dict[str, Any], path: str) -> Any:
+        if not str(path or "").strip():
+            return data if data else None
         current: Any = data
         for part in path.split("."):
             if not isinstance(current, dict):
@@ -269,6 +589,8 @@ class SceneState(Component):
     def _compare_value(actual: Any, operator: str, expected: Any) -> bool:
         if operator == "exists":
             return actual is not None
+        if operator == "not_exists":
+            return actual is None
         if operator == "eq":
             return actual == expected
         if operator == "ne":
@@ -292,9 +614,21 @@ class SceneState(Component):
         return False
 
     def matches_condition(self, condition: Any, plot_state: Optional[Any] = None) -> bool:
-        source = self._resolve_scope(condition.scope, condition.target, plot_state=plot_state)
-        actual = self._get_nested_value(source, condition.path)
-        return self._compare_value(actual, condition.operator, condition.value)
+        if isinstance(condition, dict):
+            scope = condition.get("scope", "scene")
+            target = condition.get("target")
+            path = condition.get("path", "")
+            operator = condition.get("operator", "eq")
+            expected = condition.get("value")
+        else:
+            scope = condition.scope
+            target = condition.target
+            path = condition.path
+            operator = condition.operator
+            expected = condition.value
+        source = self._resolve_scope(scope, target, plot_state=plot_state)
+        actual = self._get_nested_value(source, path)
+        return self._compare_value(actual, operator, expected)
 
     def get_state_string(self) -> str:
         parts = [f"当前场景：{self.description}"]

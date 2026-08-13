@@ -1,7 +1,8 @@
-from typing import Any, Optional
+from typing import Any, ClassVar, Optional
 from pydantic import BaseModel, PrivateAttr
 
 class Component(BaseModel):
+    component_slot: ClassVar[str | None] = None
     _entity: Optional[Any] = PrivateAttr(default=None)
 
     @property

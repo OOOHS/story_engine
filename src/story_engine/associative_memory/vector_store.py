@@ -24,6 +24,20 @@ class VectorStore:
             ids=ids
         )
 
+    def upsert_texts(
+        self,
+        texts: List[str],
+        metadatas: Optional[List[Dict[str, Any]]] = None,
+        ids: Optional[List[str]] = None,
+    ):
+        if ids is None:
+            ids = [str(uuid.uuid4()) for _ in range(len(texts))]
+        self._collection.upsert(
+            documents=texts,
+            metadatas=metadatas,
+            ids=ids,
+        )
+
     def query(self, query_texts: List[str], n_results: int = 5, where: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         return self._collection.query(
             query_texts=query_texts,
@@ -33,3 +47,33 @@ class VectorStore:
 
     def delete(self, ids: Optional[List[str]] = None, where: Optional[Dict[str, Any]] = None):
         self._collection.delete(ids=ids, where=where)
+
+    def get_records(
+        self,
+        *,
+        where: Optional[Dict[str, Any]] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        kwargs: Dict[str, Any] = {
+            "include": ["documents", "metadatas"],
+        }
+        if where is not None:
+            kwargs["where"] = where
+        if limit is not None:
+            kwargs["limit"] = int(limit)
+        result = self._collection.get(**kwargs)
+        ids = result.get("ids") or []
+        documents = result.get("documents") or []
+        metadatas = result.get("metadatas") or []
+        return [
+            {
+                "id": memory_id,
+                "content": documents[index] if index < len(documents) else "",
+                "metadata": (
+                    metadatas[index]
+                    if index < len(metadatas) and metadatas[index]
+                    else {}
+                ),
+            }
+            for index, memory_id in enumerate(ids)
+        ]

@@ -36,17 +36,17 @@ class DramaState(Component):
 
         if self.tension < self.crisis_threshold:
             directive = "inject_crisis"
-            instruction = "本轮必须引入一个可信的危机、阻力或坏消息。"
+            instruction = "当前存在较强的危机机会；仅在已提交行动和世界因果自然支持时显化。"
         elif self.tension > self.target_max:
             directive = "allow_release"
-            instruction = "允许节奏短暂回落，但不能抹除已有后果。"
+            instruction = "当前适合容纳节奏回落，但不能抹除已有后果。"
         elif self.tension < self.target_min:
             directive = "raise_pressure"
-            instruction = "提升压力，优先让隐藏风险开始显形。"
+            instruction = "隐藏风险具有较高显著性；角色是否触发仍由其行动和处境决定。"
 
         pressure_hints = [p["pressure_hint"] for p in active_plot_pressures if p.get("pressure_hint")]
         if pressure_hints:
-            instruction += " 优先从以下长线压力中择一兑现：" + "；".join(pressure_hints)
+            instruction += " 以下长线压力可作为后果解释线索，而非强制事件：" + "；".join(pressure_hints)
 
         self.last_directive = directive
         self.recent_forces.append(directive)

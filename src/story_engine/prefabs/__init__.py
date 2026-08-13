@@ -1,1 +1,3 @@
-from .templates import create_agent, create_detective, create_suspect
+from .templates import create_agent
+
+__all__ = ["create_agent"]

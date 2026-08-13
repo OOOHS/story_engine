@@ -18,6 +18,16 @@ const els = {
   commandInput: document.getElementById("commandInput"),
   injectInput: document.getElementById("injectInput"),
   submitButton: document.getElementById("submitButton"),
+  retryDeliveryButton: document.getElementById("retryDeliveryButton"),
+  awareness: document.getElementById("awareness"),
+  awarenessLocation: document.getElementById("awarenessLocation"),
+  awarenessObservations: document.getElementById("awarenessObservations"),
+  visibleActorsGroup: document.getElementById("visibleActorsGroup"),
+  visibleActors: document.getElementById("visibleActors"),
+  visibleObjectsGroup: document.getElementById("visibleObjectsGroup"),
+  visibleObjects: document.getElementById("visibleObjects"),
+  activeGoalsGroup: document.getElementById("activeGoalsGroup"),
+  activeGoals: document.getElementById("activeGoals"),
   autoButton: document.getElementById("autoButton"),
   resetButton: document.getElementById("resetButton"),
   statusText: document.getElementById("statusText"),
@@ -30,8 +40,8 @@ const els = {
 els.progressStages = Array.from(document.querySelectorAll(".progress-stage"));
 
 const executionStages = [
-  { key: "input", label: "收集输入", target: 18 },
-  { key: "simulation", label: "结算裁决", target: 52 },
+  { key: "input", label: "提交动作", target: 18 },
+  { key: "simulation", label: "推进事件并结算", target: 52 },
   { key: "rendering", label: "生成文本", target: 82 },
   { key: "memory", label: "收束本轮", target: 94 },
 ];
@@ -55,11 +65,19 @@ async function request(path, options = {}) {
 
 function setBusy(flag, message) {
   state.busy = flag;
-  els.submitButton.disabled = flag;
-  els.autoButton.disabled = flag;
+  const playerReady = !state.data || !state.data.player || state.data.player.ready !== false;
+  const deliveryReady = !state.data || state.data.delivery_pending !== true;
+  els.submitButton.disabled = flag || !playerReady || !deliveryReady;
+  els.commandInput.disabled = flag || !playerReady || !deliveryReady;
+  els.autoButton.disabled = flag || !deliveryReady;
+  els.retryDeliveryButton.disabled = flag || deliveryReady;
   els.resetButton.disabled = flag;
   if (typeof message === "string") {
-    els.statusText.textContent = message;
+    els.statusText.textContent = !flag && !deliveryReady
+      ? "世界已经提交，但文本/记忆交付尚未完成；请先重试交付。"
+      : !flag && !playerReady
+      ? "你的行动尚未完成，可以让世界推进到下一个事件。"
+      : message;
   }
 }
 
@@ -155,7 +173,9 @@ function renderTranscript(history) {
     const fragment = els.entryTemplate.content.cloneNode(true);
     const root = fragment.querySelector(".entry");
     fragment.querySelector(".entry__step").textContent = entry.step != null ? entry.step : 0;
-    fragment.querySelector(".entry__kind").textContent = entry.kind === "prologue" ? "Prologue" : "Turn";
+    fragment.querySelector(".entry__kind").textContent = entry.kind === "prologue"
+      ? "Prologue"
+      : entry.kind === "system" ? "System" : "Turn";
     fragment.querySelector(".entry__title").textContent = entry.title || "未命名片段";
     fragment.querySelector(".entry__command").textContent = entry.player_command
       ? `你的行动：${entry.player_command}`
@@ -178,6 +198,82 @@ function renderTranscript(history) {
   els.transcript.scrollTop = els.transcript.scrollHeight;
 }
 
+function renderTextList(group, list, values) {
+  list.innerHTML = "";
+  const normalized = (values || [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  group.hidden = normalized.length === 0;
+  normalized.forEach((value) => {
+    const item = document.createElement("li");
+    item.textContent = value;
+    list.appendChild(item);
+  });
+  return normalized.length;
+}
+
+function renderDecisionContext(player) {
+  const context = player && player.decision_context ? player.decision_context : {};
+  const pendingIds = new Set([
+    ...(context.pending_world_events || []),
+    ...(context.pending_event_responses || []),
+  ]);
+  const observations = (context.passive_observations || [])
+    .filter((item) => item && (
+      pendingIds.has(item.event_id) || pendingIds.has(item.response_id)
+    ))
+    .map((item) => item.result ? String(item.result).trim() : "")
+    .filter(Boolean)
+    .slice(-4);
+  const representedPending = observations.length;
+  (context.active_observation_results || [])
+    .map((item) => item && (item.private_result || item.result)
+      ? String(item.private_result || item.result).trim()
+      : "")
+    .filter(Boolean)
+    .slice(-2)
+    .forEach((value) => observations.push(value));
+  const pendingCount = (context.pending_world_events || []).length
+    + (context.pending_event_responses || []).length;
+  if (pendingCount > representedPending) {
+    observations.push(`另有 ${pendingCount - representedPending} 项变化等待处理`);
+  }
+  els.awarenessObservations.innerHTML = "";
+  observations.forEach((value) => {
+    const item = document.createElement("li");
+    item.textContent = value;
+    els.awarenessObservations.appendChild(item);
+  });
+
+  const actorCount = renderTextList(
+    els.visibleActorsGroup,
+    els.visibleActors,
+    (context.visible_actors || []).slice(0, 6),
+  );
+  const objectCount = renderTextList(
+    els.visibleObjectsGroup,
+    els.visibleObjects,
+    (context.visible_objects || []).slice(0, 6),
+  );
+  const goalCount = renderTextList(
+    els.activeGoalsGroup,
+    els.activeGoals,
+    (context.active_goals || [])
+      .map((goal) => goal && goal.title ? goal.title : "")
+      .slice(0, 4),
+  );
+  els.awarenessLocation.textContent = context.location
+    ? `位于 ${context.location}`
+    : "";
+  els.awareness.hidden = !(
+    context.location
+    || observations.length
+    || actorCount
+    || objectCount
+    || goalCount
+  );
+}
+
 function renderState(data) {
   state.data = data;
   els.title.textContent = data.title;
@@ -185,14 +281,20 @@ function renderState(data) {
   els.stepCount.textContent = data.step_count;
   const player = data && data.player ? data.player : null;
   els.playerLine.textContent = player && player.name
-    ? `你当前扮演 ${player.name}${player.role ? ` · ${player.role}` : ""}`
+    ? `你当前扮演 ${player.name}${player.role ? ` · ${player.role}` : ""}${player.ready === false ? " · 行动进行中" : ""}`
     : "当前没有指定玩家角色。";
   els.leadText.textContent = data.last_step
     ? "界面只保留叙事和你的行动记录，不直接展示后台状态机、storylet 或导演信息。"
     : "这里展示的是玩家视角下的开场文本，而不是世界引擎的内部数据。";
+  renderDecisionContext(player);
 
   renderTranscript(data.history || []);
-  els.statusText.textContent = "准备就绪。";
+  els.retryDeliveryButton.hidden = data.delivery_pending !== true;
+  els.statusText.textContent = data.delivery_pending === true
+    ? "世界已经提交，但文本/记忆交付尚未完成；请先重试交付。"
+    : player && player.ready === false
+    ? "你的行动尚未完成，可以让世界推进到下一个事件。"
+    : "准备就绪。";
   if (!state.busy) {
     hideProgressUI();
   }
@@ -253,6 +355,25 @@ async function resetGame() {
   }
 }
 
+async function retryDelivery() {
+  setBusy(true, "正在重试文本与记忆交付...");
+  startExecutionProgress();
+  let succeeded = false;
+  try {
+    const data = await request("/api/retry-delivery", {
+      method: "POST",
+      body: "{}",
+    });
+    renderState(data);
+    succeeded = data.delivery_pending !== true;
+  } catch (error) {
+    els.statusText.textContent = `交付重试失败：${error.message}`;
+  } finally {
+    setBusy(false, succeeded ? "准备就绪。" : undefined);
+    stopExecutionProgress(succeeded);
+  }
+}
+
 els.submitButton.addEventListener("click", () => {
   submitTurn(els.commandInput.value, els.injectInput.value);
 });
@@ -263,6 +384,10 @@ els.autoButton.addEventListener("click", () => {
 
 els.resetButton.addEventListener("click", () => {
   resetGame();
+});
+
+els.retryDeliveryButton.addEventListener("click", () => {
+  retryDelivery();
 });
 
 els.commandInput.addEventListener("keydown", (event) => {

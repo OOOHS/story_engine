@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "story-engine-content"
+version = "0.1.0"
+description = "Optional bundled and evaluation content for story-engine"
+requires-python = ">=3.11"
+dependencies = ["story-engine>=0.1.0"]
+
+[tool.setuptools]
+packages = [
+  "src.story_engine_content",
+  "src.story_engine_content.bundled",
+  "src.story_engine_content.evaluation",
+]
+
+[tool.setuptools.package-dir]
+"src.story_engine_content" = "."
+"src.story_engine_content.bundled" = "bundled"
+"src.story_engine_content.evaluation" = "evaluation"

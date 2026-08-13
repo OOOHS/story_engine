@@ -43,6 +43,30 @@
           <button id="autoButton" class="ghost-button" type="button">本轮自主</button>
         </div>
 
+        <section id="awareness" class="awareness" aria-live="polite" hidden>
+          <div class="awareness__primary">
+            <div class="awareness__heading">
+              <h3>当前认知</h3>
+              <span id="awarenessLocation" class="awareness__location"></span>
+            </div>
+            <ul id="awarenessObservations" class="awareness__observations"></ul>
+          </div>
+          <div class="awareness__facts">
+            <section id="visibleActorsGroup" class="awareness__group" hidden>
+              <h4>在场人物</h4>
+              <ul id="visibleActors"></ul>
+            </section>
+            <section id="visibleObjectsGroup" class="awareness__group" hidden>
+              <h4>可见对象</h4>
+              <ul id="visibleObjects"></ul>
+            </section>
+            <section id="activeGoalsGroup" class="awareness__group" hidden>
+              <h4>当前目标</h4>
+              <ul id="activeGoals"></ul>
+            </section>
+          </div>
+        </section>
+
         <div id="progressBox" class="progress-box" aria-hidden="true">
           <div class="progress-box__head">
             <strong id="progressLabel">本轮执行中</strong>
@@ -74,6 +98,7 @@
 
         <div class="composer__actions">
           <button id="submitButton" class="primary-button" type="button">执行一步</button>
+          <button id="retryDeliveryButton" class="ghost-button" type="button" hidden>重试文本交付</button>
           <p id="statusText" class="status-text">准备就绪。</p>
         </div>
       </section>

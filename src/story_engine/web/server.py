@@ -56,6 +56,10 @@ class StoryEngineRequestHandler(BaseHTTPRequestHandler):
             self._send_json(self.server.adapter.reset())
             return
 
+        if parsed.path == "/api/retry-delivery":
+            self._send_json(self.server.adapter.retry_delivery())
+            return
+
         self._send_json({"error": "Not found"}, status=HTTPStatus.NOT_FOUND)
 
     def log_message(self, format: str, *args: Any) -> None:

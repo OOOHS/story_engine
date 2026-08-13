@@ -11,6 +11,13 @@ class GameClock:
         self.current_step += 1
         self.current_time += self.step_duration
 
+    def advance_to(self, step: int):
+        target = max(self.current_step, int(step))
+        delta = target - self.current_step
+        if delta:
+            self.current_step = target
+            self.current_time += self.step_duration * delta
+
     def get_time_display(self) -> str:
         return self.current_time.strftime("%Y-%m-%d %H:%M:%S")
     

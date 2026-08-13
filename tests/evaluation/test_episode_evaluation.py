@@ -1,0 +1,1220 @@
+from copy import deepcopy
+from dataclasses import asdict
+import json
+
+from pydantic import Field
+
+from src.story_engine.agents.actions import AgentAction
+from src.story_engine.agents.types import AgentDecision
+from src.story_engine.core.component import Component
+from src.story_engine.core.entity import Entity
+from src.story_engine.components.world_event import (
+    WorldEventFact,
+    WorldEventResponses,
+    WorldEventWitnesses,
+)
+from src.story_engine.evaluation import EpisodeRunner, EpisodeStepTrace
+from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
+from src.story_engine.session import create_session
+
+
+class AlternatingRuntime:
+    def decide(self, entity, perception):
+        other = "乙" if entity.name == "甲" else "甲"
+        if entity.name == "甲" and perception.step % 2 == 0:
+            action = AgentAction(
+                "communicate",
+                f"向{other}认真说明自己的当前打算。",
+                other,
+            )
+        elif entity.name == "甲":
+            action = AgentAction(
+                "interact",
+                "整理桌面上的线索，尝试让接下来的交谈更具体。",
+                "会客室",
+            )
+        elif perception.step % 2 == 0:
+            action = AgentAction(
+                "observe",
+                f"观察{other}听完后的反应。",
+                other,
+            )
+        else:
+            action = AgentAction(
+                "communicate",
+                f"向{other}说明自己仍然保留的疑问。",
+                other,
+            )
+        return AgentDecision(action=action.detail, action_spec=action)
+
+
+class WaitingRuntime:
+    def decide(self, entity, perception):
+        action = AgentAction("wait", "暂时等待，不改变眼前局面。")
+        return AgentDecision(action=action.detail, action_spec=action)
+
+
+class ChoiceRuntime:
+    def decide(self, entity, perception):
+        del entity, perception
+        observe = AgentAction("observe", "检查门边的痕迹。", "房门")
+        communicate = AgentAction("communicate", "询问守门人刚才发生了什么。", "守门人")
+        return AgentDecision(
+            action=observe.detail,
+            action_spec=observe,
+            candidates=(observe, communicate),
+        )
+
+
+class SimulationControl(Component):
+    """Generic deterministic semantic resolver used only by the episode audit."""
+
+    scenario: object = None
+    seen_batches: list = Field(default_factory=list)
+
+    def simulate(self, payload):
+        intents = [
+            item for item in payload.get("intents", []) if isinstance(item, dict)
+        ]
+        self.seen_batches.append(deepcopy(intents))
+        actions = []
+        impacts = []
+        for intent in intents:
+            actor = str(intent.get("actor", ""))
+            kind = str(intent.get("action_kind", "interact"))
+            target = str(intent.get("action_target", ""))
+            action = {
+                "actor": actor,
+                "intent": intent.get("intent", ""),
+                "action_kind": kind,
+                "action_target": target,
+                "outcome": "success",
+                "location": intent.get("location"),
+                "visibility": "public",
+                "result": (
+                    f"{actor}完成了一次主动观察。"
+                    if kind == "observe"
+                    else f"{actor}向{target}清楚表达了自己的打算。"
+                ),
+                "private_result": (
+                    f"{actor}注意到{target}正在认真权衡。"
+                    if kind == "observe"
+                    else ""
+                ),
+            }
+            actions.append(action)
+            if kind == "communicate" and target:
+                impacts.append(
+                    {
+                        "source": actor,
+                        "affected": target,
+                        "kind": "admiring",
+                        "magnitude": 0.2,
+                        "reason": f"{actor}进行了清楚而坦率的沟通",
+                        "source_event": f"talk:{payload.get('current_step', 0)}:{actor}",
+                    }
+                )
+        return {
+            "resolved_actions": actions,
+            "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+            "plot_updates": [],
+            "relationship_updates": [],
+            "social_impacts": impacts,
+            "knowledge_updates": [],
+            "object_lifecycle": [],
+            "exchanges": [],
+            "agreement_updates": [],
+            "drive_updates": [],
+            "obligation_updates": [],
+            "tension_delta": 0,
+        }
+
+
+class NarrativeRenderer(Component):
+    def render(self, payload):
+        return "；".join(
+            str(item.get("result", ""))
+            for item in payload.get("simulation_result", {}).get(
+                "resolved_actions", []
+            )
+            if isinstance(item, dict) and item.get("result")
+        ) or "局面暂时平静。"
+
+
+def _session(seed):
+    scenario = ScenarioConfig(
+        name="最小涌现种子",
+        description="两个有独立目标的角色第一次交谈。",
+        environment="一间没有预写剧情的会客室。",
+        initial_state="甲与乙刚刚见面。",
+        initial_world_objects={"会客室": {}},
+        initial_actor_states={
+            "甲": {"location": "会客室"},
+            "乙": {"location": "会客室"},
+        },
+        characters=[
+            CharacterConfig(
+                name="甲",
+                role="来访者",
+                personality="坦率",
+                goals=["了解乙的真实意图"],
+                is_player=True,
+                agent_runtime="alternating",
+            ),
+            CharacterConfig(
+                name="乙",
+                role="主人",
+                personality="审慎",
+                goals=["判断甲是否值得合作"],
+                agent_runtime="alternating",
+            ),
+        ],
+    )
+    session = create_session(
+        scenario,
+        random_seed=seed,
+        agent_runtime_factories={
+            "alternating": lambda entity, config: AlternatingRuntime()
+        },
+    )
+    gm = session.entities["GameMaster"]
+    control = SimulationControl(scenario=scenario)
+    gm.add_component(control)
+    gm.add_component(NarrativeRenderer())
+    return session
+
+
+def _idle_session(seed):
+    scenario = ScenarioConfig(
+        name="停滞种子",
+        description="一个角色持续等待。",
+        environment="一间空房。",
+        initial_state="屋内没有正在发展的事件。",
+        initial_world_objects={"空房": {}},
+        initial_actor_states={"甲": {"location": "空房"}},
+        characters=[
+            CharacterConfig(
+                name="甲",
+                role="等待者",
+                personality="被动",
+                goals=["等待"],
+                is_player=True,
+                agent_runtime="waiting",
+            )
+        ],
+    )
+    session = create_session(
+        scenario,
+        random_seed=seed,
+        agent_runtime_factories={
+            "waiting": lambda entity, config: WaitingRuntime()
+        },
+    )
+    gm = session.entities["GameMaster"]
+    gm.add_component(SimulationControl(scenario=scenario))
+    gm.add_component(NarrativeRenderer())
+    return session
+
+
+def _choice_session(seed):
+    scenario = ScenarioConfig(
+        name="候选审计种子",
+        description="角色可以调查或询问。",
+        environment="一间有房门的大厅。",
+        initial_state="守门人站在房门旁。",
+        initial_world_objects={"大厅": {}, "房门": {}},
+        initial_actor_states={"甲": {"location": "大厅"}},
+        characters=[
+            CharacterConfig(
+                name="甲",
+                role="调查者",
+                personality="谨慎",
+                goals=["弄清刚才发生的事"],
+                is_player=True,
+                agent_runtime="choice",
+            )
+        ],
+    )
+    session = create_session(
+        scenario,
+        random_seed=seed,
+        agent_runtime_factories={
+            "choice": lambda entity, config: ChoiceRuntime()
+        },
+    )
+    gm = session.entities["GameMaster"]
+    gm.add_component(SimulationControl(scenario=scenario))
+    gm.add_component(NarrativeRenderer())
+    return session
+
+
+def test_multi_turn_episode_audit_proves_social_state_can_grow_from_small_seed():
+    report = EpisodeRunner().run(_session("emergence-1"), steps=4)
+
+    assert report.authoritative is True
+    assert report.quality_flags == ()
+    assert report.metrics["committed_steps"] == 4
+    assert report.metrics["proposal_actor_count"] == 2
+    assert report.metrics["resolved_actor_count"] == 2
+    assert report.metrics["action_kind_count"] == 3
+    assert report.metrics["world_change_steps"] >= 1
+    assert report.metrics["character_change_steps"] >= 1
+    assert report.metrics["relationship_count"] == 1
+    assert report.metrics["sentiment_count"] == 2
+    assert report.metrics["active_goal_count"] == 2
+    assert report.metrics["goal_resolution_count"] == 0
+    assert report.metrics["modifier_count"] == 0
+    assert report.metrics["claim_count"] == 0
+    assert report.metrics["known_claim_count"] == 0
+    assert report.metrics["narrative_step_count"] == 4
+    assert report.metrics["narrative_character_count"] > 0
+    assert all(step.narrative_text for step in report.steps)
+    assert all(
+        "注意到" not in step.narrative_text
+        and "认真权衡" not in step.narrative_text
+        for step in report.steps
+    )
+    assert report.metrics["interaction_chain_steps"] >= 3
+    assert report.metrics["longest_interaction_chain"] >= 4
+    assert report.metrics["actor_differentiation"] >= 0.5
+
+
+def test_episode_trace_is_replayable_for_same_seed_and_runtime():
+    first = EpisodeRunner().run(_session("same-seed"), steps=4)
+    second = EpisodeRunner().run(_session("same-seed"), steps=4)
+
+    assert first.metrics == second.metrics
+    assert first.quality_flags == second.quality_flags
+    assert [step.action_kinds for step in first.steps] == [
+        step.action_kinds for step in second.steps
+    ]
+    assert [step.world_hash_after for step in first.steps] == [
+        step.world_hash_after for step in second.steps
+    ]
+
+
+def test_episode_report_aggregates_safe_policy_candidate_audits():
+    report = EpisodeRunner().run(_choice_session("candidate-audit"), steps=1)
+
+    assert len(report.steps[0].policy_audits) == 1
+    audit = report.steps[0].policy_audits[0]
+    assert audit.mode == "host_sampled"
+    assert audit.runtime_candidate_count == 2
+    assert audit.runtime_action_kind_count == 2
+    assert report.metrics["policy_decision_count"] == 1
+    assert report.metrics["sampled_policy_decision_count"] == 1
+    assert report.metrics["runtime_candidate_count"] == 2
+    assert report.metrics["minimum_runtime_candidate_count"] == 2
+    assert report.metrics["maximum_runtime_candidate_count"] == 2
+    assert report.metrics["mean_runtime_candidate_count"] == 2.0
+    payload = json.dumps(report.to_dict(), ensure_ascii=False)
+    assert "检查门边的痕迹" not in payload
+    assert "询问守门人刚才发生了什么" not in payload
+
+
+def test_episode_report_can_be_written_as_launcher_friendly_json(tmp_path):
+    report = EpisodeRunner().run(_session("report-seed"), steps=2)
+
+    target = report.write_json(tmp_path / "summary.json")
+
+    payload = target.read_text(encoding="utf-8")
+    assert '"random_seed": "report-seed"' in payload
+    assert '"authoritative"' not in payload  # derived property, not duplicated state
+    assert '"step_count": 2' in payload
+
+
+def test_internal_world_version_does_not_disguise_a_deadlocked_episode():
+    report = EpisodeRunner().run(_idle_session("idle-seed"), steps=5)
+
+    assert all(step.world_hash_before != step.world_hash_after for step in report.steps)
+    assert report.metrics["world_change_steps"] == 0
+    assert report.metrics["max_repeated_policy_action_count"] == 5
+    assert report.metrics["max_narrative_repetition"] == 5
+    assert "stagnant_episode" in report.quality_flags
+    assert "deadlocked_episode" in report.quality_flags
+    assert "repetitive_policy_choices" in report.quality_flags
+    assert "repetitive_narration" in report.quality_flags
+
+
+def test_narrative_repetition_flags_dominant_template_not_only_identical_story():
+    normalized = [
+        "局势仍然没有变化。",
+        "局势仍然没有变化。",
+        "中间出现了一次真正变化。",
+        "局势仍然没有变化。",
+        "局势仍然没有变化。",
+    ]
+
+    assert EpisodeRunner._max_normalized_repetition(normalized) == 4
+
+
+def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
+    before = {
+        "material_parts": {
+            "scene": {
+                "world_objects": {"钥匙": {"owner": "甲"}},
+                "actor_states": {"甲": {}},
+            },
+            "plots": {
+                "escape": {
+                    "clock": 2,
+                    "max_clock": 3,
+                    "current_stage": 0,
+                }
+            },
+            "agreements": {
+                "agreements": {
+                    "deal": {
+                        "status": "settled",
+                        "performance_status": "pending",
+                    }
+                }
+            },
+            "obligations": {
+                "甲": {
+                    "obligations": {
+                        "deliver": {"status": "scheduled"}
+                    }
+                }
+            },
+            "goals": {
+                "甲": {
+                    "goals": {
+                        "escape": {"status": "active"}
+                    }
+                }
+            },
+        }
+    }
+    after = deepcopy(before)
+    after["material_parts"]["scene"]["world_objects"]["钥匙"]["owner"] = "乙"
+    after["material_parts"]["plots"]["escape"].update(
+        {"clock": 3, "current_stage": 1}
+    )
+    after["material_parts"]["agreements"]["agreements"]["deal"][
+        "performance_status"
+    ] = "fulfilled"
+    after["material_parts"]["obligations"]["甲"]["obligations"]["deliver"][
+        "status"
+    ] = "fulfilled"
+    after["material_parts"]["obligations"]["甲"]["obligations"]["follow_up"] = {
+        "status": "scheduled",
+        "source_kind": "agreement",
+        "source_ref": "deal",
+    }
+    after["material_parts"]["goals"]["甲"]["goals"]["escape"][
+        "status"
+    ] = "achieved"
+    after["material_parts"]["goals"]["甲"]["goals"]["follow_up"] = {
+        "status": "active",
+        "origin": "agent",
+        "refined_step": 4,
+    }
+
+    changes = EpisodeRunner._irreversible_changes(before, after)
+
+    assert "object_owner_changed:钥匙" in changes
+    assert "plot_stage_changed:escape" in changes
+    assert "plot_completed:escape" in changes
+    assert "agreement_performance_resolved:deal:fulfilled" in changes
+    assert "obligation_resolved:甲:deliver:fulfilled" in changes
+    assert "obligation_created:甲:follow_up" in changes
+    assert "goal_resolved:甲:escape:achieved" in changes
+    assert "goal_adopted:甲:follow_up" in changes
+    assert "goal_refined:甲:follow_up:step:4" in changes
+
+
+def test_goal_refinement_becomes_explicit_causal_parent_of_resolution():
+    before = {
+        "material_parts": {
+            "world_events": {},
+            "agreements": {"agreements": {}},
+            "obligations": {},
+            "goals": {
+                "甲": {
+                    "goals": {
+                        "open": {
+                            "status": "active",
+                            "origin": "agent",
+                            "source_kind": "world_event",
+                            "source_ref": "seed",
+                            "refined_step": None,
+                        }
+                    }
+                }
+            },
+        }
+    }
+    refined = deepcopy(before)
+    refined["material_parts"]["goals"]["甲"]["goals"]["open"].update(
+        {
+            "refined_step": 3,
+            "completion_conditions": [
+                {
+                    "scope": "world_object",
+                    "target": "钥匙",
+                    "path": "owner",
+                    "operator": "eq",
+                    "value": "甲",
+                }
+            ],
+        }
+    )
+    resolved = deepcopy(refined)
+    resolved["material_parts"]["goals"]["甲"]["goals"]["open"][
+        "status"
+    ] = "achieved"
+
+    refinement_handoffs = EpisodeRunner._causal_handoffs(before, refined)
+    resolution_handoffs = EpisodeRunner._causal_handoffs(refined, resolved)
+
+    assert refinement_handoffs == [
+        "goal_refinement:甲:open:step:3<-goal:甲:open"
+    ]
+    assert resolution_handoffs == [
+        "goal_resolution:甲:open:achieved<-goal_refinement:甲:open:step:3"
+    ]
+
+
+def test_causal_handoff_audit_uses_explicit_provenance_without_semantic_guessing():
+    before = {
+        "material_parts": {
+            "world_events": {},
+            "agreements": {"agreements": {}},
+            "obligations": {"甲": {"obligations": {}}},
+            "goals": {"甲": {"goals": {"seed": {"status": "achieved"}}}},
+        }
+    }
+    after = deepcopy(before)
+    after["material_parts"]["world_events"]["door-opened"] = {
+        "fact": {
+            "source_type": "object_lifecycle",
+            "source_ref": "door",
+        },
+        "responses": {
+            "communications": [{
+                "response_id": "event-response:door-opened:甲->乙:report",
+            }]
+        },
+    }
+    after["material_parts"]["goals"]["甲"]["goals"]["follow-up"] = {
+        "origin": "agent",
+        "source_kind": "resolved_goal",
+        "source_ref": "seed",
+    }
+    after["material_parts"]["goals"]["甲"]["goals"]["answer-apology"] = {
+        "origin": "agent",
+        "source_kind": "event_response",
+        "source_ref": "event-response:door-opened:甲->乙:report",
+    }
+    after["material_parts"]["obligations"]["甲"]["obligations"]["deliver"] = {
+        "source_kind": "agreement",
+        "source_ref": "deal",
+    }
+    after["material_parts"]["agreements"]["agreements"]["deal"] = {
+        "source_kind": "resolved_action",
+        "source_ref": "step:2:actor:甲",
+    }
+
+    handoffs = EpisodeRunner._causal_handoffs(before, after)
+
+    assert handoffs == [
+        "agreement:deal<-resolved_action:step:2:actor:甲",
+        "event_response:event-response:door-opened:甲->乙:report<-world_event:door-opened",
+        "goal:甲:answer-apology<-event_response:event-response:door-opened:甲->乙:report",
+        "goal:甲:follow-up<-goal_resolution:甲:seed:achieved",
+        "obligation:甲:deliver<-agreement:deal",
+        "world_event:door-opened<-object_lifecycle:door",
+    ]
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
+
+
+def test_social_commitment_causal_chain_can_reach_a_response_driven_goal():
+    handoffs = [
+        "obligation:乙:deliver<-agreement:deal",
+        "world_event:obligation:乙:deliver:breached<-obligation:乙:deliver",
+        "event_response:repair-request<-world_event:obligation:乙:deliver:breached",
+        "goal:乙:make-amends<-event_response:repair-request",
+    ]
+
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 4
+
+
+def test_sentiment_and_relationship_changes_preserve_social_causal_chain():
+    before = {
+        "material_parts": {
+            "sentiments": {"甲": {"sentiments": {}}},
+            "relationships": {"relationships": {}},
+            "goals": {"甲": {"goals": {}}},
+        }
+    }
+    after = deepcopy(before)
+    after["material_parts"]["sentiments"]["甲"]["sentiments"][
+        "乙:betrayed"
+    ] = {
+        "updated_step": 6,
+        "source_event": "agreement_performance_resolution:repair:breached",
+    }
+    after["material_parts"]["relationships"]["relationships"][
+        "pair:乙<->甲"
+    ] = {
+        "bits": {},
+        "directed_tracks": {
+            "甲->乙": {
+                "trust": {
+                    "value": -0.2975,
+                    "provenance": {
+                        "source_kind": "sentiment",
+                        "source_ref": "甲:乙:betrayed",
+                    },
+                }
+            }
+        },
+    }
+    after["material_parts"]["goals"]["甲"]["goals"]["seek-redress"] = {
+        "origin": "agent",
+        "source_kind": "sentiment",
+        "source_ref": "乙:betrayed",
+    }
+
+    changes = EpisodeRunner._irreversible_changes(before, after)
+    handoffs = EpisodeRunner._causal_handoffs(before, after)
+
+    assert "sentiment_created:甲:乙:betrayed" in changes
+    assert "relationship_track_changed:甲->乙:trust" in changes
+    assert handoffs == [
+        "goal:甲:seek-redress<-sentiment:甲:乙:betrayed",
+        "relationship_track:甲->乙:trust<-sentiment:甲:乙:betrayed",
+        "sentiment:甲:乙:betrayed"
+        "<-agreement_performance_resolution:repair:breached",
+    ]
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 2
+
+
+def test_selected_action_uses_host_policy_motive_provenance_without_text_guessing():
+    context = {
+        "clock": type("Clock", (), {"current_step": 7})(),
+        "state_transaction": {"committed": True},
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "action": {"target": "乙"},
+                        "goal_contributions": {"seek-redress": 0.5},
+                        "sentiment_contributions": {
+                            "乙:betrayed": 0.7,
+                            "乙:grateful": -0.2,
+                        },
+                        "relationship_contributions": {
+                            "malice": 0.3,
+                            "trust": -0.1,
+                        },
+                    }
+                ],
+            }
+        },
+    }
+    actions = [
+        {
+            "actor": "甲",
+            "action_kind": "communicate",
+            "action_target": "乙",
+            "result": "甲向乙提出追责。",
+        }
+    ]
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(context, actions)
+
+    assert handoffs == [
+        "resolved_action:step:7:actor:甲<-goal:甲:seek-redress",
+        "resolved_action:step:7:actor:甲"
+        "<-relationship_track:甲->乙:malice",
+        "resolved_action:step:7:actor:甲<-sentiment:甲:乙:betrayed",
+    ]
+    assert all("grateful" not in edge for edge in handoffs)
+    assert all(":trust" not in edge for edge in handoffs)
+
+
+def test_completed_action_uses_its_queued_policy_trace_not_a_later_decision():
+    old_trace = {
+        "mode": "host_sampled",
+        "selected_candidate_id": "runtime:0",
+        "candidates": [
+            {
+                "candidate_id": "runtime:0",
+                "action": {"target": "走廊"},
+                "goal_contributions": {"reach-hall": 0.7},
+            }
+        ],
+    }
+    context = {
+        "clock": type("Clock", (), {"current_step": 9})(),
+        "state_transaction": {"committed": True},
+        "completed_action_policy_traces": {
+            "甲": {"event_id": "action:1", "trace": old_trace}
+        },
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:1",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:1",
+                        "action": {"target": "乙"},
+                        "sentiment_contributions": {"乙:angry": 0.9},
+                    }
+                ],
+            }
+        },
+    }
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(
+        context,
+        [{"actor": "甲", "action_kind": "move", "action_target": "走廊"}],
+    )
+
+    assert handoffs == [
+        "resolved_action:step:9:actor:甲<-goal:甲:reach-hall"
+    ]
+
+
+def test_selected_action_can_trace_world_commitment_and_private_state_motives():
+    context = {
+        "clock": type("Clock", (), {"current_step": 11})(),
+        "state_transaction": {"committed": True},
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "action": {"target": "乙"},
+                        "obligation_contributions": {"deliver": 1.2},
+                        "knowledge_contributions": {"hidden-deal": 0.6},
+                        "agreement_contributions": {"deal": 1.5},
+                        "modifier_contributions": {"shaken": 0.4},
+                        "relief_contributions": {"hunger": 0.3},
+                        "schedule_contributions": {"meeting": 0.4},
+                    }
+                ],
+            }
+        },
+    }
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(
+        context,
+        [{"actor": "甲", "action_kind": "interact", "action_target": "乙"}],
+    )
+
+    assert handoffs == [
+        "resolved_action:step:11:actor:甲<-agreement:deal",
+        "resolved_action:step:11:actor:甲<-claim_knowledge:甲:hidden-deal",
+        "resolved_action:step:11:actor:甲<-drive_need:甲:hunger",
+        "resolved_action:step:11:actor:甲<-modifier:甲:shaken",
+        "resolved_action:step:11:actor:甲<-obligation:甲:deliver",
+        "resolved_action:step:11:actor:甲<-timeline_commitment:meeting",
+    ]
+
+
+def test_selected_action_can_trace_pending_event_motives():
+    context = {
+        "clock": type("Clock", (), {"current_step": 12})(),
+        "state_transaction": {"committed": True},
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "action": {"target": "出口"},
+                        "world_event_contributions": {
+                            "alarm:raised": 0.815
+                        },
+                        "event_response_contributions": {
+                            "event-response:alarm:乙->甲:request": 0.78
+                        },
+                    }
+                ],
+            }
+        },
+    }
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(
+        context,
+        [{"actor": "甲", "action_kind": "move", "action_target": "出口"}],
+    )
+
+    assert handoffs == [
+        "resolved_action:step:12:actor:甲"
+        "<-event_response:甲:event-response:alarm:乙->甲:request",
+        "resolved_action:step:12:actor:甲<-world_event:甲:alarm:raised",
+    ]
+
+
+def test_selected_recovery_action_traces_navigation_problem_motive():
+    context = {
+        "clock": type("Clock", (), {"current_step": 13})(),
+        "state_transaction": {"committed": True},
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "action": {"target": "南路"},
+                        "navigation_contributions": {
+                            "navigation:blocked-bridge": 0.7
+                        },
+                    }
+                ],
+            }
+        },
+    }
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(
+        context,
+        [{"actor": "甲", "action_kind": "move", "action_target": "南路"}],
+    )
+
+    assert handoffs == [
+        "resolved_action:step:13:actor:甲"
+        "<-navigation_problem:甲:navigation:blocked-bridge"
+    ]
+
+
+def test_selected_method_change_traces_recent_action_failure():
+    context = {
+        "clock": type("Clock", (), {"current_step": 14})(),
+        "state_transaction": {"committed": True},
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "action": {"target": "铁门"},
+                        "action_failure_contributions": {
+                            "action:17": 0.57
+                        },
+                    }
+                ],
+            }
+        },
+    }
+
+    handoffs = EpisodeRunner._policy_causal_handoffs(
+        context,
+        [{"actor": "甲", "action_kind": "observe", "action_target": "铁门"}],
+    )
+
+    assert handoffs == [
+        "resolved_action:step:14:actor:甲<-action_failure:甲:action:17"
+    ]
+
+
+def test_policy_audit_counts_event_motive_opportunities_and_selection():
+    context = {
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "attention_motive_available_count": 2,
+                "urgent_attention_motive_available_count": 1,
+                "selected_candidate_id": "runtime:0",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "source": "runtime",
+                        "action": {"kind": "move", "target": "出口"},
+                        "validated_motive_refs": [
+                            {"kind": "world_event", "ref": "alarm"},
+                            {"kind": "goal", "ref": "escape"},
+                        ],
+                        "rejected_motive_refs": [],
+                    },
+                    {
+                        "candidate_id": "environment:wait",
+                        "source": "environment",
+                        "action": {"kind": "wait", "target": ""},
+                        "validated_motive_refs": [],
+                        "rejected_motive_refs": [
+                            {"kind": "world_event", "ref": "unknown"}
+                        ],
+                    },
+                ],
+            }
+        }
+    }
+
+    audits = EpisodeRunner._policy_audits(context)
+
+    assert audits[0].attention_motive_available_count == 2
+    assert audits[0].urgent_attention_motive_available_count == 1
+    assert audits[0].validated_motive_ref_count == 2
+    assert audits[0].rejected_motive_ref_count == 1
+    assert audits[0].validated_event_motive_ref_count == 1
+    assert audits[0].selected_validated_motive_ref_count == 2
+    assert audits[0].selected_event_motive_ref_count == 1
+
+
+def test_modifier_and_drive_motives_retain_their_own_authoritative_causes():
+    before = {
+        "material_parts": {
+            "modifiers": {"甲": {"modifiers": {}}},
+            "drives": {"甲": {"need_provenance": {}}},
+        }
+    }
+    after = deepcopy(before)
+    after["material_parts"]["modifiers"]["甲"]["modifiers"]["shaken"] = {
+        "provenance": {
+            "source_kind": "resolved_action",
+            "source_ref": "step:2:actor:乙",
+        }
+    }
+    after["material_parts"]["drives"]["甲"]["need_provenance"]["hunger"] = [
+        {
+            "source_kind": "obligation",
+            "source_ref": "deliver",
+            "before": 0.4,
+            "after": 0.6,
+            "delta": 0.2,
+        }
+    ]
+
+    changes = EpisodeRunner._irreversible_changes(before, after)
+    handoffs = EpisodeRunner._causal_handoffs(before, after)
+
+    assert changes == ["modifier_created:甲:shaken"]
+    assert handoffs == [
+        "drive_need:甲:hunger<-obligation:甲:deliver",
+        "modifier:甲:shaken<-resolved_action:step:2:actor:乙",
+    ]
+
+
+def test_evidence_observation_can_ground_private_claim_knowledge_and_goal():
+    before = {
+        "material_parts": {
+            "knowledge": {"甲": {"claims": {}}},
+            "goals": {"甲": {"goals": {}}},
+        }
+    }
+    after = deepcopy(before)
+    after["material_parts"]["knowledge"]["甲"]["claims"]["hidden-deal"] = {
+        "basis": "observed",
+        "source": "evidence:账册",
+        "learned_step": 3,
+        "updated_step": 3,
+        "evidence_refs": ["账册"],
+    }
+    after["material_parts"]["goals"]["甲"]["goals"]["investigate"] = {
+        "origin": "agent",
+        "source_kind": "claim",
+        "source_ref": "hidden-deal",
+    }
+
+    changes = EpisodeRunner._irreversible_changes(before, after)
+    handoffs = EpisodeRunner._causal_handoffs(before, after)
+
+    assert "claim_knowledge_learned:甲:hidden-deal" in changes
+    assert handoffs == [
+        "claim_knowledge:甲:hidden-deal"
+        "<-evidence_observation:甲:账册:step:3",
+        "evidence_observation:甲:账册:step:3<-evidence:账册",
+        "evidence_observation:甲:账册:step:3"
+        "<-resolved_action:step:3:actor:甲",
+        "goal:甲:investigate<-claim_knowledge:甲:hidden-deal",
+    ]
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
+
+
+def test_causal_chain_depth_is_cycle_safe():
+    assert EpisodeRunner._causal_chain_depth([
+        "event:a<-event:b",
+        "event:b<-event:a",
+    ]) <= 2
+
+
+def test_causal_chain_depth_keeps_the_deepest_of_multiple_explicit_parents():
+    handoffs = [
+        "consequence:final<-cause:deep",
+        "cause:deep<-cause:middle",
+        "cause:middle<-cause:root",
+        "consequence:final<-cause:shallow",
+    ]
+
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
+
+
+def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_cascade():
+    cross_turn = [
+        EpisodeStepTrace(
+            index=0,
+            simulation_time_before=0,
+            simulation_time_after=1,
+            world_hash_before="w0",
+            world_hash_after="w1",
+            character_hash_before="c0",
+            character_hash_after="c1",
+            proposal_actors=(),
+            resolved_actors=(),
+            action_kinds=(),
+            committed=True,
+            relationship_count=0,
+            sentiment_count=0,
+            agreement_count=0,
+            modifier_count=0,
+            claim_count=0,
+            known_claim_count=0,
+            causal_handoffs=("goal:甲:respond<-world_event:alarm",),
+        ),
+        EpisodeStepTrace(
+            index=1,
+            simulation_time_before=1,
+            simulation_time_after=2,
+            world_hash_before="w1",
+            world_hash_after="w2",
+            character_hash_before="c1",
+            character_hash_after="c2",
+            proposal_actors=("甲",),
+            resolved_actors=("甲",),
+            action_kinds=("interact",),
+            committed=True,
+            relationship_count=0,
+            sentiment_count=0,
+            agreement_count=0,
+            modifier_count=0,
+            claim_count=0,
+            known_claim_count=0,
+            causal_handoffs=(
+                "resolved_action:step:1:actor:甲<-goal:甲:respond",
+            ),
+        ),
+        EpisodeStepTrace(
+            index=2,
+            simulation_time_before=2,
+            simulation_time_after=3,
+            world_hash_before="w2",
+            world_hash_after="w3",
+            character_hash_before="c2",
+            character_hash_after="c3",
+            proposal_actors=(),
+            resolved_actors=(),
+            action_kinds=(),
+            committed=True,
+            relationship_count=0,
+            sentiment_count=0,
+            agreement_count=0,
+            modifier_count=0,
+            claim_count=0,
+            known_claim_count=0,
+            causal_handoffs=(
+                "world_event:alarm-resolved<-resolved_action:step:1:actor:甲",
+            ),
+        ),
+    ]
+    same_step = [
+        EpisodeStepTrace(
+            **{
+                **cross_turn[0].__dict__,
+                "causal_handoffs": (
+                    "goal:甲:respond<-world_event:alarm",
+                    "resolved_action:step:0:actor:甲<-goal:甲:respond",
+                    "world_event:alarm-resolved<-resolved_action:step:0:actor:甲",
+                ),
+            }
+        )
+    ]
+
+    spread = EpisodeRunner._temporal_causal_metrics(cross_turn)
+    cascade = EpisodeRunner._temporal_causal_metrics(same_step)
+
+    assert spread == {
+        "cross_step_handoff_count": 2,
+        "cross_step_count": 3,
+        "max_span_steps": 3,
+    }
+    assert cascade == {
+        "cross_step_handoff_count": 0,
+        "cross_step_count": 0,
+        "max_span_steps": 1,
+    }
+
+
+def test_action_repetition_distinguishes_actor_kind_and_target():
+    traces = [
+        EpisodeStepTrace(
+            index=index,
+            simulation_time_before=index,
+            simulation_time_after=index + 1,
+            world_hash_before=f"w{index}",
+            world_hash_after=f"w{index + 1}",
+            character_hash_before=f"c{index}",
+            character_hash_after=f"c{index + 1}",
+            proposal_actors=("甲",),
+            resolved_actors=("甲",),
+            action_kinds=("interact",),
+            actor_actions=(("甲", "interact", target),),
+            committed=True,
+            relationship_count=0,
+            sentiment_count=0,
+            agreement_count=0,
+            modifier_count=0,
+            claim_count=0,
+            known_claim_count=0,
+        )
+        for index, target in enumerate(("门", "窗", "账本", "钥匙"))
+    ]
+
+    signatures = [
+        EpisodeRunner._action_batch_signature(trace) for trace in traces
+    ]
+
+    assert EpisodeRunner._longest_repetition(signatures) == 1
+    assert EpisodeRunner._longest_repetition([signatures[0]] * 4) == 4
+
+
+def test_episode_narrative_capture_is_bounded_and_removes_null_bytes():
+    text = "开场\x00" + ("很长的叙事" * 3000)
+
+    bounded = EpisodeRunner._bounded_narrative(text)
+
+    assert "\x00" not in bounded
+    assert len(bounded) == 12_000
+
+
+def test_goal_engagement_requires_selected_host_policy_evidence():
+    context = {
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:1",
+                "candidates": [
+                    {"candidate_id": "runtime:0", "goal_contribution": 0.8},
+                    {"candidate_id": "runtime:1", "goal_contribution": 0.4},
+                ],
+            },
+            "乙": {
+                "mode": "runtime_committed",
+                "selected_candidate_id": "runtime:0",
+                "candidates": [],
+            },
+        }
+    }
+
+    assert EpisodeRunner._sampled_policy_actors(context) == ["甲"]
+    assert EpisodeRunner._goal_engaged_actors(context) == ["甲"]
+
+
+def test_policy_audit_keeps_candidate_quality_without_private_action_text():
+    context = {
+        "policy_traces": {
+            "甲": {
+                "mode": "host_sampled",
+                "selected_candidate_id": "runtime:1",
+                "candidates": [
+                    {
+                        "candidate_id": "runtime:0",
+                        "source": "runtime",
+                        "action": {
+                            "kind": "observe",
+                            "detail": "秘密地检查暗门",
+                            "target": "暗门",
+                        },
+                    },
+                    {
+                        "candidate_id": "runtime:1",
+                        "source": "runtime",
+                        "action": {
+                            "kind": "communicate",
+                            "detail": "向乙追问密约",
+                            "target": "乙",
+                        },
+                        "goal_contribution": 0.5,
+                        "continuity_contribution": 0.2,
+                    },
+                    {
+                        "candidate_id": "environment:wait",
+                        "source": "environment",
+                        "action": {"kind": "wait", "detail": "等待"},
+                    },
+                ],
+            }
+        }
+    }
+
+    audits = EpisodeRunner._policy_audits(context)
+
+    assert len(audits) == 1
+    assert audits[0].actor == "甲"
+    assert audits[0].selected_source == "runtime"
+    assert audits[0].selected_action_kind == "communicate"
+    assert audits[0].runtime_candidate_count == 2
+    assert audits[0].environment_candidate_count == 1
+    assert audits[0].runtime_action_kind_count == 2
+    assert audits[0].runtime_target_count == 2
+    assert audits[0].continuity_supported is True
+    assert audits[0].motivated is True
+    serialized = json.dumps(asdict(audits[0]), ensure_ascii=False)
+    assert "秘密地检查暗门" not in serialized
+    assert "向乙追问密约" not in serialized
+    assert "暗门" not in serialized
+    assert "乙" not in serialized
+
+
+def test_world_event_entity_changes_authoritative_replay_hash_and_audit():
+    session = _session("event-hash")
+    auditor = EpisodeRunner()
+    before = auditor._snapshot(session)
+    event = Entity("WorldEvent:door_opened")
+    event.add_component(
+        WorldEventFact(
+            event_id="door_opened",
+            kind="object_set_container_state",
+            title="门被打开",
+            statement="会客室的门被打开了。",
+            occurred_step=2,
+            location="会客室",
+            subjects=["甲"],
+            objects=["会客室的门"],
+        )
+    )
+    event.add_component(WorldEventWitnesses(direct_witnesses=["甲", "乙"]))
+    responses = WorldEventResponses()
+    event.add_component(responses)
+    session.runner.entities[event.name] = event
+
+    after = auditor._snapshot(session)
+    changes = auditor._irreversible_changes(before, after)
+
+    assert before["world_hash"] != after["world_hash"]
+    assert after["world_event_count"] == 1
+    assert "world_events" in auditor._material_change_kinds(before, after)
+    assert "world_event_created:door_opened" in changes
+
+    responses.record_communication("甲", "乙", 3)
+    responded = auditor._snapshot(session)
+    assert after["world_hash"] != responded["world_hash"]
+    assert "world_events" in auditor._material_change_kinds(after, responded)
+
+
+def test_episode_audit_rejects_scene_actor_without_live_runtime_and_event_errors():
+    session = _session("actor-authority")
+    actor = session.runner.entities["乙"]
+    session.runner.agent_registry.unregister(actor)
+
+    violations = EpisodeRunner()._audit_step(
+        session,
+        {
+            "simulation_result": {},
+            "world_event_errors": ["invalid event witness boundary"],
+        },
+    )
+
+    assert "scene_actor_without_runtime:乙" in violations
+    assert "world_event_error:invalid event witness boundary" in violations

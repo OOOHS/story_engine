@@ -28,3 +28,55 @@ class Retriever:
             for doc, meta in zip(docs, metas):
                 items.append({"content": doc, "metadata": meta})
         return items
+
+    def retrieve_many(
+        self,
+        queries: List[str],
+        n_results: int = 5,
+        where: Dict[str, Any] = None,
+    ) -> List[List[str]]:
+        if not queries:
+            return []
+        results = self.vector_store.query(
+            query_texts=list(queries),
+            n_results=n_results,
+            where=where,
+        )
+        documents = results.get("documents") or []
+        return [list(items or []) for items in documents]
+
+    def retrieve_many_with_metadata(
+        self,
+        queries: List[str],
+        n_results: int = 5,
+        where: Dict[str, Any] = None,
+    ) -> List[List[Dict[str, Any]]]:
+        if not queries:
+            return []
+        results = self.vector_store.query(
+            query_texts=list(queries),
+            n_results=n_results,
+            where=where,
+        )
+        documents = results.get("documents") or []
+        metadatas = results.get("metadatas") or []
+        distances = results.get("distances") or []
+        batches = []
+        for index, docs in enumerate(documents):
+            metas = metadatas[index] if index < len(metadatas) else []
+            dists = distances[index] if index < len(distances) else []
+            batches.append(
+                [
+                    {
+                        "content": doc,
+                        "metadata": metas[item_index]
+                        if item_index < len(metas) and metas[item_index]
+                        else {},
+                        "distance": dists[item_index]
+                        if item_index < len(dists)
+                        else None,
+                    }
+                    for item_index, doc in enumerate(docs or [])
+                ]
+            )
+        return batches

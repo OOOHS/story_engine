@@ -25,13 +25,18 @@ class NarrativeRenderer(Component):
         if not self.entity:
             return self._fallback_render(render_payload)
 
+        narration = self.scenario.narration if self.scenario else None
+        max_sentences = narration.max_sentences if narration else 6
+        max_characters = narration.max_characters if narration else 220
+        guidance = list(narration.guidance) if narration else []
         render_contract = {
             "visible_facts_only": True,
             "player_pov_locked": True,
             "no_new_state_changes": True,
             "no_invented_prehistory": True,
             "offscreen_events_return_as_aftereffects": True,
-            "prefer_fast_scene_change": True,
+            "max_sentences": max_sentences,
+            "max_characters": max_characters,
             "allow_unsignaled_touch": bool(render_payload.get("social", {}).get("allow_unsignaled_touch", False)),
         }
 
@@ -43,16 +48,16 @@ class NarrativeRenderer(Component):
 2. 只能写玩家此刻能直接感到的内容；禁止全知旁白，禁止切去异地补拍过程。
 3. 若玩家没亲眼见到异地事件，只能写余波、传话、催促、态度变化或场面残响，不要写成共享回忆。
 4. 若没有明确锚点，不要用“刚才那句……”“方才那个动作……”之类的精确回指。
-5. 风格可以有锋利感，但不要把角色写成自曝心机的纸片反派，也不要把普通动作写得诡异夸张。
-6. 节奏要快，优先写清谁让谁难堪、谁站队、局面怎么变了。
-6.5. 若 `simulation_result.resolved_actions` 里已有他人对玩家造成的 `public` 且 `complication/blocked` 动作，至少明确写出其中 1 到 2 条，不要把它们全部融成泛泛的气氛描写。
-    7. 一般写 3 到 6 句短句，总字数尽量控制在 80 到 180 字。
-    8. 若 `social.allow_unsignaled_touch` 为 false，就不要凭空补肢体亲密动作；偏心优先通过站位、照顾顺序、打断和话语分配体现。
-    9. 不要把所有角色写成同一种安抚/护短动作围着同一个人转。
-    10. 除非结构化输入里已经明确给出了原话，否则不要写直接引号台词；优先改写成间接描述。
+5. 若 `simulation_result.resolved_actions` 里已有他人对玩家造成的 `public` 且 `complication/blocked` 动作，应明确写出，不要全部融成泛泛的气氛描写。
+6. 若 `social.allow_unsignaled_touch` 为 false，就不要凭空补肢体动作；只描述结构化输入中已经成立的站位、交流和对象变化。
+7. 不要把不同角色渲染成重复的同一种动作。
+8. 除非结构化输入里已经明确给出了原话，否则不要写直接引号台词；优先改写成间接描述。
+9. 没有场景风格指导时保持中立、清楚，不自行选择题材腔调或叙事节奏。
 
 剧本：{self.scenario.name if self.scenario else "通用剧本"}
 环境基调：{self.scenario.environment if self.scenario else ""}
+场景风格指导：
+{json.dumps(guidance, ensure_ascii=False, indent=2)}
 渲染契约：
 {json.dumps(render_contract, ensure_ascii=False, indent=2)}
 
@@ -66,11 +71,23 @@ class NarrativeRenderer(Component):
         content = (response.get("content", "") or "").strip()
         if not content or content.startswith("[LLM disabled]") or content.startswith("[LLM error"):
             return self._fallback_render(render_payload)
-        return self._ground_render_text(self._trim_render_text(content), render_payload)
+        return self._ground_render_text(
+            self._trim_render_text(content, max_sentences, max_characters),
+            render_payload,
+        )
 
     def _fallback_render(self, render_payload: Dict[str, Any]) -> str:
         text = self._build_fallback_text(render_payload)
-        return self._ground_render_text(self._trim_render_text(text), render_payload, allow_fallback=False)
+        narration = self.scenario.narration if self.scenario else None
+        return self._ground_render_text(
+            self._trim_render_text(
+                text,
+                narration.max_sentences if narration else 6,
+                narration.max_characters if narration else 220,
+            ),
+            render_payload,
+            allow_fallback=False,
+        )
 
     def _build_fallback_text(self, render_payload: Dict[str, Any]) -> str:
         simulation = render_payload.get("simulation_result", {})
@@ -126,6 +143,20 @@ class NarrativeRenderer(Component):
                 parts.append(result)
             else:
                 parts.append(f"{actor}{result or f'尝试了{intent}'}")
+
+        for item in simulation.get("topology_changes", [])[:2]:
+            if not isinstance(item, dict):
+                continue
+            statement = str(item.get("statement", "")).strip()
+            if statement:
+                parts.append(statement)
+
+        for item in simulation.get("host_object_state_changes", [])[:2]:
+            if not isinstance(item, dict):
+                continue
+            statement = str(item.get("statement", "")).strip()
+            if statement:
+                parts.append(statement)
 
         notes = simulation.get("simulation_notes", [])
         public_notes = [
@@ -193,9 +224,13 @@ class NarrativeRenderer(Component):
         if allow_fallback and (
             self._has_ungrounded_touch(grounded, current_fact_text)
             or self._has_ungrounded_dialogue(grounded, source_text)
-            or self._has_ungrounded_melodrama(grounded, source_text)
         ):
-            fallback_text = self._trim_render_text(self._build_fallback_text(render_payload))
+            narration = self.scenario.narration if self.scenario else None
+            fallback_text = self._trim_render_text(
+                self._build_fallback_text(render_payload),
+                narration.max_sentences if narration else 6,
+                narration.max_characters if narration else 220,
+            )
             grounded = fallback_text
 
         def replace_callback(match: re.Match[str]) -> str:
@@ -249,27 +284,5 @@ class NarrativeRenderer(Component):
             if not normalized:
                 continue
             if normalized not in source_text:
-                return True
-        return False
-
-    def _has_ungrounded_melodrama(self, text: str, source_text: str) -> bool:
-        normalized = str(text or "").strip()
-        if not normalized:
-            return False
-
-        suspicious_patterns = [
-            r"像怕惊扰什么",
-            r"终于[^。！？]{0,12}在家里",
-            r"爸爸妈妈",
-            r"就像[，,…]{0,3}",
-            r"我们终于",
-            r"惊扰什么",
-        ]
-        for pattern in suspicious_patterns:
-            match = re.search(pattern, normalized)
-            if not match:
-                continue
-            snippet = match.group(0).strip()
-            if snippet and snippet not in source_text:
                 return True
         return False

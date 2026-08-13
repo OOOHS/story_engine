@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "story-engine"
+version = "0.1.0"
+description = "State-authoritative multi-agent story simulation engine"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "litellm>=1.0.0",
+  "pydantic>=2.0.0",
+  "pyyaml>=6.0",
+  "chromadb>=0.4.0",
+  "termcolor",
+  "python-dotenv>=1.0.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+  "src.config",
+  "src.config.*",
+  "src.story_engine",
+  "src.story_engine.*",
+]
+exclude = [
+  "src.story_engine_content",
+  "src.story_engine_content.*",
+]
+namespaces = true
+
+[tool.setuptools.package-data]
+"src.config" = ["config.yaml"]

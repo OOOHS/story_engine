@@ -1,18 +1,45 @@
-"""
-Entry point: load env, create a session from a scenario, run with console driver.
-换剧本：改下面 import 和 create_session 的参数即可。
-"""
+"""Explicit bundled-content console entry point."""
+import argparse
+
 from dotenv import load_dotenv
 
-load_dotenv()
+from src.story_engine.session import (
+    ConsoleDriver,
+    create_session,
+    load_scenario_reference,
+)
+from src.story_engine_content.catalog import (
+    available_bundled_scenarios,
+    load_bundled_scenario,
+)
 
-from src.story_engine.session import create_session, ConsoleDriver
-from src.story_engine.scenarios.false_heiress import false_heiress_scenario
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Run a bundled Story Engine scenario")
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--scenario",
+        choices=available_bundled_scenarios(),
+        help="Bundled content alias; there is deliberately no default story.",
+    )
+    source.add_argument(
+        "--scenario-ref",
+        help="External ScenarioConfig object/factory as module.path:attribute.",
+    )
+    parser.add_argument("--title", default="Story Engine · Console")
+    return parser.parse_args(argv)
 
 
-def main():
-    session = create_session(false_heiress_scenario)
-    driver = ConsoleDriver(session, title="真假千金 — 玩家受限视角文字冒险")
+def main(argv=None):
+    args = parse_args(argv)
+    load_dotenv()
+    scenario = (
+        load_scenario_reference(args.scenario_ref)
+        if args.scenario_ref
+        else load_bundled_scenario(args.scenario)
+    )
+    session = create_session(scenario)
+    driver = ConsoleDriver(session, title=args.title)
     driver.run()
 
 

@@ -18,7 +18,15 @@ class Entity:
     
     def add_component(self, component: Component) -> None:
         """Adds a component to the entity."""
-        component_name = component.__class__.__name__
+        component_name = str(
+            getattr(component, "component_slot", None)
+            or component.__class__.__name__
+        ).strip()
+        if not component_name:
+            raise ValueError("component slot must be non-empty")
+        previous = self.components.get(component_name)
+        if previous is not None and previous is not component:
+            previous.entity = None
         self.components[component_name] = component
         component.entity = self # Link back to entity
         logger.debug(f"Added component {component_name} to {self.name}")

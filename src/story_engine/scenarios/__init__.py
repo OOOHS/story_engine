@@ -1,4 +1,10 @@
-from .config import ScenarioConfig
-from .false_heiress import false_heiress_scenario
+"""Story content package.
 
-__all__ = ["ScenarioConfig", "false_heiress_scenario"]
+Importing the schema must not silently load a bundled story.  Applications
+choose concrete content explicitly, while the engine depends only on the
+story-agnostic configuration types.
+"""
+
+from .config import NarrationConfig, ScenarioConfig
+
+__all__ = ["NarrationConfig", "ScenarioConfig"]

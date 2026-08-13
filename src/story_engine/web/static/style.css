@@ -208,6 +208,88 @@ body::before {
   align-items: center;
 }
 
+.awareness {
+  display: grid;
+  grid-template-columns: minmax(280px, 1.3fr) minmax(320px, 1fr);
+  gap: 22px;
+  margin-top: 18px;
+  padding: 16px 0;
+  border-top: 1px solid rgba(229, 195, 150, 0.14);
+  border-bottom: 1px solid rgba(229, 195, 150, 0.14);
+}
+
+.awareness[hidden],
+.awareness__group[hidden] {
+  display: none;
+}
+
+.awareness__heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.awareness__heading h3,
+.awareness__group h4 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+.awareness__heading h3 {
+  font-size: 1rem;
+}
+
+.awareness__location,
+.awareness__group h4 {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.awareness__observations,
+.awareness__group ul {
+  margin: 10px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.awareness__observations {
+  display: grid;
+  gap: 7px;
+}
+
+.awareness__observations li {
+  padding-left: 13px;
+  position: relative;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.awareness__observations li::before {
+  content: "";
+  position: absolute;
+  top: 0.62em;
+  left: 0;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.awareness__facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.awareness__group li {
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .field {
   display: grid;
   gap: 8px;
@@ -388,5 +470,39 @@ input:focus {
 
   .progress-stages {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .awareness {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 620px) {
+  .page-shell {
+    width: min(100% - 20px, 1400px);
+    padding-top: 10px;
+  }
+
+  .hero,
+  .panel {
+    padding: 16px;
+    border-radius: 8px;
+  }
+
+  .hero__controls,
+  .awareness__heading {
+    flex-wrap: wrap;
+  }
+
+  .awareness__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .progress-stages {
+    gap: 6px;
+  }
+
+  .progress-stage {
+    padding: 8px 6px;
   }
 }

@@ -1,0 +1,5 @@
+terminal:
+  backend: local
+
+# Model endpoint and credentials are supplied by host-approved environment
+# variables. This project-owned file intentionally contains no secrets.
