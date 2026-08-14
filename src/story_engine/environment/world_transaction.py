@@ -326,7 +326,8 @@ class WorldStateTransaction:
                         )
             if staged_plot:
                 staged_plot.apply_updates(
-                    deepcopy(working_result.get("plot_updates", []))
+                    deepcopy(working_result.get("plot_updates", [])),
+                    current_step=current_step,
                 )
             if staged_drama:
                 staged_drama.apply_delta(tension_delta)
