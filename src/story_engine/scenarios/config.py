@@ -16,6 +16,21 @@ class StateCondition(BaseModel):
     value: Any = None
 
 
+class PhysicsRuleConfig(BaseModel):
+    """A content-declared, keyword-triggered capability gate.
+
+    This lets a scenario state "these words imply a capability, and only
+    actors with that capability may act on them" as data, instead of
+    requiring a new Python function in LegalityEngine for every setting
+    (e.g. a magic-world scenario allowing flight for actors tagged
+    capabilities=["flight"], with no engine code change).
+    """
+
+    keywords: List[str] = Field(default_factory=list)
+    capability: str = ""
+    reason: str = ""
+
+
 class ClaimConfig(BaseModel):
     """An objective proposition whose truth is owned by the host world."""
 
@@ -276,6 +291,11 @@ class ScenarioConfig(BaseModel):
     description: str  # 高层描述
     environment: str  # 物理环境细节
     physics_profile: str = "mundane"
+    # When non-empty, these fully replace LegalityEngine's built-in
+    # "mundane" keyword table for this scenario's physics_profile: content
+    # can declare a magic/wuxia/etc. world's capability gates as data, with
+    # no LegalityEngine code change and no register_profile() call.
+    physics_rules: List[PhysicsRuleConfig] = Field(default_factory=list)
     rules: List[str] = Field(default_factory=list)  # 游戏规则或物理法则
     narration: NarrationConfig = Field(default_factory=NarrationConfig)
     initial_state: str  # 故事的初始状态

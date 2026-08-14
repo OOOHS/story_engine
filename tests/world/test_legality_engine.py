@@ -28,6 +28,63 @@ def test_mundane_profile_requires_matching_capability():
     assert flyer["verdict"] == "allow"
 
 
+def test_content_declared_physics_rules_override_hardcoded_mundane_table():
+    engine = LegalityEngine()
+    scene = SceneState(
+        actor_states={
+            "村民": {"location": "法师塔"},
+            "见习法师": {"location": "法师塔", "capabilities": ["mage"]},
+        },
+        world_objects={"法师塔": {}},
+    )
+    physics_rules = [
+        {
+            "keywords": ["飞起来", "悬浮"],
+            "capability": "mage",
+            "reason": "在这个世界只有法师才能飞行。",
+        }
+    ]
+
+    villager = engine.assess_intent(
+        scene,
+        "magic",
+        {"actor": "村民", "intent": "我飞起来越过塔顶"},
+        physics_rules=physics_rules,
+    )
+    apprentice = engine.assess_intent(
+        scene,
+        "magic",
+        {"actor": "见习法师", "intent": "我飞起来越过塔顶"},
+        physics_rules=physics_rules,
+    )
+
+    assert villager["verdict"] == "block"
+    assert villager["reason"] == "在这个世界只有法师才能飞行。"
+    assert apprentice["verdict"] == "allow"
+
+
+def test_build_context_reads_physics_rules_from_scenario_without_register_profile():
+    engine = LegalityEngine()
+    scene = SceneState(
+        actor_states={"村民": {"location": "法师塔"}},
+        world_objects={"法师塔": {}},
+    )
+
+    class _Scenario:
+        physics_profile = "magic"
+        physics_rules = [
+            {"keywords": ["飞起来"], "capability": "mage", "reason": "普通人不能飞。"}
+        ]
+
+    context = engine.build_context(
+        scene, _Scenario(), [{"actor": "村民", "intent": "我飞起来越过塔顶"}]
+    )
+
+    assert context["physics_profile"] == "magic"
+    assert context["checks"][0]["verdict"] == "block"
+    assert context["checks"][0]["reason"] == "普通人不能飞。"
+
+
 def test_custom_physics_profile_can_be_registered_without_editing_simulation():
     engine = LegalityEngine(
         profile_rules={

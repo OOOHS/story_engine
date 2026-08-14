@@ -26,6 +26,7 @@ class LegalityEngine:
         actor_map_knowledge: Dict[str, Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
         profile = str(getattr(scenario, "physics_profile", "mundane") or "mundane")
+        physics_rules = list(getattr(scenario, "physics_rules", []) or [])
         return {
             "physics_profile": profile,
             "checks": [
@@ -36,6 +37,7 @@ class LegalityEngine:
                     map_knowledge=(actor_map_knowledge or {}).get(
                         str(item.get("actor", ""))
                     ),
+                    physics_rules=physics_rules,
                 )
                 for item in intents or []
                 if isinstance(item, dict) and item.get("actor")
@@ -48,6 +50,7 @@ class LegalityEngine:
         physics_profile: str,
         intent_item: Dict[str, Any],
         map_knowledge: Dict[str, Any] | None = None,
+        physics_rules: List[Any] | None = None,
     ) -> Dict[str, Any]:
         actor = str(intent_item.get("actor", "Unknown"))
         intent = str(intent_item.get("intent", "")).strip()
@@ -93,9 +96,12 @@ class LegalityEngine:
             )
             return result
 
-        profile_rule = self.profile_rules.get(str(physics_profile))
-        if profile_rule:
-            violation = profile_rule(intent, actor_state)
+        if physics_rules:
+            # Content-declared rules take priority over any hardcoded
+            # profile function: a scenario that declares physics_rules is
+            # explicitly opting into a fully data-driven gate for this
+            # profile, magic worlds included.
+            violation = self.detect_configured_violation(intent, actor_state, physics_rules)
             if violation:
                 result.update(
                     verdict="block",
@@ -103,6 +109,17 @@ class LegalityEngine:
                     rule=f"{physics_profile}_physics",
                 )
                 return result
+        else:
+            profile_rule = self.profile_rules.get(str(physics_profile))
+            if profile_rule:
+                violation = profile_rule(intent, actor_state)
+                if violation:
+                    result.update(
+                        verdict="block",
+                        reason=violation,
+                        rule=f"{physics_profile}_physics",
+                    )
+                    return result
 
         target_check = self.assess_structured_target(
             scene_state,
@@ -145,6 +162,38 @@ class LegalityEngine:
             if any(keyword in str(intent or "") for keyword in keywords):
                 if capability in capabilities or "supernatural" in capabilities:
                     return ""
+                return reason
+        return ""
+
+    def detect_configured_violation(
+        self,
+        intent: str,
+        actor_state: Dict[str, Any],
+        rules: List[Any],
+    ) -> str:
+        """Same keyword-gate behavior as detect_mundane_violation, but the
+        keyword/capability/reason table comes from content (PhysicsRuleConfig)
+        instead of a hardcoded Python list. A scenario can therefore declare
+        its own physics (e.g. a magic world where "飞起来" is fine for
+        capability "mage") without editing this file.
+        """
+        capabilities = actor_state.get("capabilities", []) if isinstance(actor_state, dict) else []
+        if isinstance(capabilities, str):
+            capabilities = [capabilities]
+        capabilities = {str(item) for item in capabilities}
+        text = str(intent or "")
+        for rule in rules or []:
+            if isinstance(rule, dict):
+                keywords = rule.get("keywords", [])
+                capability = str(rule.get("capability", ""))
+                reason = str(rule.get("reason", ""))
+            else:
+                keywords = getattr(rule, "keywords", [])
+                capability = str(getattr(rule, "capability", ""))
+                reason = str(getattr(rule, "reason", ""))
+            if any(str(keyword) in text for keyword in keywords or []):
+                if capability in capabilities or "supernatural" in capabilities:
+                    continue
                 return reason
         return ""
 
