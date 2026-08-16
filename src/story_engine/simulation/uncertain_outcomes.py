@@ -18,6 +18,8 @@ LIST_PATCH_FIELDS = {
     "exchanges",
     "agreement_updates",
     "drive_updates",
+    "drive_creations",
+    "director_signals",
     "obligation_updates",
 }
 BRANCH_FIELDS = LIST_PATCH_FIELDS | {

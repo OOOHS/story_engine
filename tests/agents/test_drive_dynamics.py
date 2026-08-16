@@ -10,6 +10,7 @@ from src.story_engine.components.scene_state import SceneState
 from src.story_engine.environment.world_transaction import WorldStateTransaction
 from src.story_engine.motivation import NeedDynamics
 from src.story_engine.prefabs.templates import create_agent
+from src.story_engine.scenarios.config import ScenarioConfig
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.drives import DriveSystem
 from src.story_engine.systems.rendering import RenderingSystem
@@ -109,6 +110,24 @@ def test_need_pressure_drift_is_deterministic_clamped_and_idempotent():
     assert snapshot["highest_pressure_need"] == "hunger"
     assert snapshot["needs"]["hunger"]["critical"] is True
     assert snapshot["risk_tolerance"] == 0.3
+
+
+def test_create_need_always_starts_at_zero_and_rejects_duplicates():
+    drive = _drive()
+
+    created = drive.create_need(
+        "  恐惧  ",
+        drift_per_turn=0.05,
+        critical_threshold=0.7,
+        description="  对黑暗的持续恐惧  ",
+    )
+    duplicate = drive.create_need("hunger")
+
+    assert created is True
+    assert duplicate is False
+    assert drive.needs["恐惧"].pressure == 0.0
+    assert drive.needs["恐惧"].description == "对黑暗的持续恐惧"
+    assert drive.created_count == 1
 
 
 def test_object_use_consumes_one_resource_and_relieves_need_atomically():
@@ -313,6 +332,48 @@ def test_simulation_system_commits_resource_use_and_private_need_effect_together
     assert traveler.get_component("DriveState").needs["hunger"].pressure == pytest.approx(0.3)
 
 
+def test_simulation_system_reads_emergent_meter_budget_from_scenario():
+    gm = Entity("GameMaster")
+    scene = _resource_scene(quantity=2)
+    scripted = _use_result()
+    scripted["drive_creations"] = [
+        {"actor": "旅人", "need": "恐惧", "reason": "第一次直面黑暗"}
+    ]
+    gm.add_component(
+        SimulationControl(
+            scripted_result=scripted,
+            scenario=ScenarioConfig(
+                name="test",
+                description="test",
+                environment="test",
+                initial_state="",
+                emergent_meter_budget=2,
+            ),
+        )
+    )
+    gm.add_component(scene)
+    gm.add_component(PlotState())
+    gm.add_component(DramaState())
+    traveler = create_agent(
+        "旅人",
+        "流浪者",
+        "务实",
+        ["活下去"],
+        initial_needs=[{"name": "hunger", "pressure": 0.8}],
+    )
+    entities = {"GameMaster": gm, "旅人": traveler}
+    context = {
+        "intents": [{"actor": "旅人", "intent": "吃掉一份面包"}],
+    }
+
+    SimulationSystem().update(entities, context)
+
+    assert context["state_transaction"]["committed"] is True
+    drive = traveler.get_component("DriveState")
+    assert drive.needs["恐惧"].pressure == 0.0
+    assert drive.created_count == 1
+
+
 def test_evidence_backed_action_can_change_abstract_need_without_public_leakage():
     scene = _resource_scene(quantity=2)
     scene.actor_states["威胁者"] = {"location": "营地"}
@@ -459,6 +520,147 @@ def test_unsupported_drive_update_rejects_other_world_changes_too():
     assert scene.description == "Initial State"
     assert drive.needs["hunger"].pressure == pytest.approx(0.8)
     assert any("not supported by a resolved action" in error for error in outcome.errors)
+
+
+def test_drive_creation_within_budget_starts_at_zero_pressure():
+    scene = _resource_scene(quantity=2)
+    drive = _drive()
+    result = {
+        "resolved_actions": [
+            {
+                "actor": "旅人",
+                "outcome": "success",
+                "location": "营地",
+                "result": "旅人第一次直面了对黑暗的恐惧。",
+            }
+        ],
+        "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+        "plot_updates": [],
+        "relationship_updates": [],
+        "object_lifecycle": [],
+        "drive_creations": [
+            {
+                "actor": "旅人",
+                "need": "恐惧",
+                "drift_per_turn": 0.03,
+                "critical_threshold": 0.8,
+                "description": "对黑暗的持续恐惧",
+                "reason": "旅人第一次直面了对黑暗的恐惧",
+            }
+        ],
+        "tension_delta": 0,
+    }
+
+    outcome = WorldStateTransaction().commit(
+        scene,
+        PlotState(),
+        DramaState(),
+        result,
+        drive_states={"旅人": drive},
+        proposal_actors={"旅人"},
+        emergent_meter_budget=1,
+    )
+
+    assert outcome.committed is True
+    assert drive.needs["恐惧"].pressure == 0.0
+    assert drive.needs["恐惧"].drift_per_turn == pytest.approx(0.03)
+    assert drive.created_count == 1
+    assert drive.need_provenance["恐惧"][-1]["created"] is True
+
+
+def test_drive_creation_over_budget_rejects_whole_batch():
+    scene = _resource_scene(quantity=2)
+    drive = _drive()
+    result = {
+        "resolved_actions": [
+            {"actor": "旅人", "outcome": "success", "location": "营地", "result": "x"}
+        ],
+        "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+        "plot_updates": [],
+        "relationship_updates": [],
+        "object_lifecycle": [],
+        "drive_creations": [
+            {"actor": "旅人", "need": "恐惧", "reason": "x"},
+        ],
+        "tension_delta": 0,
+    }
+
+    outcome = WorldStateTransaction().commit(
+        scene,
+        PlotState(),
+        DramaState(),
+        result,
+        drive_states={"旅人": drive},
+        proposal_actors={"旅人"},
+        emergent_meter_budget=0,
+    )
+
+    assert outcome.committed is False
+    assert "恐惧" not in drive.needs
+    assert any("emergent_meter_budget" in error for error in outcome.errors)
+
+
+def test_drive_creation_cannot_shadow_an_existing_need_name():
+    scene = _resource_scene(quantity=2)
+    drive = _drive()
+    result = {
+        "resolved_actions": [
+            {"actor": "旅人", "outcome": "success", "location": "营地", "result": "x"}
+        ],
+        "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+        "plot_updates": [],
+        "relationship_updates": [],
+        "object_lifecycle": [],
+        "drive_creations": [
+            {"actor": "旅人", "need": "hunger", "reason": "重名尝试"},
+        ],
+        "tension_delta": 0,
+    }
+
+    outcome = WorldStateTransaction().commit(
+        scene,
+        PlotState(),
+        DramaState(),
+        result,
+        drive_states={"旅人": drive},
+        proposal_actors={"旅人"},
+        emergent_meter_budget=5,
+    )
+
+    assert outcome.committed is False
+    assert any("already exists" in error for error in outcome.errors)
+
+
+def test_drive_creation_without_supporting_action_is_rejected():
+    scene = _resource_scene(quantity=2)
+    drive = _drive()
+    result = {
+        "resolved_actions": [],
+        "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+        "plot_updates": [],
+        "relationship_updates": [],
+        "object_lifecycle": [],
+        "drive_creations": [
+            {"actor": "旅人", "need": "恐惧", "reason": "凭空产生"},
+        ],
+        "tension_delta": 0,
+    }
+
+    outcome = WorldStateTransaction().commit(
+        scene,
+        PlotState(),
+        DramaState(),
+        result,
+        drive_states={"旅人": drive},
+        proposal_actors={"旅人"},
+        emergent_meter_budget=5,
+    )
+
+    assert outcome.committed is False
+    assert "恐惧" not in drive.needs
+    assert any(
+        "not supported by a resolved action" in error for error in outcome.errors
+    )
 
 
 def test_remote_hidden_action_cannot_telepathically_change_private_drive():

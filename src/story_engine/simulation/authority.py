@@ -43,12 +43,30 @@ class SemanticAuthorityFilter:
         "major": 0.25,
         "extreme": 0.4,
     }
+    # Governs newly-created needs (drive_creations), not existing-need
+    # updates. Same philosophy as DRIVE_SCALE: the resolver names a
+    # qualitative tier, the host owns what number that tier means.
+    DRIFT_SCALE = {
+        "none": 0.0,
+        "slow": 0.01,
+        "steady": 0.03,
+        "urgent": 0.08,
+    }
+    THRESHOLD_SCALE = {
+        "fragile": 0.6,
+        "normal": 0.8,
+        "durable": 0.95,
+    }
     TENSION_SCALE = {
         "none": 0.0,
         "low": 0.025,
         "medium": 0.06,
         "high": 0.12,
     }
+    # A hard, small ceiling so the GM cannot turn "one soft nudge" into a
+    # directive stream across every actor in a single tick.
+    MAX_DIRECTOR_SIGNALS_PER_TICK = 3
+    MAX_DIRECTOR_SIGNAL_LENGTH = 280
 
     def sanitize(self, candidate: Any) -> AuthorityFilterResult:
         if not isinstance(candidate, dict):
@@ -134,6 +152,8 @@ class SemanticAuthorityFilter:
             rejected=rejected,
         )
         self._compile_drive_updates(container, path, rejected)
+        self._compile_drive_creations(container, path, rejected)
+        self._compile_director_signals(container, path, rejected)
 
         raw_tension = container.get("tension_delta")
         if raw_tension not in (None, 0, 0.0):
@@ -197,3 +217,89 @@ class SemanticAuthorityFilter:
             update["intensity"] = intensity
             magnitude = self.DRIVE_SCALE[intensity]
             update["delta"] = -magnitude if direction == "decrease" else magnitude
+
+    def _compile_drive_creations(
+        self,
+        container: Dict[str, Any],
+        path: str,
+        rejected: List[str],
+    ) -> None:
+        """Shape drive_creations: a resolver may name a brand-new need and a
+        qualitative drift/threshold tier, but never its numbers, and never
+        its starting pressure -- created needs always start at 0.0. Budget
+        enforcement (whether the actor may create at all) happens later,
+        against real DriveState, in NeedDynamics.apply_creations; this pass
+        only owns the qualitative-to-numeric mapping.
+        """
+        creations = container.get("drive_creations")
+        if not isinstance(creations, list):
+            return
+        for index, creation in enumerate(creations):
+            if not isinstance(creation, dict):
+                continue
+            for raw_field in (
+                "pressure",
+                "initial_pressure",
+                "drift_per_turn",
+                "critical_threshold",
+            ):
+                if creation.pop(raw_field, None) is not None:
+                    rejected.append(f"{path}.drive_creations[{index}].{raw_field}")
+            drift = str(creation.get("drift", "steady")).strip().lower()
+            if drift not in self.DRIFT_SCALE:
+                rejected.append(f"{path}.drive_creations[{index}].drift")
+                drift = "steady"
+            threshold = str(creation.get("threshold", "normal")).strip().lower()
+            if threshold not in self.THRESHOLD_SCALE:
+                rejected.append(f"{path}.drive_creations[{index}].threshold")
+                threshold = "normal"
+            creation["drift"] = drift
+            creation["threshold"] = threshold
+            creation["drift_per_turn"] = self.DRIFT_SCALE[drift]
+            creation["critical_threshold"] = self.THRESHOLD_SCALE[threshold]
+
+    def _compile_director_signals(
+        self,
+        container: Dict[str, Any],
+        path: str,
+        rejected: List[str],
+    ) -> None:
+        """Shape and bound director_signals; this is GM-authored content,
+        not a host-owned field, so valid entries are kept (not zeroed) --
+        only malformed or excess entries are dropped.
+        """
+        raw = container.get("director_signals")
+        if raw is None:
+            container["director_signals"] = []
+            return
+        if not isinstance(raw, list):
+            rejected.append(f"{path}.director_signals")
+            container["director_signals"] = []
+            return
+
+        compiled: List[Dict[str, Any]] = []
+        for index, item in enumerate(raw):
+            if not isinstance(item, dict):
+                rejected.append(f"{path}.director_signals[{index}]")
+                continue
+            actor = str(item.get("actor", "")).strip()
+            suggestion = str(item.get("suggestion", "")).strip()
+            if not actor or not suggestion:
+                rejected.append(f"{path}.director_signals[{index}]")
+                continue
+            if len(compiled) >= self.MAX_DIRECTOR_SIGNALS_PER_TICK:
+                rejected.append(f"{path}.director_signals[{index}]:over_budget")
+                continue
+            compiled.append(
+                {
+                    "actor": actor,
+                    "suggestion": suggestion[: self.MAX_DIRECTOR_SIGNAL_LENGTH],
+                    "source_plot_id": str(item.get("source_plot_id", "")).strip(),
+                    "tags": [
+                        str(tag).strip()
+                        for tag in (item.get("tags") or [])[:6]
+                        if str(tag).strip()
+                    ],
+                }
+            )
+        container["director_signals"] = compiled

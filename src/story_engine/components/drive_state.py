@@ -20,6 +20,9 @@ class DriveState(Component):
     need_provenance: Dict[str, list[Dict[str, Any]]] = Field(default_factory=dict)
     risk_tolerance: float = Field(default=0.5, ge=0.0, le=1.0)
     last_advanced_step: int = -1
+    # Counts only needs created at runtime via create_need, never those from
+    # from_initial. This is what emergent_meter_budget is checked against.
+    created_count: int = 0
 
     @classmethod
     def from_initial(
@@ -87,6 +90,46 @@ class DriveState(Component):
             del history[:-24]
         return meter.pressure
 
+    def create_need(
+        self,
+        name: str,
+        *,
+        drift_per_turn: float = 0.0,
+        critical_threshold: float = 0.8,
+        description: str = "",
+        provenance: Dict[str, Any] | None = None,
+    ) -> bool:
+        """Create a brand-new need at runtime.
+
+        Pressure always starts at 0.0 regardless of caller input: a resolver
+        cannot create an already-critical meter to force drama. The name must
+        not already exist; renaming/overwriting an existing need is not
+        creation and must go through apply_need_delta instead.
+        """
+        clean_name = " ".join(str(name).split()).strip()[:80]
+        if not clean_name or clean_name in self.needs:
+            return False
+        self.needs[clean_name] = NeedMeter(
+            pressure=0.0,
+            drift_per_turn=drift_per_turn,
+            critical_threshold=critical_threshold,
+            description=" ".join(str(description).split()).strip()[:300],
+        )
+        self.created_count += 1
+        if provenance:
+            history = self.need_provenance.setdefault(clean_name, [])
+            history.append(
+                {
+                    **deepcopy(provenance),
+                    "before": 0.0,
+                    "after": 0.0,
+                    "delta": 0.0,
+                    "created": True,
+                }
+            )
+            del history[:-24]
+        return True
+
     def advance_to(self, step: int) -> Dict[str, float]:
         target = int(step)
         if self.last_advanced_step < 0:
@@ -123,3 +166,4 @@ class DriveState(Component):
         self.need_provenance = deepcopy(snapshot.need_provenance)
         self.risk_tolerance = snapshot.risk_tolerance
         self.last_advanced_step = snapshot.last_advanced_step
+        self.created_count = snapshot.created_count

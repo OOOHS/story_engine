@@ -89,6 +89,62 @@ class SceneState(Component):
     def get_scene_flag(self, key: str, default: Any = None) -> Any:
         return self.scene_flags.get(key, default)
 
+    # --- Director signals: soft, per-actor, non-authoritative nudges ----
+    #
+    # A director signal never becomes a resolved_action and never bypasses
+    # _validate_resolved_actions' proposal_actors gate -- it is inbox
+    # content only, the character can act on it, reinterpret it, or ignore
+    # it entirely. To keep this from turning into a standing directive
+    # stream (and eroding character autonomy), the queue depth per actor is
+    # capped at 1: a pending, unconsumed signal blocks new ones for that
+    # actor until it is popped or expires.
+    def queue_director_signal(
+        self,
+        actor: str,
+        suggestion: str,
+        *,
+        current_step: int,
+        source_plot_id: str = "",
+        tags: Optional[list] = None,
+        expires_after_steps: int = 3,
+    ) -> bool:
+        actor = str(actor or "").strip()
+        suggestion = str(suggestion or "").strip()
+        if not actor or not suggestion:
+            return False
+        queue = self.scene_flags.setdefault("director_signals", {})
+        pending = queue.setdefault(actor, [])
+        if pending:
+            return False
+        pending.append(
+            {
+                "suggestion": suggestion[:280],
+                "source_plot_id": str(source_plot_id or ""),
+                "tags": [str(tag) for tag in (tags or [])][:6],
+                "queued_step": int(current_step),
+                "expires_after_steps": max(1, int(expires_after_steps)),
+            }
+        )
+        return True
+
+    def pop_director_signals(self, actor: str, current_step: int) -> list:
+        """Read and clear an actor's pending director signals.
+
+        Expired entries (unconsumed past their budget) are dropped silently
+        rather than delivered -- an idea the Host never got to surface in
+        time is worth less than the character's own read of a stale
+        situation.
+        """
+        queue = self.scene_flags.get("director_signals", {})
+        pending = queue.pop(str(actor or ""), [])
+        return [
+            item
+            for item in pending
+            if isinstance(item, dict)
+            and int(current_step) - int(item.get("queued_step", 0))
+            <= int(item.get("expires_after_steps", 3))
+        ]
+
     def public_scene_field_names(self) -> set[str]:
         return (
             set(self.DEFAULT_PUBLIC_SCENE_FIELDS)

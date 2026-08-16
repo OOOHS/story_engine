@@ -16,6 +16,11 @@ SubjectMessageKind = Literal[
     "world_signal",
     "ledger_update",
     "ledger_retraction",
+    # A Host-queued, non-authoritative nudge (e.g. an unrealized plot
+    # thread trying to become salient). Never a fact and never a
+    # substitute for the hard proposal_actors gate: the subject may accept,
+    # reinterpret, or ignore it outright.
+    "director_signal",
 ]
 
 SUBJECT_BODY_STATE_FIELDS = frozenset({
@@ -595,6 +600,19 @@ def deliver_perception_messages(
             step=int(perception.step),
             payload=dict(item),
             priority=_priority(item),
+        ))
+    for index, item in enumerate(perception.director_signals[-4:]):
+        if not isinstance(item, dict):
+            continue
+        inbox.deliver(SubjectMessage(
+            message_id=_stable_message_id("director", perception.step, index, item),
+            kind="director_signal",
+            step=int(perception.step),
+            payload=dict(item),
+            # Advisory, and deliberately quieter than a real world_signal or
+            # ledger fact: it should be easy for a character to notice
+            # without ever crowding out what actually happened.
+            priority=40,
         ))
 
 

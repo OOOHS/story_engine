@@ -100,6 +100,43 @@ def test_authority_filter_compiles_qualitative_effects_to_fixed_host_values():
     assert filtered.rejected_writes == ["result.tension_delta"]
 
 
+def test_authority_filter_compiles_drive_creation_tiers_and_strips_raw_numbers():
+    filtered = SemanticAuthorityFilter().sanitize(
+        {
+            "drive_creations": [
+                {
+                    "actor": "甲",
+                    "need": "复仇心",
+                    "drift": "urgent",
+                    "threshold": "fragile",
+                    "pressure": 0.9,
+                    "initial_pressure": 1.0,
+                    "drift_per_turn": 999,
+                    "critical_threshold": 0.01,
+                    "reason": "亲人被害",
+                },
+                {"actor": "乙", "need": "焦虑"},
+            ]
+        }
+    )
+
+    creations = filtered.result["drive_creations"]
+    assert creations[0]["drift_per_turn"] == 0.08
+    assert creations[0]["critical_threshold"] == 0.6
+    assert "pressure" not in creations[0]
+    assert "initial_pressure" not in creations[0]
+    # No drift/threshold given: falls back to the neutral default tier.
+    assert creations[1]["drift"] == "steady"
+    assert creations[1]["drift_per_turn"] == 0.03
+    assert creations[1]["threshold"] == "normal"
+    assert set(filtered.rejected_writes) == {
+        "result.drive_creations[0].pressure",
+        "result.drive_creations[0].initial_pressure",
+        "result.drive_creations[0].drift_per_turn",
+        "result.drive_creations[0].critical_threshold",
+    }
+
+
 class SimulationControl(Component):
     scripted_result: dict = Field(default_factory=dict)
     scenario: object = None

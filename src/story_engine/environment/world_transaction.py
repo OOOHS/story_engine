@@ -139,6 +139,7 @@ class WorldStateTransaction:
         contract_state: Any = None,
         agreement_book: Any = None,
         consumed_storylet_ids: List[str] | None = None,
+        emergent_meter_budget: int = 0,
     ) -> TransactionResult:
         # ``contract_state`` is retained as a compatibility boundary for older
         # callers.  New runtime code passes the transaction-scoped AgreementBook.
@@ -272,6 +273,15 @@ class WorldStateTransaction:
                     )
                 )
                 errors.extend(
+                    self.needs.apply_creations(
+                        staged_drives,
+                        staged_scene,
+                        working_result,
+                        current_step=int(current_step),
+                        budget=int(emergent_meter_budget),
+                    )
+                )
+                errors.extend(
                     self.obligations.apply_updates(
                         staged_obligations,
                         staged_drives,
@@ -324,6 +334,23 @@ class WorldStateTransaction:
                         errors.append(
                             f"obligation state references missing actor: {actor}"
                         )
+                # Best-effort, never batch-failing: a director signal is a
+                # soft suggestion, not a fact, so a malformed or unknown-actor
+                # entry is just dropped rather than rejecting the whole
+                # transaction the way an invalid resolved_action would.
+                for signal in working_result.get("director_signals", []) or []:
+                    if not isinstance(signal, dict):
+                        continue
+                    actor = str(signal.get("actor", "")).strip()
+                    if actor not in staged_scene.actor_states:
+                        continue
+                    staged_scene.queue_director_signal(
+                        actor,
+                        str(signal.get("suggestion", "")),
+                        current_step=int(current_step),
+                        source_plot_id=str(signal.get("source_plot_id", "")),
+                        tags=list(signal.get("tags", []) or []),
+                    )
             if staged_plot:
                 staged_plot.apply_updates(
                     deepcopy(working_result.get("plot_updates", [])),
@@ -419,6 +446,8 @@ class WorldStateTransaction:
         sanitized["exchanges"] = []
         sanitized["resource_contests"] = []
         sanitized["drive_updates"] = []
+        sanitized["drive_creations"] = []
+        sanitized["director_signals"] = []
         sanitized["obligation_updates"] = []
         sanitized["contract_updates"] = []
         sanitized["agreement_updates"] = []

@@ -69,6 +69,11 @@ class AgentPerception:
     current_plan: str = ""
     visible_proposals: List[Dict[str, Any]] = field(default_factory=list)
     world_signals: List[Dict[str, Any]] = field(default_factory=list)
+    # Soft, non-authoritative suggestions queued by the Host (e.g. from an
+    # unrealized plot thread). Never a proposal, never validated against
+    # proposal_actors -- purely advisory inbox content the character may
+    # act on, reinterpret, or ignore.
+    director_signals: List[Dict[str, Any]] = field(default_factory=list)
 
     def manual_decision_context(self) -> Dict[str, Any]:
         """Bounded player/UI projection of the same packet an Agent receives."""

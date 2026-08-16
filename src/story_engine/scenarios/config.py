@@ -296,6 +296,10 @@ class ScenarioConfig(BaseModel):
     # can declare a magic/wuxia/etc. world's capability gates as data, with
     # no LegalityEngine code change and no register_profile() call.
     physics_rules: List[PhysicsRuleConfig] = Field(default_factory=list)
+    # How many new DriveState needs a single character may have created at
+    # runtime (via drive_creations) over the whole episode. 0 (default)
+    # preserves today's behavior: needs only come from initial_actor_states.
+    emergent_meter_budget: int = Field(default=0, ge=0, le=50)
     rules: List[str] = Field(default_factory=list)  # 游戏规则或物理法则
     narration: NarrationConfig = Field(default_factory=NarrationConfig)
     initial_state: str  # 故事的初始状态

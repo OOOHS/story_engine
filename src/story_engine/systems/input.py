@@ -766,6 +766,12 @@ class InputSystem(System):
             else:
                 visible_proposals.append(public_item)
 
+        director_signals = (
+            scene_state.pop_director_signals(actor_name, step)
+            if scene_state and hasattr(scene_state, "pop_director_signals")
+            else []
+        )
+
         observation = entity.get_component("Observation")
         recent_observations = (
             list(observation.current_observations[-8:])
@@ -1035,6 +1041,7 @@ class InputSystem(System):
             current_plan=current_plan,
             visible_proposals=visible_proposals,
             world_signals=world_signals,
+            director_signals=director_signals,
         )
 
     @staticmethod

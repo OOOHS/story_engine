@@ -170,6 +170,89 @@ class NeedDynamics:
             )
         return errors
 
+    def apply_creations(
+        self,
+        drive_states: Dict[str, Any],
+        scene_state: Any,
+        result: Dict[str, Any],
+        *,
+        current_step: int = 0,
+        budget: int = 0,
+    ) -> List[str]:
+        """Validate and apply drive_creations against real DriveState.
+
+        By the time this runs, SemanticAuthorityFilter has already replaced
+        drift/critical_threshold with fixed numbers from a closed qualitative
+        vocabulary -- this pass only owns things that need live state to
+        check: the actor must exist, the need must not already exist, the
+        creation must be backed by a resolved action this round (same
+        evidence requirement as drive_updates), and the actor must still be
+        under emergent_meter_budget. budget<=0 means the scenario has not
+        opted into runtime meter growth at all; every creation is rejected.
+        """
+        creations = result.get("drive_creations", [])
+        if not isinstance(creations, list):
+            return ["drive_creations must be a list"]
+        resolved_actions = [
+            item for item in result.get("resolved_actions", [])
+            if isinstance(item, dict)
+        ]
+        errors: List[str] = []
+        for index, creation in enumerate(creations):
+            prefix = f"drive_creations[{index}]"
+            if not isinstance(creation, dict):
+                errors.append(f"{prefix} must be an object")
+                continue
+            actor = str(creation.get("actor", "")).strip()
+            need = " ".join(str(creation.get("need", "")).split()).strip()
+            description = str(creation.get("description", "")).strip()
+            reason = " ".join(str(creation.get("reason", "")).split()).strip()
+            if actor not in scene_state.actor_states:
+                errors.append(f"{prefix} has unknown actor: {actor}")
+                continue
+            drive = drive_states.get(actor)
+            if drive is None:
+                errors.append(f"{prefix} actor has no DriveState: {actor}")
+                continue
+            if not need:
+                errors.append(f"{prefix} requires a need name")
+                continue
+            if need in drive.needs:
+                errors.append(
+                    f"{prefix} need already exists for {actor}: {need}"
+                    " (use drive_updates, not drive_creations)"
+                )
+                continue
+            if not reason:
+                errors.append(f"{prefix} requires a reason")
+            if int(budget) <= 0 or drive.created_count >= int(budget):
+                errors.append(
+                    f"{prefix} actor is at or over emergent_meter_budget: {actor}"
+                )
+            source_actions = [
+                action
+                for action in resolved_actions
+                if str(action.get("actor", "")).strip() == actor
+            ]
+            if not source_actions:
+                errors.append(f"{prefix} is not supported by a resolved action")
+            if any(error.startswith(prefix) for error in errors):
+                continue
+            drive.create_need(
+                need,
+                drift_per_turn=float(creation.get("drift_per_turn", 0.0)),
+                critical_threshold=float(
+                    creation.get("critical_threshold", 0.8)
+                ),
+                description=description,
+                provenance={
+                    "source_kind": "resolved_action",
+                    "source_ref": f"step:{int(current_step)}:actor:{actor}",
+                    "reason": reason,
+                },
+            )
+        return errors
+
     def build_opportunities(
         self,
         scene_state: Any,

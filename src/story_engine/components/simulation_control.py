@@ -47,6 +47,32 @@ class SimulationControl(Component):
         # 构建简化的场景上下文（合并 player_pov + spatial_layout + social）
         scene_context = self._build_scene_context(input_payload)
 
+        emergent_meter_budget = int(
+            getattr(self.scenario, "emergent_meter_budget", 0) or 0
+        )
+        if emergent_meter_budget > 0:
+            drive_creation_guidance = (
+                "只有当现有 DriveState 中确实没有 need 能承载某个新出现、且会反复起效的持续压力时，"
+                f"才输出 `drive_creations` 新建一个 need；每个角色本局最多创建 {emergent_meter_budget} 个，"
+                "超出会被整批回滚。drift 和 threshold 只能用定性档位（none/slow/steady/urgent，"
+                "fragile/normal/durable），不得填写具体数值或初始 pressure；新建的 need 永远从 0 开始累积。"
+                "创建必须由本轮已结算行动支持并给出 reason；能用已有 need 表达就不要新建。"
+            )
+        else:
+            drive_creation_guidance = (
+                "当前剧本未开放运行时创建新的持续压力条，不要输出 `drive_creations`"
+                "（留空数组或省略）。"
+            )
+
+        director_signal_guidance = (
+            "`director_signals` 是可选的、软性的、非事实的私人提示，宿主会把它投递到某个角色的收件箱里，"
+            "该角色可以采纳、重新解读或直接无视，不构成本轮或未来任何一轮的强制行动。"
+            "只有当某条【当前剧情线】确实存在 open_hooks 或 candidate_beats、但一直没有角色的意图触及它时，"
+            "才可以对一个和该线索有合理关联的在场角色给出一句提示；不能无凭无据地新建暗示，"
+            "不能替角色决定要做什么，只能指出\"有什么值得注意\"。每轮每个角色最多一条，"
+            "全局每轮最多 3 条，超出会被丢弃。没有合适对象时留空数组。"
+        )
+
         prompt = f"""
 你现在处于故事引擎的【Simulation】阶段。你的职责是做结构化结算，而不是写给玩家看的文本。
 
@@ -92,6 +118,9 @@ class SimulationControl(Component):
 
 ## 本轮宿主签发的角色入口授权
 {json.dumps(input_payload.get("character_entry_authorizations", []), ensure_ascii=False, indent=2)}
+
+## 当前剧情线（仅供参考，只能用已有 plot_id 引用，不能自行编造新的 plot_id）
+{json.dumps(input_payload.get("plot_threads", []), ensure_ascii=False, indent=2)}
 
 ## 行动角色的私有驱动力
 {json.dumps(input_payload.get("drive_context", {}), ensure_ascii=False, indent=2)}
@@ -285,6 +314,24 @@ class SimulationControl(Component):
       "reason": "哪条本轮事实让压力上升或缓解"
     }}
   ],
+  "drive_creations": [
+    {{
+      "actor": "需要新压力条的角色",
+      "need": "新 need 的名称，不能与该角色已有 need 重名",
+      "drift": "none | slow | steady | urgent",
+      "threshold": "fragile | normal | durable",
+      "description": "这个持续压力代表什么",
+      "reason": "哪条本轮事实催生了这个全新的持续压力"
+    }}
+  ],
+  "director_signals": [
+    {{
+      "actor": "接收提示的角色（不会被强制执行）",
+      "suggestion": "一句自然语言提示，说明有什么值得这个角色注意",
+      "source_plot_id": "引用【当前剧情线】里已存在的 plot_id，没有关联线索则留空字符串",
+      "tags": ["可选的简短标签"]
+    }}
+  ],
   "obligation_updates": [
     {{
       "operation": "create | fulfill | cancel | delegate",
@@ -336,6 +383,10 @@ class SimulationControl(Component):
 即时羞辱、帮助、威胁、欺骗嫌疑、被救助或违约带来的主观反应写 `social_impacts`。source 必须有一条 affected 在同地点亲自可观察的非 hidden 已结算行动；kind 只能使用模板枚举，intensity 只能使用 `minor/moderate/major/extreme`，不能附带 magnitude、policy weight、概率、关系 delta 或持续时间。宿主会把强度标签映射为固定数值，再依据 Sentiment 定义创建感受、决定衰减和行动效用，并让其中一小部分按固定函数沉淀到长期 Relationship Track。Event response 与 Sentiment 分离：例如“甲道歉”是客观社会行为，“乙感到 relieved 或仍然 angry”才是乙的私有评价。
 
 只有本轮已结算行动确实改变了某个角色的持续压力时才输出 `drive_updates`。使用 direction=`increase/decrease` 和定性 intensity 表示加剧或缓解，不得填写 delta；need 必须已经存在于该角色 DriveState。source 不是 actor 本人时，对应行动必须在 actor 所在地可观察，异地或 hidden 行动不能隔空改变对方压力。对象 affordance 已自动产生的 need_effect 不要在 drive_updates 中重复计算。
+
+{drive_creation_guidance}
+
+{director_signal_guidance}
 
 只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
 
@@ -511,6 +562,20 @@ class SimulationControl(Component):
             item for item in drive_updates if isinstance(item, dict)
         ]
 
+        drive_creations = data.get("drive_creations", [])
+        if not isinstance(drive_creations, list):
+            drive_creations = []
+        result["drive_creations"] = [
+            item for item in drive_creations if isinstance(item, dict)
+        ]
+
+        director_signals = data.get("director_signals", [])
+        if not isinstance(director_signals, list):
+            director_signals = []
+        result["director_signals"] = [
+            item for item in director_signals if isinstance(item, dict)
+        ]
+
         obligation_updates = data.get("obligation_updates", [])
         if not isinstance(obligation_updates, list):
             obligation_updates = []
@@ -647,6 +712,8 @@ class SimulationControl(Component):
             "contract_updates": [],
             "agreement_updates": [],
             "drive_updates": [],
+            "drive_creations": [],
+            "director_signals": [],
             "obligation_updates": [],
             "spawn_character": None,
             "simulation_notes": [],
@@ -769,6 +836,12 @@ class SimulationControl(Component):
                     if not isinstance(update, dict)
                     or str(update.get("source", update.get("actor", ""))).strip()
                     != str(actor)
+                ]
+                result["drive_creations"] = [
+                    creation
+                    for creation in result.get("drive_creations", [])
+                    if not isinstance(creation, dict)
+                    or str(creation.get("actor", "")).strip() != str(actor)
                 ]
                 note = f"{actor}的动作被裁定为不合法：{check.get('reason', '')}".strip()
                 if note and note not in notes:

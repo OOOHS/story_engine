@@ -157,6 +157,8 @@ class SimulationSystem(System):
                 intents=context.get("intents", []),
                 entities=entities,
             )
+            if plot_state and hasattr(plot_state, "decay_idle_threads"):
+                plot_state.decay_idle_threads(current_step)
             plot_packets = plot_state.get_pressure_packets() if plot_state else []
             director_packet = drama_state.build_directive(plot_packets) if drama_state else {}
             conflict_packet = self._build_conflict_packet(
@@ -200,6 +202,7 @@ class SimulationSystem(System):
                 "character_entry_authorizations": list(
                     context.get("character_spawn_authorizations", [])
                 ),
+                "plot_threads": plot_packets,
             }
 
             semantic_result = simulation.simulate(input_payload)
@@ -420,6 +423,9 @@ class SimulationSystem(System):
                     consumed_storylet_ids=self.storylets.consumable_hits(
                         scenario,
                         result.get("storylet_hits", []),
+                    ),
+                    emergent_meter_budget=int(
+                        getattr(scenario, "emergent_meter_budget", 0) or 0
                     ),
                 )
                 if transaction_result.committed and spawn_plan is not None:
