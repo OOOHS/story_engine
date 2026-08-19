@@ -22,7 +22,7 @@ Session 不成立；运行中任一绑定脱落时，下一步在时间推进和
 Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为主体，
 不参与这条映射，也不会获得角色行动回合。
 
-这里选择 POSG 而不是 Dec-POMDP，是因为故事角色通常具有冲突或不一致的目标。Hermes 是长程存活的角色主体：它保存自己的 conversation、原生 JSON memory/tool 上下文，接收环境投递的私人刺激，并负责注意、回忆、计划、候选生成和最终意图。宿主不读取或重排这些私人候选，只接收一个 `A_i` 并负责合法性、时间、资源、概率结果和权威结算。普通 `LLMCharacterAgent` 暂时保留宿主 Utility Policy 作为兼容路径；引擎不运行 Bellman 求解。
+这里选择 POSG 而不是 Dec-POMDP，是因为故事角色通常具有冲突或不一致的目标。Hermes 是被指派给该角色的长程决策过程：它保存自己的 conversation、原生 JSON memory/tool 上下文，接收环境投递的私人刺激，并按人设与当前证据选择该人物的下一步。宿主不读取或重排这些私人候选，只接收一个 `A_i` 并负责合法性、时间、资源、概率结果和权威结算。普通 `LLMCharacterAgent` 暂时保留宿主 Utility Policy 作为兼容路径；引擎不运行 Bellman 求解。
 
 对兼容 runtime 实际选中的 `A_i`，宿主保留逐候选效用分解。语义运行时可以为候选声明它所响应的 active Goal/Obligation/NavigationProblem、近期失败的 action event，或本轮已投递的 POV-safe WorldEvent/EventResponse；宿主先在角色私有 snapshot 和 pending attention 队列中核验，再将其编入效用与 provenance。Hermes 不走这条宿主解释路径：其 motive lens、候选效用和抽样 trace 属于主体私人账本，Episode 只能记录 Hermes 最终提交了什么，以及世界如何结算，不能把宿主事后推断伪装成角色的真实动机。
 

@@ -110,6 +110,7 @@ class NarrativeRenderer(Component):
 def build_minimal_delivery_route_scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="无模板跨地点委托",
+        default_agent_runtime="delivery-route",
         description="角色从可见世界能力自然形成并履行跨地点有偿委托。",
         environment="市集与河岸仓库之间有一条公开道路。",
         initial_state="旅脚夫持有货箱，商人持有报酬，双方尚未订约。",

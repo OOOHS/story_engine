@@ -195,6 +195,7 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
 
     scenario = ScenarioConfig(
         name="导演隔离测试",
+        default_agent_runtime="llm",
         description="测试",
         environment="房间",
         initial_state="甲在房间里。",
@@ -209,6 +210,7 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
         characters=[
             CharacterConfig(
                 name="甲",
+                agent_runtime="llm",
                 role="测试角色",
                 personality="平静",
                 goals=["留在房间"],
@@ -225,7 +227,17 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
             )
         ],
     )
-    session = create_session(scenario, random_seed=3)
+    from src.story_engine.agents.llm_runtime import LLMCharacterAgent
+
+    session = create_session(
+        scenario,
+        random_seed=3,
+        agent_runtime_factories={
+            "llm": lambda entity, cfg: LLMCharacterAgent(
+                llm_config=cfg.get("llm_config", {})
+            )
+        },
+    )
     gm = session.entities["GameMaster"]
     gm.add_component(CapturingSimulationControl(scenario=scenario))
 
@@ -245,6 +257,8 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
     }.isdisjoint(payload)
     assert payload["intents"][0]["actor"] == "甲"
     assert "legality" in payload
+    assert "narrative_pressure" in payload
+    assert "directive" in payload["narrative_pressure"]
     assert context["storylet_pressure"]["salient_storylet_id"] == "forced_beat"
     assert "director_packet" in context
     assert "conflict" in context

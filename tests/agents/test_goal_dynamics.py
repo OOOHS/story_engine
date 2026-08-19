@@ -308,6 +308,7 @@ def test_every_created_character_gets_goal_state_even_without_structured_rules()
 def test_scenario_goal_specs_reach_character_goal_state():
     scenario = ScenarioConfig(
         name="目标种子",
+        default_agent_runtime="llm",
         description="验证目标配置。",
         environment="房间",
         initial_state="门尚未打开。",
@@ -859,6 +860,7 @@ def test_small_seed_grows_and_closes_an_affordance_goal_end_to_end():
 
     scenario = ScenarioConfig(
         name="最小能力目标生长",
+        default_agent_runtime="llm",
         description="饥饿角色看到食物后形成并完成一个目标。",
         environment="只有一间厨房和一块面包。",
         initial_state="旅人感到饥饿。",

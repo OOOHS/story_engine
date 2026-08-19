@@ -67,10 +67,27 @@ class SimulationControl(Component):
         director_signal_guidance = (
             "`director_signals` 是可选的、软性的、非事实的私人提示，宿主会把它投递到某个角色的收件箱里，"
             "该角色可以采纳、重新解读或直接无视，不构成本轮或未来任何一轮的强制行动。"
-            "只有当某条【当前剧情线】确实存在 open_hooks 或 candidate_beats、但一直没有角色的意图触及它时，"
-            "才可以对一个和该线索有合理关联的在场角色给出一句提示；不能无凭无据地新建暗示，"
-            "不能替角色决定要做什么，只能指出\"有什么值得注意\"。每轮每个角色最多一条，"
-            "全局每轮最多 3 条，超出会被丢弃。没有合适对象时留空数组。"
+            "先判断一条【当前叙事机会】/剧情线线索的性质：如果它是纯环境性的事实"
+            "（不需要哪个具体角色做出行动决定，比如场景变化、消息传来、局势变动），"
+            "直接把它结算进 resolved_actions（actor=World）/state_updates/object_lifecycle，"
+            "标注 source_storylet_id，不要走 director_signal。"
+            "只有当内容需要某个具体在场角色自己做出行动/表态的决定时，"
+            "才对一个跟该线索/机会有合理关联的在场角色给出一句提示；不能无凭无据地新建暗示，"
+            "不能替角色决定要做什么，只能指出\"有什么值得注意\"。如果某个 storylet 的 target_actor/"
+            "preferred_actors 都不在场或都不合适，就不要为它勉强指定别人，留空即可。"
+            "每轮每个角色最多一条，全局每轮最多 3 条，超出会被丢弃。没有合适对象时留空数组。"
+        )
+        plot_beat_guidance = (
+            "`plot_beat_proposals` 用来登记**尚未兑现**的新剧情点，不是当场改剧情钟。"
+            "当【叙事压力】为 inject_crisis 或 raise_pressure，或本轮已提交事实确实打开了新的因果线时，"
+            "可以提案；stay_course / allow_release 时不要为了热闹硬造。"
+            "每条必须写清触发条件（StateCondition：scene / world_object / actor / plot）和兑现方式："
+            "kind=environment 表示条件成立后由你在之后的回合结算成 actor=World 的事实；"
+            "kind=character_decision 表示条件成立后走 director_signal，不能替角色做决定。"
+            "需要新的可观察物件时，在**同一输出**里用 object_lifecycle.spawn 放到已有地点；"
+            "不能新建地点或改拓扑。触发条件可以引用本轮即将 spawn 的对象，下回合条件成立后才会进入【当前叙事机会】。"
+            "开新剧情线时填写 open_thread（必须有 opened_reason）；已有 plot_id 只登记 beat。"
+            "不要写 clock / advance / plot_updates。每轮最多 2 条，缺条件或越权字段会被丢弃。"
         )
 
         prompt = f"""
@@ -83,13 +100,13 @@ class SimulationControl(Component):
 4. **受限视角**：异地事件只能以余波、传话、态度变化回流，不切全知镜头
 5. **有效推进**：只依据当前事实形成清晰、可结算的变化；没有有效变化时诚实返回稳定、失败或受阻，不为追求节奏编造结果
 6. **可观察事实**：使用可观察的行为和事实，不下文学化诊断结论
-7. **不得替角色选角**：resolved_actions 只能结算“本轮意图”中真实出现的 actor，或 actor=World 的已注入世界事件；Drama、Conflict、Storylet 和内容模板都不能凭空让未 proposal 的角色行动
+7. **不得替角色选角**：resolved_actions 只能结算“本轮意图”中真实出现的 actor，或 actor=World 的事实（已注入的世界事件，或【当前叙事机会】里不需要具体角色决定、纯环境性的 storylet——比如天气突变、公告张贴、远处传来消息，这类可以直接由你写成 actor=World 的 resolved_action/state_updates/object_lifecycle 并落地为事实，同时填上 source_storylet_id）；Drama、Conflict、Storylet 和内容模板都不能凭空让未 proposal 的角色行动，也不能借 actor=World 替某个具体角色做决定或行动——那种情况必须走 director_signal，不能直接写进事实
 8. **动作完成时结算**：本轮意图是离散事件队列中同时完成的一批原子动作。`action.kind` 只有 observe、move、interact、communicate、wait；自然语言 detail/target 说明具体语义。规则层先约束可确定部分，你只裁定剩余语义
 9. **主动与被动观察分离**：observe 是角色主动花费行动获取细节；可公开观察到的动作是其他角色的被动观察来源。主动观察发现的角色私有信息写入 private_result，不能塞进公开 result 泄漏给旁观者
 10. **不替宿主掷骰**：规则和当前事实足以确定的行动直接写 resolved_actions；真正存在不确定性的物理或观察行动只能写 uncertain_outcomes，同时给出成功/失败两个候选事实分支。你只能选择固定 difficulty 和所需 capability，不能输出概率、随机数、数值 modifier，不能同时把该 actor 写进 resolved_actions
 11. **临时 Modifier 不是万能状态**：只有本轮已提交行动确实让角色形成疲惫、专注、受伤后的谨慎等临时非社交行为影响时，才可从 `modifier_catalog` 选择 kind。物理事实仍写 SceneState，针对某人的感受仍写 social_impacts；持续时间、叠加、权重和到期由宿主决定
 12. **客观事实与角色知识分离**：`claim_catalog` 是 GM 可用的客观命题目录，但角色只能通过有效主动观察发现已连接且可见的 evidence，或由同场知情角色通过 communicate 传播 Claim。WorldEvent 同样只能由直接或自身见证者使用真实 event_id 转述；宿主从事件实体读取原始 statement，不能借 event_id 改写事件内容。不能把 truth_status、宿主条件、未发现的证据或未获知事件写进角色知识
-13. **数值效果由宿主管理**：不要输出 relationship_updates、plot_updates、tension_delta、magnitude 或 drive delta。短期反应和 Modifier 使用 `minor/moderate/major/extreme` 定性强度，Drive 另加 increase/decrease 方向；宿主把这些标签编译为固定数值。长期关系轨道由宿主固定映射沉淀，Plot 只能由已提交世界事实触发因果规则
+13. **数值效果由宿主管理**：不要输出 relationship_updates、plot_updates、tension_delta、magnitude 或 drive delta。短期反应和 Modifier 使用 `minor/moderate/major/extreme` 定性强度，Drive 另加 increase/decrease 方向；宿主把这些标签编译为固定数值。长期关系轨道由宿主固定映射沉淀。已有 Plot 的钟只能由已提交世界事实触发因果规则；要开新剧情线或登记新剧情点，只能用 `plot_beat_proposals`，不能直接写 plot_updates 或编造 clock
 
 ## 剧本设定
 **剧本**：{self.scenario.name if self.scenario else "通用剧本"}
@@ -119,8 +136,14 @@ class SimulationControl(Component):
 ## 本轮宿主签发的角色入口授权
 {json.dumps(input_payload.get("character_entry_authorizations", []), ensure_ascii=False, indent=2)}
 
-## 当前剧情线（仅供参考，只能用已有 plot_id 引用，不能自行编造新的 plot_id）
+## 当前剧情线（仅供参考；推进已有钟不能写 plot_updates，开新线/新剧情点用 plot_beat_proposals）
 {json.dumps(input_payload.get("plot_threads", []), ensure_ascii=False, indent=2)}
+
+## 叙事压力（Drama 节奏，不是强制事件）
+{json.dumps(input_payload.get("narrative_pressure", {}), ensure_ascii=False, indent=2)}
+
+## 当前叙事机会（storylet，仅供参考，不是事实也不是指令）
+{json.dumps(input_payload.get("storylet_opportunities", []), ensure_ascii=False, indent=2)}
 
 ## 行动角色的私有驱动力
 {json.dumps(input_payload.get("drive_context", {}), ensure_ascii=False, indent=2)}
@@ -147,7 +170,8 @@ class SimulationControl(Component):
       "location": "动作发生地点",
       "result": "内部结果摘要",
       "private_result": "仅 actor 自己通过主动观察获得的信息；没有则为空字符串",
-      "visibility": "public | local | hidden"
+      "visibility": "public | local | hidden",
+      "source_storylet_id": "可选；如果这条行动是在实现【当前叙事机会】里的某个 storylet，填它的 storylet_id，否则留空字符串"
     }}
   ],
   "uncertain_outcomes": [
@@ -225,7 +249,7 @@ class SimulationControl(Component):
       "operation": "spawn | relocate | set_visibility | set_container_state | use | destroy",
       "object_id": "稳定且唯一的对象名",
       "actor": "实际完成该动作的角色名，或 World",
-      "reason": "必须由该 actor 本轮已结算的成功、部分成功或 complication 行动支持",
+      "reason": "必须由该 actor 本轮已结算的成功、部分成功或 complication 行动支持；actor=World 时可引用【当前叙事机会】里的 storylet_id 作为依据",
       "object_kind": "item | clue | document | weapon | resource",
       "affordance_id": "use 操作必须填写对象已有的 affordance id",
       "owner": null,
@@ -235,7 +259,8 @@ class SimulationControl(Component):
       "open": true,
       "hidden": false,
       "portable": true,
-      "properties": {{}}
+      "properties": {{}},
+      "source_storylet_id": "可选；如果这条操作是在实现【当前叙事机会】里的某个 storylet，填它的 storylet_id，否则留空字符串"
     }}
   ],
   "exchanges": [
@@ -329,7 +354,38 @@ class SimulationControl(Component):
       "actor": "接收提示的角色（不会被强制执行）",
       "suggestion": "一句自然语言提示，说明有什么值得这个角色注意",
       "source_plot_id": "引用【当前剧情线】里已存在的 plot_id，没有关联线索则留空字符串",
+      "source_storylet_id": "引用【当前叙事机会】里已存在的 storylet_id，没有关联机会则留空字符串",
       "tags": ["可选的简短标签"]
+    }}
+  ],
+  "plot_beat_proposals": [
+    {{
+      "plot_id": "已有剧情线 id，或与 open_thread 一起给出的新 id",
+      "beat_id": "本条剧情点的稳定 id",
+      "intent": "条件成立后这条机会是什么",
+      "kind": "environment | character_decision",
+      "one_shot": true,
+      "open_thread": {{
+        "title": "仅在开新线时填写",
+        "description": "这条线在跟踪什么",
+        "opened_reason": "必须填写：依据哪条已提交事实或当前压力打开这条线",
+        "participants": ["已有角色"]
+      }},
+      "conditions": [
+        {{
+          "scope": "scene | world_object | actor | plot",
+          "target": "world_object/actor/plot 必填的已有或本轮 spawn 的对象名",
+          "path": "location | owner | hidden | kind | scene_flags.xxx；exists 可留空",
+          "operator": "eq | ne | gt | gte | lt | lte | contains | in | exists | not_exists",
+          "value": "与权威状态比较的值"
+        }}
+      ],
+      "effect": {{
+        "visibility": "public | local | hidden",
+        "preferred_actors": ["character_decision 时可选的在场角色"],
+        "target_actor": "可选的单一角色",
+        "stake": "简短利害"
+      }}
     }}
   ],
   "obligation_updates": [
@@ -345,8 +401,8 @@ class SimulationControl(Component):
       "grace_steps": 0,
       "wake_before_steps": 1,
       "pressure_need": "可选，该角色已有的 need 名称",
-      "due_pressure_delta": 0.1,
-      "breach_pressure_delta": 0.2,
+      "due_pressure_severity": "light | moderate | severe",
+      "breach_pressure_severity": "light | moderate | severe",
       "completion_conditions": [
         {{
           "scope": "actor | world_object",
@@ -388,7 +444,9 @@ class SimulationControl(Component):
 
 {director_signal_guidance}
 
-只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
+{plot_beat_guidance}
+
+只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。`due_pressure_severity`/`breach_pressure_severity` 只能用定性档位（light/moderate/severe），不得填写具体数值；宿主把档位编译为固定压力值，逾期代价永远高于到期代价。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
 
 只输出 JSON，不要输出解释，不要使用 Markdown。
 """
@@ -455,6 +513,9 @@ class SimulationControl(Component):
                         else ""
                     ),
                     "visibility": item.get("visibility", "public"),
+                    "source_storylet_id": str(
+                        item.get("source_storylet_id", "")
+                    ).strip(),
                 }
             )
         uncertain_outcomes = data.get("uncertain_outcomes", [])
@@ -574,6 +635,13 @@ class SimulationControl(Component):
             director_signals = []
         result["director_signals"] = [
             item for item in director_signals if isinstance(item, dict)
+        ]
+
+        plot_beat_proposals = data.get("plot_beat_proposals", [])
+        if not isinstance(plot_beat_proposals, list):
+            plot_beat_proposals = []
+        result["plot_beat_proposals"] = [
+            item for item in plot_beat_proposals if isinstance(item, dict)
         ]
 
         obligation_updates = data.get("obligation_updates", [])
@@ -714,6 +782,7 @@ class SimulationControl(Component):
             "drive_updates": [],
             "drive_creations": [],
             "director_signals": [],
+            "plot_beat_proposals": [],
             "obligation_updates": [],
             "spawn_character": None,
             "simulation_notes": [],

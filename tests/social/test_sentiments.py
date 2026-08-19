@@ -31,8 +31,8 @@ def _entities():
     gm.add_component(_world())
     return {
         "GameMaster": gm,
-        "甲": create_agent("甲", "访客", "平静", []),
-        "乙": create_agent("乙", "主人", "平静", []),
+        "甲": create_agent("甲", "访客", "平静", [], agent_runtime="llm"),
+        "乙": create_agent("乙", "主人", "平静", [], agent_runtime="llm"),
     }
 
 
@@ -205,7 +205,7 @@ def test_repeated_sentiment_saturates_and_then_decays():
 
 
 def test_agent_perception_receives_only_its_private_sentiment_view():
-    agent = create_agent("甲", "访客", "平静", [])
+    agent = create_agent("甲", "访客", "平静", [], agent_runtime="llm")
     agent.get_component("SentimentState").upsert(
         toward="乙",
         kind="suspicious",
@@ -230,8 +230,8 @@ def test_agent_perception_receives_only_its_private_sentiment_view():
 
 
 def test_private_sentiment_changes_host_action_distribution():
-    neutral = create_agent("甲", "访客", "平静", [])
-    angry = create_agent("甲", "访客", "平静", [])
+    neutral = create_agent("甲", "访客", "平静", [], agent_runtime="llm")
+    angry = create_agent("甲", "访客", "平静", [], agent_runtime="llm")
     angry.get_component("SentimentState").upsert(
         toward="乙",
         kind="angry",

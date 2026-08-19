@@ -237,7 +237,9 @@ class CharacterConfig(BaseModel):
     goals: List[str]
     goal_specs: List[GoalConfig] = Field(default_factory=list)
     is_player: bool = False  # 是否为玩家控制的角色
-    agent_runtime: str = "llm"
+    # No default: every character must explicitly declare which agent
+    # runtime backs it. There is deliberately no silent fallback.
+    agent_runtime: str
     agent_config: Dict[str, Any] = Field(default_factory=dict)
     activation_policy: Literal["auto", "foreground", "background", "dormant"] = "auto"
     background_interval: int = Field(default=3, ge=1)
@@ -290,6 +292,12 @@ class ScenarioConfig(BaseModel):
     name: str
     description: str  # 高层描述
     environment: str  # 物理环境细节
+    # Runtime-dynamic spawn (spawn_character) has no per-character
+    # agent_runtime to read from content, since the request comes from the
+    # model at play time. This scenario-level field is the only source of
+    # truth for what backs a dynamically-spawned character; there is no
+    # default, matching the no-silent-fallback policy for authored characters.
+    default_agent_runtime: str
     physics_profile: str = "mundane"
     # When non-empty, these fully replace LegalityEngine's built-in
     # "mundane" keyword table for this scenario's physics_profile: content

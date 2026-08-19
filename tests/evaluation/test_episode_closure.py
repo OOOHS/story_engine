@@ -163,6 +163,7 @@ def _critical_need_closure_session(*, relief=True, dormant=False):
         }
     ])
     controller = AgentController(
+        runtime="llm",
         activation_policy="dormant" if dormant else "background",
         decision_count=1,
     )
@@ -238,6 +239,7 @@ def test_pure_world_seed_reaches_stable_closure_without_authored_goal_rules():
 
     scenario = ScenarioConfig(
         name="无任务锚点世界种子",
+        default_agent_runtime="llm",
         description="角色只有自然语言动机，没有手工完成条件。",
         environment="安静房间",
         initial_state="暂时没有新的事件。",
@@ -279,6 +281,7 @@ def test_episode_cannot_close_while_agent_ignores_visible_critical_relief():
 
     scenario = ScenarioConfig(
         name="临界需求闭合审计",
+        default_agent_runtime="llm",
         description="角色持续忽略眼前可用的食物。",
         environment="厨房",
         initial_state="旅人非常饥饿，面包就在眼前。",
@@ -339,7 +342,7 @@ def test_episode_cannot_close_while_agent_ignores_visible_critical_relief():
 
 
 def test_unexercised_autonomous_agent_blocks_closure_until_first_decision():
-    controller = AgentController(activation_policy="background")
+    controller = AgentController(runtime="llm", activation_policy="background")
     session = _closure_session(controller=controller)
 
     before = EpisodeClosureEvaluator().evaluate(
@@ -372,6 +375,7 @@ def test_closure_waits_for_staggered_offscreen_agents_to_participate():
 
     scenario = ScenarioConfig(
         name="离屏角色首次参与",
+        default_agent_runtime="llm",
         description="故事不能在错峰背景角色第一次决策前结束。",
         environment="玩家在房间，守卫在远处城门。",
         initial_state="两地暂时都很安静。",
@@ -525,7 +529,7 @@ def test_dormant_pending_attention_is_preserved_but_does_not_block_closure():
         pending_world_events=["storm"],
         pending_event_responses=["apology"],
     )
-    controller = AgentController(activation_policy="dormant")
+    controller = AgentController(runtime="llm", activation_policy="dormant")
 
     status = EpisodeClosureEvaluator().evaluate(
         _closure_session(
@@ -597,7 +601,7 @@ def test_dormant_navigation_problem_is_preserved_but_does_not_block_closure():
         _closure_session(
             goal_state=goals,
             navigation_state=navigation,
-            controller=AgentController(activation_policy="dormant"),
+            controller=AgentController(runtime="llm", activation_policy="dormant"),
         ),
         EpisodeClosurePolicy(),
     )

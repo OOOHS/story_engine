@@ -65,6 +65,7 @@ def test_agent_supplied_unbounded_modifier_cannot_enter_probability_check():
 def test_session_exposes_the_seed_needed_for_replay():
     scenario = ScenarioConfig(
         name="seed",
+        default_agent_runtime="llm",
         description="seed",
         environment="room",
         initial_state="empty",

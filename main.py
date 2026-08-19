@@ -3,6 +3,7 @@ import argparse
 
 from dotenv import load_dotenv
 
+from src.story_engine.agents import default_hermes_runtime_factories
 from src.story_engine.session import (
     ConsoleDriver,
     create_session,
@@ -38,7 +39,9 @@ def main(argv=None):
         if args.scenario_ref
         else load_bundled_scenario(args.scenario)
     )
-    session = create_session(scenario)
+    session = create_session(
+        scenario, agent_runtime_factories=default_hermes_runtime_factories()
+    )
     driver = ConsoleDriver(session, title=args.title)
     driver.run()
 

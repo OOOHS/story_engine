@@ -11,7 +11,6 @@ from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.scenarios.config import NarrationConfig, ScenarioConfig
-from src.story_engine.components.situation_state import SituationState
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.cognition import CognitionSystem
 from src.story_engine.systems.memory import MemorySystem
@@ -23,6 +22,18 @@ from src.story_engine.social import RelationshipBook, SocialRelationRegistry
 from src.story_engine.web.adapter import WebGameAdapter
 from src.story_engine.session import create_session
 from src.story_engine.prefabs.templates import create_agent
+
+
+class _StubHermesRuntime:
+    """Stands in for the real Hermes container runtime in tests that only
+    care about scenario/session wiring and never invoke decide()."""
+
+    def decide(self, entity, perception):
+        raise NotImplementedError("stub hermes runtime never decides in these tests")
+
+
+def _bundled_runtime_factories():
+    return {"hermes": lambda entity, runtime_config: _StubHermesRuntime()}
 
 
 def test_pair_relationship_aggregates_both_directional_tracks():
@@ -59,7 +70,11 @@ def _scenario_relationship_book():
 
 
 def test_scenario_loader_builds_sparse_pair_relationships_and_structured_traits():
-    session = create_session(false_heiress_scenario, random_seed=17)
+    session = create_session(
+        false_heiress_scenario,
+        random_seed=17,
+        agent_runtime_factories=_bundled_runtime_factories(),
+    )
     registry = session.runner.relation_registry
 
     assert len(tuple(registry.entities("pair"))) == 10
@@ -529,12 +544,10 @@ def test_situation_packet_contains_frontstage_commitment_and_plot_layers():
         player_name="林见微",
     )
     player_pov = scene.get_view_pov("林见微")
-    situation_state = SituationState()
 
     packet = system._refresh_situations(
         scene_state=scene,
         plot_state=plot_state,
-        situation_state=situation_state,
         player_name="林见微",
         player_pov=player_pov,
         timeline_packet=timeline,
@@ -606,7 +619,7 @@ def test_input_system_autonomously_builds_player_proposal_without_override():
             actor_states={"林见微": {"location": "沈宅客厅"}},
         )
     )
-    player = create_agent("林见微", "来客", "果断", [])
+    player = create_agent("林见微", "来客", "果断", [], agent_runtime="llm")
     registry = AgentRegistry()
     registry.register(player, Runtime())
 
@@ -637,6 +650,7 @@ def test_renderer_detects_ungrounded_dialogue():
 def test_renderer_uses_content_narration_policy_without_core_pacing_default():
     scenario = ScenarioConfig(
         name="安静场景",
+        default_agent_runtime="llm",
         description="测试",
         environment="空房间",
         initial_state="角色独处。",
@@ -1021,7 +1035,6 @@ def test_storylet_resolution_is_routed_by_matching_situations():
     situation_packet = system._refresh_situations(
         scene_state=scene,
         plot_state=plot_state,
-        situation_state=SituationState(),
         player_name="林见微",
         player_pov=player_pov,
         timeline_packet=timeline,
@@ -1055,7 +1068,7 @@ def test_fallback_summary_preserves_actor_proposal_without_story_heuristics():
 
 
 def test_web_adapter_shows_auto_player_action_when_no_manual_input():
-    adapter = WebGameAdapter(false_heiress_scenario)
+    adapter = WebGameAdapter(false_heiress_scenario, agent_runtime_factories=_bundled_runtime_factories())
     entry = adapter._build_history_entry(
         phase_trace={
             "player_intent": "我转向沈夫人，语气平静地开口：母亲，大哥……",
@@ -1070,7 +1083,7 @@ def test_web_adapter_shows_auto_player_action_when_no_manual_input():
 
 
 def test_web_adapter_exposes_same_bounded_player_decision_context():
-    adapter = WebGameAdapter(false_heiress_scenario)
+    adapter = WebGameAdapter(false_heiress_scenario, agent_runtime_factories=_bundled_runtime_factories())
     player_name = adapter._session.player_character_name
     cognition = adapter._session.entities[player_name].get_component("Cognition")
     cognition.secrets.append("只应留在完整私有认知中的秘密")
@@ -1114,7 +1127,7 @@ def _dormant_nonplayer_web_agents(adapter):
 
 
 def test_web_history_marks_authoritative_rollback_instead_of_fake_story_turn():
-    adapter = WebGameAdapter(false_heiress_scenario)
+    adapter = WebGameAdapter(false_heiress_scenario, agent_runtime_factories=_bundled_runtime_factories())
     _dormant_nonplayer_web_agents(adapter)
     adapter._session.runner.systems[2] = _WebAuthoritativeFailure()
 
@@ -1132,7 +1145,7 @@ def test_web_history_marks_authoritative_rollback_instead_of_fake_story_turn():
 
 
 def test_web_history_preserves_committed_world_when_delivery_fails():
-    adapter = WebGameAdapter(false_heiress_scenario)
+    adapter = WebGameAdapter(false_heiress_scenario, agent_runtime_factories=_bundled_runtime_factories())
     _dormant_nonplayer_web_agents(adapter)
     rendering_index = next(
         index

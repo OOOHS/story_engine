@@ -489,6 +489,7 @@ def test_runner_advances_by_completion_events_instead_of_global_one_action_round
 
     scenario = ScenarioConfig(
         name="事件测试",
+        default_agent_runtime="llm",
         description="两个动作具有不同耗时。",
         environment="房间与走廊",
         initial_state="甲与乙准备行动。",

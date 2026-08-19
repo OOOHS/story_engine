@@ -13,6 +13,7 @@ from src.story_engine.systems.input import InputSystem
 def _scenario():
     return ScenarioConfig(
         name="offer",
+        default_agent_runtime="llm",
         description="offer",
         environment="room",
         initial_state="open",
@@ -93,7 +94,8 @@ def test_offer_opportunity_is_pov_safe_and_only_visible_to_proposer():
 def test_asset_offer_catalog_does_not_leak_non_visible_objects():
     opportunities = AgreementOfferEngine().build_opportunities(
         ScenarioConfig(
-            name="seed", description="seed", environment="room",
+            name="seed",
+            default_agent_runtime="llm", description="seed", environment="room",
             initial_state="seed",
         ),
         actor_name="甲", scene_state=_Scene(), agreement_registry=None,
@@ -158,7 +160,8 @@ def test_host_compiler_replaces_model_terms_with_exact_template_terms():
 
 def test_world_state_generates_a_freeform_asset_offer_without_authored_template():
     scenario = ScenarioConfig(
-        name="market", description="market", environment="room",
+        name="market",
+        default_agent_runtime="llm", description="market", environment="room",
         initial_state="open", initial_actor_states={"甲": {}, "乙": {}},
         initial_world_objects={},
     )

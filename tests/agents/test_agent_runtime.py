@@ -27,7 +27,6 @@ from src.story_engine.components.planning import Planning
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
-from src.story_engine.components.situation_state import SituationState
 from src.story_engine.components.drive_state import DriveState
 from src.story_engine.components.goal_state import GoalRecord, GoalState
 from src.story_engine.core.component import Component
@@ -38,6 +37,10 @@ from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
 from src.story_engine.session import create_session
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.cognition import CognitionSystem
+
+_LLM_RUNTIME_FACTORIES = {
+    "llm": lambda entity, cfg: LLMCharacterAgent(llm_config=cfg.get("llm_config", {}))
+}
 
 
 class RecordingRuntime:
@@ -230,6 +233,7 @@ def test_registry_replaces_same_named_agent_without_leaking_old_runtime():
 def test_scenario_loader_registers_every_declared_character_as_agent():
     scenario = ScenarioConfig(
         name="最小种子",
+        default_agent_runtime="llm",
         description="两个角色在空房间里相遇。",
         environment="空房间",
         initial_state="甲与乙第一次见面。",
@@ -239,12 +243,12 @@ def test_scenario_loader_registers_every_declared_character_as_agent():
             "乙": {"location": "房间"},
         },
         characters=[
-            CharacterConfig(name="甲", role="访客", personality="好奇", goals=["了解乙"]),
-            CharacterConfig(name="乙", role="主人", personality="谨慎", goals=["保护秘密"]),
+            CharacterConfig(name="甲", role="访客", personality="好奇", goals=["了解乙"], agent_runtime="llm"),
+            CharacterConfig(name="乙", role="主人", personality="谨慎", goals=["保护秘密"], agent_runtime="llm"),
         ],
     )
 
-    session = create_session(scenario)
+    session = create_session(scenario, agent_runtime_factories=_LLM_RUNTIME_FACTORIES)
 
     assert len(session.runner.agent_registry) == 2
     assert session.runner.agent_registry.is_registered("甲")
@@ -258,6 +262,7 @@ def test_scenario_loader_registers_every_declared_character_as_agent():
 def test_scenario_loader_rejects_actor_bodies_without_character_agents():
     scenario = ScenarioConfig(
         name="孤儿身体",
+        default_agent_runtime="llm",
         description="场景声明了一个没有 Agent 的人物身体。",
         environment="空房间",
         initial_state="甲站在房间里。",
@@ -276,13 +281,14 @@ def test_scenario_loader_rejects_actor_bodies_without_character_agents():
 def test_scenario_loader_rejects_character_agents_without_world_bodies():
     scenario = ScenarioConfig(
         name="幽灵 Agent",
+        default_agent_runtime="llm",
         description="角色有 Agent 配置但没有世界身体。",
         environment="空房间",
         initial_state="甲尚未被放入世界。",
         initial_world_objects={"房间": {}},
         initial_actor_states={},
         characters=[
-            CharacterConfig(name="甲", role="访客", personality="好奇", goals=[])
+            CharacterConfig(name="甲", role="访客", personality="好奇", goals=[], agent_runtime="llm")
         ],
     )
 
@@ -296,13 +302,14 @@ def test_scenario_loader_rejects_character_agents_without_world_bodies():
 def test_scenario_loader_rejects_actor_body_outside_the_authored_world():
     scenario = ScenarioConfig(
         name="世界外身体",
+        default_agent_runtime="llm",
         description="角色身体引用了不存在的地点。",
         environment="空房间",
         initial_state="甲的位置无效。",
         initial_world_objects={"房间": {}},
         initial_actor_states={"甲": {"location": "不存在的走廊"}},
         characters=[
-            CharacterConfig(name="甲", role="访客", personality="好奇", goals=[])
+            CharacterConfig(name="甲", role="访客", personality="好奇", goals=[], agent_runtime="llm")
         ],
     )
 
@@ -316,16 +323,17 @@ def test_scenario_loader_rejects_actor_body_outside_the_authored_world():
 def test_full_session_fails_closed_if_a_live_runtime_binding_disappears():
     scenario = ScenarioConfig(
         name="运行时边界",
+        default_agent_runtime="llm",
         description="一个普通角色所在的房间。",
         environment="房间",
         initial_state="甲正在等待。",
         initial_world_objects={"房间": {}},
         initial_actor_states={"甲": {"location": "房间"}},
         characters=[
-            CharacterConfig(name="甲", role="居民", personality="平静", goals=[])
+            CharacterConfig(name="甲", role="居民", personality="平静", goals=[], agent_runtime="llm")
         ],
     )
-    session = create_session(scenario)
+    session = create_session(scenario, agent_runtime_factories=_LLM_RUNTIME_FACTORIES)
     before_time = session.simulation_time
     session.runner.unregister_agent(session.entities["甲"])
 
@@ -1681,6 +1689,7 @@ def test_memory_consolidation_runs_against_real_vector_store():
 def test_sessions_with_same_character_name_use_isolated_memory_collections():
     scenario = ScenarioConfig(
         name="记忆隔离",
+        default_agent_runtime="llm",
         description="两个独立 Session 不共享角色记忆。",
         environment="房间",
         initial_state="甲刚刚到场。",
@@ -1769,6 +1778,7 @@ def test_offscreen_agent_can_change_world_through_normal_simulation_over_many_tu
 
     scenario = ScenarioConfig(
         name="离屏世界",
+        default_agent_runtime="llm",
         description="玩家在旅馆时，守门人在城门继续生活。",
         environment="旅馆与城门相隔很远。",
         initial_state="一天开始了。",
@@ -1789,7 +1799,6 @@ def test_offscreen_agent_can_change_world_through_normal_simulation_over_many_tu
     gm.add_component(SimulationControl(scenario=scenario))
     gm.add_component(DramaState.from_config(scenario.drama))
     gm.add_component(PlotState.from_configs([]))
-    gm.add_component(SituationState())
     runner.add_entity(gm)
 
     player = create_agent(

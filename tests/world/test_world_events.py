@@ -36,9 +36,9 @@ def _world():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "甲": create_agent("甲", "受邀者", "谨慎", []),
-        "乙": create_agent("乙", "旁观者", "敏锐", []),
-        "丙": create_agent("丙", "远处的人", "平静", []),
+        "甲": create_agent("甲", "受邀者", "谨慎", [], agent_runtime="llm"),
+        "乙": create_agent("乙", "旁观者", "敏锐", [], agent_runtime="llm"),
+        "丙": create_agent("丙", "远处的人", "平静", [], agent_runtime="llm"),
     }
     return entities, scene
 

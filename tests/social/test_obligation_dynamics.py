@@ -75,7 +75,7 @@ def _base_result():
 
 
 def test_deadline_transitions_are_deterministic_and_apply_pressure_once():
-    apprentice = create_agent("学徒", "钟表学徒", "认真", [])
+    apprentice = create_agent("学徒", "钟表学徒", "认真", [], agent_runtime="llm")
     apprentice.add_component(_drive())
     apprentice.add_component(_obligations())
     entities = {"学徒": apprentice}
@@ -186,7 +186,7 @@ def test_scheduler_wakes_offscreen_actor_before_obligation_deadline():
                 "wake_before_steps": 2,
             }
         ],
-    )
+    agent_runtime="llm")
 
     activation = AgentScheduler().activation_for(
         apprentice,
@@ -404,7 +404,7 @@ def test_obligations_are_private_in_perception_and_removed_from_render_payload()
                 "due_step": 3,
             }
         ],
-    )
+    agent_runtime="llm")
     perception = InputSystem().build_agent_perception(
         apprentice,
         scene,
@@ -466,7 +466,7 @@ def test_simulation_system_commits_dynamic_obligation_to_actor_component():
         "认真",
         [],
         initial_needs=[{"name": "责任压力", "pressure": 0.2}],
-    )
+    agent_runtime="llm")
     clock = type("Clock", (), {"current_step": 2})()
     context = {
         "clock": clock,

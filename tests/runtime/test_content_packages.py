@@ -11,6 +11,23 @@ from src.story_engine.scenarios.config import ScenarioConfig
 from src.story_engine.session import create_session, load_scenario_reference
 
 
+class _StubHermesRuntime:
+    """Test double standing in for the real Hermes container runtime.
+
+    Bundled content declares agent_runtime="hermes"; these boundary tests
+    care about wiring (does every declared character resolve to a live
+    runtime and get registered), not about actually invoking Hermes or
+    Docker, so a minimal stand-in is enough.
+    """
+
+    def decide(self, entity, perception):
+        raise NotImplementedError("stub hermes runtime never decides in these tests")
+
+
+def _bundled_runtime_factories():
+    return {"hermes": lambda entity, runtime_config: _StubHermesRuntime()}
+
+
 BUNDLED_SCENARIOS = (
     (
         "src.story_engine_content.bundled.false_heiress",
@@ -45,7 +62,11 @@ def test_bundled_content_modules_export_valid_explicit_scenarios():
 def test_every_bundled_behavioral_character_gets_a_live_agent_runtime():
     for module_name, attribute in BUNDLED_SCENARIOS:
         scenario = getattr(importlib.import_module(module_name), attribute)
-        session = create_session(scenario, random_seed="content-package-boundary")
+        session = create_session(
+            scenario,
+            random_seed="content-package-boundary",
+            agent_runtime_factories=_bundled_runtime_factories(),
+        )
 
         for character in scenario.characters:
             entity = session.entities[character.name]
@@ -84,10 +105,12 @@ def test_bundled_sessions_do_not_share_runtime_registries_or_world_entities():
     first = create_session(
         getattr(importlib.import_module(first_module), first_attribute),
         random_seed="first-content",
+        agent_runtime_factories=_bundled_runtime_factories(),
     )
     second = create_session(
         getattr(importlib.import_module(second_module), second_attribute),
         random_seed="second-content",
+        agent_runtime_factories=_bundled_runtime_factories(),
     )
 
     assert first.runner.agent_registry is not second.runner.agent_registry

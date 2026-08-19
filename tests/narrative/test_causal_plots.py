@@ -29,6 +29,7 @@ def _bundle():
     )
     scenario = ScenarioConfig(
         name="因果规则",
+        default_agent_runtime="llm",
         description="探索者进入遗迹后剧情推进。",
         environment="村庄与遗迹",
         initial_state="探索者尚未进入遗迹。",
@@ -337,6 +338,7 @@ def test_prepared_character_body_participates_in_candidate_plot_causality():
         {},
         scene,
         {"name": "信使", "location": "村庄", "goals": ["送达警告"]},
+        agent_runtime="llm",
     )
     assert preparation.errors == []
     result = {

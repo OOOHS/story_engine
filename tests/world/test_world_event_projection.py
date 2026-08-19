@@ -35,9 +35,9 @@ def _world():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "甲": create_agent("甲", "持有者", "谨慎", []),
-        "乙": create_agent("乙", "同场者", "敏锐", []),
-        "丙": create_agent("丙", "远处的人", "平静", []),
+        "甲": create_agent("甲", "持有者", "谨慎", [], agent_runtime="llm"),
+        "乙": create_agent("乙", "同场者", "敏锐", [], agent_runtime="llm"),
+        "丙": create_agent("丙", "远处的人", "平静", [], agent_runtime="llm"),
     }
     return entities, scene
 
@@ -135,7 +135,7 @@ def test_moving_witness_keeps_origin_object_event_and_event_location():
 def test_newly_spawned_actor_does_not_witness_earlier_local_event():
     entities, scene = _world()
     scene.actor_states["新来者"] = {"location": "大厅"}
-    entities["新来者"] = create_agent("新来者", "新到者", "警觉", [])
+    entities["新来者"] = create_agent("新来者", "新到者", "警觉", [], agent_runtime="llm")
     context = _context(
         {
             "resolved_actions": [_action()],

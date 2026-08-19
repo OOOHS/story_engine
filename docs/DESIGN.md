@@ -129,9 +129,11 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - `inject_crisis`
 - `allow_release`
 
+这些指令以 `narrative_pressure` 进入 GM 结算输入。太平淡时 GM 可以提交 `plot_beat_proposals`，不能直接改 clock。
+
 ### PlotState
 
-将长线事件实体化成可推进的 clocks。
+将长线事件实体化成可推进的 clocks。内容包用 `plot_entities` + `plot_rules` 预写；运行时 GM 只能通过 `plot_beat_proposals` 开新线或挂 candidate beat（必须有触发条件和兑现 kind），不能写 `plot_updates`。登记后的 beat 在条件成立时进入 Storylet 机会；兑现后宿主才给运行时线程推进 clock。未推进的运行时线程会按 idle budget sunset。
 
 ## 五、系统职责
 
@@ -152,19 +154,14 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 ### StoryletEngine
 
-- 根据权威状态与 Situation 路由筛选可用 storylets
+- 根据权威状态与内部 Situation 投影路由筛选可用 storylets：将玩家前台、时间承诺、场景转换、事后余波和 plot pressure 投影为统一的、当轮即算即弃的 Situation（`refresh_situations`），按 focus score/可见性/状态排序，不再有独立的 SituationEngine/SituationState 组件或跨轮记忆
 - 排序叙事机会；不产生 `require_hit`、forced id 或本轮兑现要求
 - 在语义、不确定性和并发结果形成后，根据真实行动/模板/事实标签识别自然命中；事务成功后才处理 one-shot 消费
+- 纯环境性的 storylet（不需要具体角色决定）由 GM 直接结算成 `actor=World` 的事实并标注 `source_storylet_id`；需要具体角色决定的，才由 GM 发 `director_signals`
+- 运行时 `plot_beat_proposals` 登记的 beat 在条件匹配后与内容 storylet 走同一条机会/命中/消费路径，`storylet_id` 形如 `runtime:<plot_id>:<beat_id>`
 - GM 输出的 `storylet_hits` 属于越权声明，会被统一过滤
 - 不替角色选择行动，不直接修改世界
 - 作为 Simulation 的独立服务，避免主系统继续膨胀
-
-### SituationEngine
-
-- 将玩家前台、时间承诺、场景转换、事后余波和 plot pressure 投影为统一 Situation
-- 根据 focus score、可见性和状态排序当前叙事压力
-- 只读取世界与时间线，不执行角色行动
-- 为 Storylet 提供通用路由语义，避免剧本地点类型写进 SimulationSystem
 
 ### TimelineEngine
 

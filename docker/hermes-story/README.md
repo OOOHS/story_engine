@@ -38,7 +38,9 @@ Exactly one envelope is allowed. The Host rejects missing/duplicate markers,
 unsupported versions, mismatched agent ids, empty content and oversized stdout;
 it does not accept legacy `final_response` aliases or infer an action from logs.
 Hermes may return one direct executable action when it judges that no real
-deliberation is needed. Otherwise its content contains at least two genuinely
+deliberation is needed. The thin-shell system prompt assigns Hermes to
+*operate* that character's next action from persona and evidence; it does
+not ask the model to inhabit the character in the first person. Otherwise its content contains at least two genuinely
 distinct internal `candidates`, each with a `motive_lens`, structured
 `intent_signature`, finite utility and executable action. The project-owned
 Hermes adapter samples those candidates privately in two stages (lens, then

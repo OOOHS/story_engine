@@ -9,6 +9,248 @@ class StoryletEngine:
     but it does not make character decisions or mutate the world directly.
     """
 
+    def refresh_situations(
+        self,
+        scene_state: Any,
+        plot_state: Any,
+        player_name: Any,
+        player_pov: Dict[str, Any],
+        timeline_packet: Dict[str, Any],
+        current_step: int,
+    ) -> Dict[str, Any]:
+        """Project world/timeline/plot state into ranked situations.
+
+        Purely a same-turn projection used to score storylet relevance;
+        it holds no cross-turn state of its own.
+        """
+        if not scene_state or not player_name:
+            return {}
+        situations: List[Dict[str, Any]] = []
+        frontstage = self._frontstage(scene_state, player_name, player_pov, timeline_packet)
+        if frontstage:
+            situations.append(frontstage)
+        situations.extend(
+            self._commitments(scene_state, player_name, timeline_packet, current_step)
+        )
+        transition = self._transition(player_name, timeline_packet)
+        if transition:
+            situations.append(transition)
+        aftermath = self._aftermath(player_name, timeline_packet)
+        if aftermath:
+            situations.append(aftermath)
+        situations.extend(self._plots(plot_state, current_step))
+
+        deduped = {
+            str(item.get("situation_id", "")).strip(): item
+            for item in situations
+            if isinstance(item, dict) and str(item.get("situation_id", "")).strip()
+        }
+        ranked = sorted(deduped.values(), key=self._situation_sort_key, reverse=True)
+        return {
+            "focus_situation": deepcopy(ranked[0]) if ranked else {},
+            "active_situations": deepcopy(ranked[:8]),
+            "player_visible_situations": [
+                deepcopy(item)
+                for item in ranked
+                if str(item.get("visibility", "")).strip() in {"player_visible", "rumor"}
+            ][:8],
+            "background_situations": [
+                deepcopy(item)
+                for item in ranked
+                if str(item.get("visibility", "")).strip() not in {"player_visible", "rumor"}
+            ][:8],
+            "resolved_situations": [],
+        }
+
+    def _frontstage(self, scene_state, player_name, player_pov, timeline):
+        location = player_pov.get("location")
+        if not location:
+            return {}
+        location_state = scene_state.get_object_state(location)
+        phase = str(timeline.get("day_phase", "")).strip()
+        actor_states = scene_state.get_actors_in_location(location)
+        participants = [str(item).strip() for item in player_pov.get("visible_actors", []) if str(item).strip()]
+        tags = self._collect_situation_tags(
+            "frontstage",
+            phase,
+            str(location_state.get("kind", "")).strip(),
+            "player_visible",
+            location_state.get("tags", []),
+        )
+        if len(participants) > 1:
+            tags.extend(["social", "public"])
+        if any(
+            isinstance(state, dict)
+            and any(state.get(key) for key in ("bias", "framing_style", "territorial", "side_with"))
+            for actor, state in actor_states.items()
+            if actor != player_name
+        ):
+            tags.extend(["pressure", "bias"])
+        for actor, state in actor_states.items():
+            if actor == player_name or not isinstance(state, dict):
+                continue
+            profile = str(state.get("pressure_profile", "")).strip()
+            if profile:
+                tags.append(profile)
+        return {
+            "situation_id": f"frontstage:{location}",
+            "kind": "frontstage",
+            "status": "active",
+            "visibility": "player_visible",
+            "location": location,
+            "time_window": {"phase": phase, "start_step": int(timeline.get("phase_turn", 0) or 0)},
+            "participants": participants,
+            "cause": f"玩家当前正在{location}面对眼前局面。",
+            "stakes": [],
+            "tags": self._dedupe_texts(tags),
+            "source": {"type": "player_pov", "id": location},
+            "focus_score": 120 + max(0, len(participants) - 1) * 8,
+        }
+
+    def _commitments(self, scene_state, player_name, timeline, current_step):
+        situations = []
+        player_location = scene_state.get_actor_location(player_name)
+        due_ids = {
+            str(item.get("commitment_id", "")).strip()
+            for item in timeline.get("due_commitments", [])
+            if isinstance(item, dict)
+        }
+        seen = set()
+        for item in list(timeline.get("due_commitments", [])) + list(timeline.get("upcoming_commitments", [])):
+            if not isinstance(item, dict):
+                continue
+            commitment_id = str(item.get("commitment_id", "")).strip()
+            if not commitment_id or commitment_id in seen:
+                continue
+            seen.add(commitment_id)
+            location = item.get("location")
+            location_state = scene_state.get_object_state(location) if location else {}
+            phase = str(item.get("phase", "")).strip()
+            status = str(item.get("status", "")).strip() or (
+                "active" if commitment_id in due_ids else "scheduled"
+            )
+            participants = [
+                str(actor).strip()
+                for actor in item.get("participants", [])
+                if str(actor).strip()
+            ]
+            if item.get("player_relevant") and player_name not in participants:
+                participants.append(str(player_name))
+            visibility = "player_visible" if location and player_location == location else (
+                "rumor" if item.get("player_relevant") else "hidden"
+            )
+            tags = self._collect_situation_tags(
+                "commitment",
+                phase,
+                str(location_state.get("kind", "")).strip(),
+                visibility,
+                location_state.get("tags", []),
+            )
+            if item.get("player_relevant"):
+                tags.append("player_relevant")
+            if status in {"due", "active"}:
+                tags.append("due")
+            situations.append(
+                {
+                    "situation_id": f"commitment:{commitment_id}",
+                    "kind": "commitment",
+                    "status": "active" if status in {"due", "active"} else "scheduled",
+                    "visibility": visibility,
+                    "location": location,
+                    "time_window": {"phase": phase, "due_step": int(item.get("due_step", current_step) or current_step)},
+                    "participants": participants,
+                    "cause": str(item.get("summary", "")).strip() or str(item.get("title", "")).strip(),
+                    "stakes": [],
+                    "tags": self._dedupe_texts(tags),
+                    "source": {"type": "commitment", "id": commitment_id},
+                    "focus_score": 95 if item.get("player_relevant") else 58,
+                }
+            )
+        return situations
+
+    def _transition(self, player_name, timeline):
+        pressure = timeline.get("transition_pressure", {}) if isinstance(timeline, dict) else {}
+        if not isinstance(pressure, dict) or not pressure.get("active"):
+            return {}
+        participants = [str(player_name)] + [
+            str(actor).strip() for actor in pressure.get("carrier_actors", []) if str(actor).strip()
+        ]
+        return {
+            "situation_id": f"transition:{pressure.get('commitment_id', 'unknown')}",
+            "kind": "transition",
+            "status": "active",
+            "visibility": "player_visible",
+            "location": pressure.get("player_location"),
+            "time_window": {"phase": str(pressure.get("phase", "")).strip()},
+            "participants": self._dedupe_texts(participants),
+            "cause": str(pressure.get("title", "")).strip() or str(pressure.get("note", "")).strip(),
+            "stakes": ["reputation"],
+            "tags": self._dedupe_texts(["transition", "absence", "backlash", pressure.get("phase", "")]),
+            "source": {"type": "transition", "id": pressure.get("commitment_id")},
+            "focus_score": 165,
+        }
+
+    def _aftermath(self, player_name, timeline):
+        missed = timeline.get("last_missed_commitment") if isinstance(timeline, dict) else None
+        if not isinstance(missed, dict) or not missed.get("commitment_id"):
+            return {}
+        return {
+            "situation_id": f"aftermath:{missed.get('commitment_id')}",
+            "kind": "aftermath",
+            "status": "active",
+            "visibility": "rumor",
+            "location": missed.get("location"),
+            "time_window": {"phase": str(missed.get("phase", "")).strip()},
+            "participants": [str(player_name)],
+            "cause": str(missed.get("note", "")).strip(),
+            "stakes": ["reputation"],
+            "tags": self._dedupe_texts(["aftermath", "absence", missed.get("phase", "")]),
+            "source": {"type": "missed_commitment", "id": missed.get("commitment_id")},
+            "focus_score": 82,
+        }
+
+    def _plots(self, plot_state, current_step):
+        if not plot_state or not hasattr(plot_state, "get_pressure_packets"):
+            return []
+        situations = []
+        for item in plot_state.get_pressure_packets():
+            if not isinstance(item, dict):
+                continue
+            plot_id = str(item.get("plot_id", "")).strip()
+            clock = int(item.get("clock", 0) or 0)
+            if not plot_id or clock <= 0:
+                continue
+            situations.append(
+                {
+                    "situation_id": f"plot:{plot_id}",
+                    "kind": "plot_pressure",
+                    "status": "active",
+                    "visibility": "hidden",
+                    "location": None,
+                    "time_window": {"step": current_step, "stage": str(item.get("stage", "")).strip()},
+                    "participants": [],
+                    "cause": str(item.get("summary", "")).strip(),
+                    "stakes": [],
+                    "tags": self._dedupe_texts(["plot_pressure"] + list(item.get("tags", []))),
+                    "source": {"type": "plot", "id": plot_id},
+                    "focus_score": 46 + min(clock, 4) * 4,
+                }
+            )
+        return situations
+
+    def _collect_situation_tags(self, kind, phase, location_kind, visibility, content_tags=None):
+        return self._dedupe_texts([kind, visibility, phase, location_kind] + list(content_tags or []))
+
+    def _dedupe_texts(self, items):
+        seen = set()
+        result = []
+        for item in items or []:
+            text = str(item).strip()
+            if text and text not in seen:
+                seen.add(text)
+                result.append(text)
+        return result
+
     def resolve(
         self,
         scene_state: Any,
@@ -68,6 +310,15 @@ class StoryletEngine:
                 }
             )
 
+        active.extend(
+            self._resolve_runtime_beats(
+                scene_state=scene_state,
+                plot_state=plot_state,
+                consumed=consumed,
+                situation_packet=situation_packet or {},
+            )
+        )
+
         active.sort(
             key=lambda item: (
                 int(item.get("priority", 0) or 0),
@@ -77,6 +328,72 @@ class StoryletEngine:
             ),
             reverse=True,
         )
+        return active
+
+    def _resolve_runtime_beats(
+        self,
+        scene_state: Any,
+        plot_state: Any,
+        consumed: Set[str],
+        situation_packet: Dict[str, Any],
+    ) -> List[Dict[str, Any]]:
+        if not plot_state or not hasattr(plot_state, "plots"):
+            return []
+        focus_situation_id = str(
+            (situation_packet or {}).get("focus_situation", {}).get("situation_id", "")
+        ).strip()
+        active: List[Dict[str, Any]] = []
+        for plot_id, plot in (plot_state.plots or {}).items():
+            if not isinstance(plot, dict) or plot.get("status") == "sunset":
+                continue
+            for beat in plot.get("candidate_beats", []) or []:
+                if not isinstance(beat, dict):
+                    continue
+                beat_id = str(beat.get("beat_id", "")).strip()
+                if not beat_id:
+                    continue
+                storylet_id = plot_state.runtime_storylet_id(str(plot_id), beat_id)
+                if beat.get("one_shot", True) and storylet_id in consumed:
+                    continue
+                conditions = [
+                    item for item in (beat.get("conditions") or []) if isinstance(item, dict)
+                ]
+                if not conditions:
+                    continue
+                if not all(
+                    scene_state.matches_condition(condition, plot_state=plot_state)
+                    for condition in conditions
+                ):
+                    continue
+                effect = beat.get("effect") if isinstance(beat.get("effect"), dict) else {}
+                kind = str(beat.get("kind", "environment")).strip() or "environment"
+                active.append(
+                    {
+                        "storylet_id": storylet_id,
+                        "intent": str(beat.get("intent", "")).strip(),
+                        "priority": 60,
+                        "tags": ["runtime_beat", kind],
+                        "situation_kinds": [],
+                        "situation_tags": [],
+                        "matched_situation_ids": [],
+                        "focus_situation_match": bool(focus_situation_id),
+                        "situation_score": 0,
+                        "runtime_beat": True,
+                        "one_shot": bool(beat.get("one_shot", True)),
+                        "plot_id": str(plot_id),
+                        "beat_id": beat_id,
+                        "kind": kind,
+                        "beat": {
+                            "beat_type": kind,
+                            "visibility": str(effect.get("visibility", "public") or "public"),
+                            "preferred_actors": list(effect.get("preferred_actors") or []),
+                            "preferred_template_ids": [],
+                            "required_flags": [],
+                            "target_actor": effect.get("target_actor"),
+                            "stake": str(effect.get("stake", "") or ""),
+                        },
+                    }
+                )
         return active
 
     def build_packet(
@@ -178,6 +495,9 @@ class StoryletEngine:
         storylet: Dict[str, Any],
         result: Dict[str, Any],
     ) -> bool:
+        storylet_id = str(storylet.get("storylet_id", "")).strip()
+        if storylet_id and self._cited_by_source_storylet_id(storylet_id, result):
+            return True
         beat = storylet.get("beat", {})
         if isinstance(beat, dict) and beat:
             return self._beat_realized(beat, result)
@@ -199,6 +519,31 @@ class StoryletEngine:
             if isinstance(item, dict)
         )
         return bool(intent_tokens and any(token in resolved_text for token in intent_tokens))
+
+    def _cited_by_source_storylet_id(
+        self,
+        storylet_id: str,
+        result: Dict[str, Any],
+    ) -> bool:
+        """The resolver directly settled this storylet as a fact (actor=World
+        resolved_action / state_updates / object_lifecycle) and cited it by
+        id -- that is an authoritative claim about which opportunity was
+        realized, not a heuristic guess, so it short-circuits the fuzzy
+        tag/actor matching below.
+        """
+        for action in result.get("resolved_actions", []) or []:
+            if (
+                isinstance(action, dict)
+                and str(action.get("source_storylet_id", "")).strip() == storylet_id
+            ):
+                return True
+        for operation in result.get("object_lifecycle", []) or []:
+            if (
+                isinstance(operation, dict)
+                and str(operation.get("source_storylet_id", "")).strip() == storylet_id
+            ):
+                return True
+        return False
 
     def _beat_realized(
         self,
@@ -288,14 +633,35 @@ class StoryletEngine:
         matches.sort(key=self._situation_sort_key, reverse=True)
         return matches
 
-    def consumable_hits(self, scenario: Any, hits: List[str]) -> List[str]:
-        if not hits or not scenario:
+    def consumable_hits(
+        self,
+        scenario: Any,
+        hits: List[str],
+        active_storylets: List[Dict[str, Any]] | None = None,
+    ) -> List[str]:
+        if not hits:
             return []
-        storylet_map = {item.storylet_id: item for item in scenario.storylets}
+        storylet_map = {
+            item.storylet_id: item
+            for item in (getattr(scenario, "storylets", None) or [])
+        }
+        runtime_map = {
+            str(item.get("storylet_id", "")).strip(): item
+            for item in (active_storylets or [])
+            if isinstance(item, dict) and item.get("runtime_beat")
+        }
         consumable: List[str] = []
         for storylet_id in hits:
             storylet = storylet_map.get(storylet_id)
             if storylet and storylet.one_shot and storylet_id not in consumable:
+                consumable.append(storylet_id)
+                continue
+            runtime = runtime_map.get(str(storylet_id).strip())
+            if (
+                runtime
+                and runtime.get("one_shot", True)
+                and storylet_id not in consumable
+            ):
                 consumable.append(storylet_id)
         return consumable
 

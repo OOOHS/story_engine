@@ -861,8 +861,8 @@ def test_contract_terms_are_private_to_parties_and_removed_from_rendering():
         step=0,
         proposal_actors={"甲"},
     ).committed
-    alice = create_agent("甲", "商人", "谨慎", [])
-    observer = create_agent("旁观者", "路人", "平静", [])
+    alice = create_agent("甲", "商人", "谨慎", [], agent_runtime="llm")
+    observer = create_agent("旁观者", "路人", "平静", [], agent_runtime="llm")
     input_system = InputSystem()
     agreement_registry = AgreementRegistry()
     agreement_registry.apply_book(contracts)
@@ -915,14 +915,14 @@ def test_near_expiry_offer_wakes_background_party_but_not_dormant():
         [],
         activation_policy="background",
         background_interval=99,
-    )
+    agent_runtime="llm")
     dormant = create_agent(
         "甲",
         "商人",
         "谨慎",
         [],
         activation_policy="dormant",
-    )
+    agent_runtime="llm")
     scheduler = AgentScheduler()
 
     activation = scheduler.activation_for(
@@ -970,6 +970,7 @@ def test_simulation_system_persists_offer_across_steps_and_settles_later_accepta
     )
     scenario = ScenarioConfig(
         name="契约因果",
+        default_agent_runtime="llm",
         description="跨回合接受推动剧情",
         environment="集市",
         initial_state="报价尚未接受",

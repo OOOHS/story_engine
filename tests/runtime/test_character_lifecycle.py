@@ -58,6 +58,7 @@ def test_dynamic_character_enters_entity_world_and_agent_registry_together():
         },
         player_name="玩家",
         agent_registry=registry,
+        agent_runtime="llm",
     )
     assert prepared.errors == []
     assert lifecycle.stage(scene, prepared.plan) == []
@@ -89,6 +90,7 @@ def test_invalid_spawn_location_falls_back_to_player_location():
         scene,
         {"name": "陌生人", "location": "不存在的月球基地"},
         player_name="玩家",
+        agent_runtime="llm",
     )
 
     assert prepared.errors == []
@@ -111,6 +113,7 @@ def test_dynamic_character_limit_prevents_unbounded_llm_spawning():
         scene,
         {"name": "后来者", "location": "广场"},
         player_name="玩家",
+        agent_runtime="llm",
     )
 
     assert prepared.plan is None
@@ -126,6 +129,7 @@ def test_spawn_without_any_valid_location_is_rejected():
         scene,
         {"name": "幽灵", "location": "不存在"},
         player_name=None,
+        agent_runtime="llm",
     )
 
     assert prepared.plan is None
@@ -153,6 +157,7 @@ def _simulation_entities(result):
     )
     scenario = ScenarioConfig(
         name="动态角色因果测试",
+        default_agent_runtime="llm",
         description="信使真实出现后推进到达状态。",
         environment="酒馆",
         initial_state="信使尚未到达。",

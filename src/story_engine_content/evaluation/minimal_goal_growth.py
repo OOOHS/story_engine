@@ -89,6 +89,7 @@ class NarrativeRenderer(Component):
 def build_minimal_goal_growth_scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="最小目标生长",
+        default_agent_runtime="goal-growth",
         description="一个已完成目标自然产生下一步私人追求。",
         environment="一间有出口的封闭房间。",
         initial_state="旅人需要先取得旧钥匙。",

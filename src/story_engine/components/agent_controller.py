@@ -13,7 +13,8 @@ class AgentController(Component):
     a particular agent framework (Hermes, a direct LLM client, or a human UI).
     """
 
-    runtime: str = "llm"
+    # No default: every AgentController must state which runtime backs it.
+    runtime: str
     autonomous: bool = True
     activation_policy: Literal["auto", "foreground", "background", "dormant"] = "auto"
     background_interval: int = Field(default=3, ge=1)

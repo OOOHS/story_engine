@@ -26,6 +26,7 @@ class SimulationControl(Component):
 def _scenario():
     return ScenarioConfig(
         name="自然命中测试",
+        default_agent_runtime="llm",
         description="Storylet 只观察已经发生的行动。",
         environment="大厅",
         initial_state="甲乙都在大厅。",

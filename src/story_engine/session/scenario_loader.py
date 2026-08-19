@@ -10,7 +10,7 @@ from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.components.narrative_renderer import NarrativeRenderer
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.plot_state import PlotState
-from src.story_engine.components.situation_state import SituationState
+from src.story_engine.components.public_pressure_state import PublicPressureState
 from src.story_engine.components.observation import Observation
 from src.story_engine.components.memory import Memory
 from src.story_engine.components.relationship import RelationshipBit
@@ -93,7 +93,7 @@ def create_gm(scenario: ScenarioConfig, *, memory_namespace: str = "") -> Entity
     ))
     gm.add_component(DramaState.from_config(scenario.drama))
     gm.add_component(PlotState.from_configs(scenario.plot_entities))
-    gm.add_component(SituationState())
+    gm.add_component(PublicPressureState())
     gm.add_component(Observation())
     gm.add_component(
         Memory(agent_name="GameMaster", namespace=memory_namespace)

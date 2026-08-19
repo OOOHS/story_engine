@@ -1,7 +1,7 @@
 import json
 from typing import Any, Callable, Dict, Protocol
 
-from src.story_engine.agents.llm_runtime import LLMCharacterAgent
+from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.subject import (
     GumbelSubjectSampler,
     SubjectActionOption,
@@ -40,7 +40,6 @@ class HermesCharacterAgent:
     ) -> None:
         self._factory = conversation_factory
         self._config = config or {}
-        self._prompt_builder = LLMCharacterAgent(llm_config={})
         self._conversations: Dict[str, HermesConversation] = {}
         self._inboxes: Dict[str, SubjectInbox] = {}
         self._ledger_projectors: Dict[str, SubjectLedgerProjector] = {}
@@ -164,8 +163,7 @@ class HermesCharacterAgent:
                 metadata=self._subject_metadata(data),
             )
 
-        parsed = self._prompt_builder._parse_decision(content, strict_json=True)
-        action = parsed.normalized_action()
+        action = AgentAction.from_value(data.get("action"), strict=True)
         if not action.detail:
             raise ValueError("Hermes subject returned no executable action")
         count = self._turn_counts.get(entity.id, 0) + 1

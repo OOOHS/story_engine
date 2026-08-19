@@ -26,6 +26,7 @@ class WaitRuntime:
 def _session():
     scenario = ScenarioConfig(
         name="步骤回滚测试",
+        default_agent_runtime="llm",
         description="验证系统异常不会留下半状态",
         environment="一间安静的大厅。",
         initial_state="甲在大厅中。",

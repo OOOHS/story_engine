@@ -21,7 +21,7 @@ def _public_world(count: int = 16, budget: int = 5, reverse: bool = False):
     gm.add_component(scene)
     entities = {"GameMaster": gm}
     for name in ordered:
-        entities[name] = create_agent(name, "居民", "平静", [])
+        entities[name] = create_agent(name, "居民", "平静", [], agent_runtime="llm")
     return entities, scene, names
 
 
@@ -165,8 +165,8 @@ def test_public_event_local_witness_bypasses_zero_general_budget():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "现场者": create_agent("现场者", "旅人", "警觉", []),
-        "远方者": create_agent("远方者", "居民", "平静", []),
+        "现场者": create_agent("现场者", "旅人", "警觉", [], agent_runtime="llm"),
+        "远方者": create_agent("远方者", "居民", "平静", [], agent_runtime="llm"),
     }
     context = {
         "clock": SimpleNamespace(current_step=6),

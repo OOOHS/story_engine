@@ -23,6 +23,7 @@ from src.story_engine.scenarios.config import (
 false_heiress_scenario = ScenarioConfig(
     name="真假千金",
     description="你是刚被沈家认回的亲生女儿林见微。回到这栋华丽又陌生的房子后，你很快发现：假千金并不打算让位，而父母、哥哥与她的未婚夫，似乎都本能地站在她那一边。",
+    default_agent_runtime="hermes",
     physics_profile="mundane",
     environment="""
     [海城 · 沈宅]
@@ -833,6 +834,7 @@ false_heiress_scenario = ScenarioConfig(
     characters=[
         CharacterConfig(
             name="林见微",
+            agent_runtime="hermes",
             role="沈家刚认回的亲生女儿",
             personality="敏感、克制、自尊心强，习惯先观察后开口。你不想乞求施舍般的亲情，但也不会轻易放弃属于自己的位置。",
             goals=[
@@ -877,6 +879,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="沈昭宁",
+            agent_runtime="hermes",
             role="沈家养大的千金（假的）",
             personality="聪明、漂亮、擅长示弱和把握分寸。她最怕失去位置，因此会把自己包装成最委屈、最懂事的那个人。",
             goals=[
@@ -906,6 +909,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="沈先生",
+            agent_runtime="hermes",
             role="父亲",
             personality="严厉、讲秩序、看重结果和脸面。即使知道林见微是亲生的，也不习惯立刻把感情给她。",
             goals=[
@@ -932,6 +936,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="沈夫人",
+            agent_runtime="hermes",
             role="母亲",
             personality="讲究分寸、重礼数、情绪藏得很深。她对林见微有亏欠，却更本能地维护自己亲手养大的沈昭宁。",
             goals=[
@@ -959,6 +964,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="沈砚川",
+            agent_runtime="hermes",
             role="哥哥",
             personality="冷静、护短、不喜欢失控。他默认沈昭宁是自己妹妹很多年，因此会下意识站在她那边。",
             goals=[
@@ -985,6 +991,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="陆承泽",
+            agent_runtime="hermes",
             role="沈昭宁的未婚夫",
             personality="沉稳、审慎、看重旧情与熟悉感。他不一定故意为难林见微，但在关键时刻多半会先替沈昭宁解释。",
             goals=[
@@ -1011,6 +1018,7 @@ false_heiress_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="周姨",
+            agent_runtime="hermes",
             role="管家/家中老人",
             personality="谨慎、心软、嘴严。她知道旧事比别人多一点，也更容易对林见微生出怜惜，但不敢明着站队。",
             goals=[

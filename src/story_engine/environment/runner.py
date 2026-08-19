@@ -26,7 +26,7 @@ from src.story_engine.systems import (
     WorldEventSystem,
 )
 from src.story_engine.systems.memory import MemorySystem
-from src.story_engine.agents import AgentRegistry, CharacterAgentRuntime, LLMCharacterAgent
+from src.story_engine.agents import AgentRegistry, CharacterAgentRuntime
 from src.story_engine.environment.action_queue import ActionEventQueue
 from src.story_engine.environment.host_mutations import HostMutationTransaction
 from src.story_engine.environment.step_checkpoint import RunnerStepCheckpoint
@@ -96,11 +96,10 @@ class Runner:
         self.check_resolver = HostCheckResolver(self.random_streams)
         self.host_mutation_transaction = HostMutationTransaction()
         self._pending_delivery: DeliveryReceipt | None = None
-        self.agent_runtime_factories: Dict[str, AgentRuntimeFactory] = {
-            "llm": lambda entity, runtime_config: LLMCharacterAgent(
-                llm_config=runtime_config.get("llm_config", {})
-            )
-        }
+        # Deliberately no built-in default runtime. A character with no
+        # matching entry in this table fails loudly in register_agent()
+        # instead of silently falling back to any particular runtime.
+        self.agent_runtime_factories: Dict[str, AgentRuntimeFactory] = {}
         self.agent_runtime_factories.update(agent_runtime_factories or {})
         self.logger = logger
         self.modifier_system = ModifierSystem(modifier_definitions)

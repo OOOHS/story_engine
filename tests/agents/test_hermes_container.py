@@ -46,6 +46,61 @@ def _entrypoint_module():
     return module
 
 
+def test_hermes_system_prompt_assigns_an_agent_to_operate_the_character():
+    prompt = _entrypoint_module().SUBJECT_SYSTEM_PROMPT
+    assert "assigned to one character" in prompt
+    assert "Choose the next intentional action" in prompt
+    assert "You are one character inside" not in prompt
+    assert "You are not the fictional person" in prompt
+
+
+def test_container_factory_always_requests_memory_toolset():
+    factory = make_hermes_container_runtime_factory(
+        HermesContainerConfig(allowed_toolsets=("memory", "file")),
+        command_runner=lambda *args, **kwargs: None,
+    )
+    entity = create_agent(
+        name="测试者",
+        role="旅客",
+        personality="谨慎",
+        goals=[],
+        agent_runtime="hermes",
+        agent_config={"enabled_toolsets": ["file"]},
+    )
+    runtime = factory(entity, entity.get_component("AgentController").config)
+    conversation = runtime._factory(entity, {})
+    assert conversation.requested_toolsets == ("memory", "file")
+    assert conversation.enabled_toolsets == ("memory", "file")
+
+
+def test_container_factory_memory_request_respects_explicit_allowlist():
+    factory = make_hermes_container_runtime_factory(
+        HermesContainerConfig(allowed_toolsets=("file",)),
+        command_runner=lambda *args, **kwargs: None,
+    )
+    entity = create_agent(
+        name="测试者",
+        role="旅客",
+        personality="谨慎",
+        goals=[],
+        agent_runtime="hermes",
+        agent_config={"enabled_toolsets": ["file"]},
+    )
+    runtime = factory(entity, entity.get_component("AgentController").config)
+    conversation = runtime._factory(entity, {})
+    assert conversation.requested_toolsets == ("memory", "file")
+    assert conversation.enabled_toolsets == ("file",)
+
+
+def test_container_conversation_filters_requested_toolsets_by_allowlist():
+    conversation = HermesContainerConversation(
+        "x",
+        HermesContainerConfig(allowed_toolsets=("file",)),
+        requested_toolsets=("memory", "file"),
+    )
+    assert conversation.enabled_toolsets == ("file",)
+
+
 def test_container_conversation_builds_shell_free_command_and_parses_markers():
     calls = []
 
@@ -524,7 +579,10 @@ def test_hermes_runtime_rejects_json_without_an_executable_action():
     )
     runtime = factory(entity, entity.get_component("AgentController").config)
 
-    with pytest.raises(ValueError, match="no executable action"):
+    with pytest.raises(
+        ValueError,
+        match="structured agent action must be an object with kind",
+    ):
         runtime.decide(entity, AgentPerception(actor_name="观察者", step=1))
 
 

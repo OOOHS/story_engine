@@ -356,6 +356,19 @@ class WorldStateTransaction:
                     deepcopy(working_result.get("plot_updates", [])),
                     current_step=current_step,
                 )
+                if hasattr(staged_plot, "apply_beat_proposals"):
+                    staged_plot.apply_beat_proposals(
+                        list(working_result.get("plot_beat_proposals") or []),
+                        current_step=int(current_step),
+                        known_actors=(
+                            set(staged_scene.actor_states) if staged_scene else None
+                        ),
+                    )
+                self._consume_runtime_beats(
+                    staged_plot,
+                    consumed_storylet_ids or [],
+                    current_step=int(current_step),
+                )
             if staged_drama:
                 staged_drama.apply_delta(tension_delta)
         except Exception as exc:
@@ -423,6 +436,26 @@ class WorldStateTransaction:
             scene_state.update_scene_flags({"consumed_storylets": normalized})
         return errors
 
+    def _consume_runtime_beats(
+        self,
+        plot_state: Any,
+        storylet_ids: List[str],
+        *,
+        current_step: int,
+    ) -> None:
+        if plot_state is None or not hasattr(plot_state, "parse_runtime_storylet_id"):
+            return
+        for raw_id in storylet_ids or []:
+            parsed = plot_state.parse_runtime_storylet_id(raw_id)
+            if not parsed:
+                continue
+            plot_id, beat_id = parsed
+            plot_state.consume_beat(
+                plot_id,
+                beat_id,
+                current_step=int(current_step),
+            )
+
     def sanitize_rejected_result(
         self,
         result: Dict[str, Any],
@@ -448,6 +481,7 @@ class WorldStateTransaction:
         sanitized["drive_updates"] = []
         sanitized["drive_creations"] = []
         sanitized["director_signals"] = []
+        sanitized["plot_beat_proposals"] = []
         sanitized["obligation_updates"] = []
         sanitized["contract_updates"] = []
         sanitized["agreement_updates"] = []

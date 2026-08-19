@@ -4,6 +4,7 @@ from contextlib import redirect_stdout
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
+from src.story_engine.agents import default_hermes_runtime_factories
 from src.story_engine.session import create_session, Session
 from src.story_engine.scenarios.config import ScenarioConfig
 
@@ -14,9 +15,22 @@ class WebGameAdapter:
     The engine remains unaware of HTTP, templates, and frontend concerns.
     """
 
-    def __init__(self, scenario: ScenarioConfig, title: Optional[str] = None):
+    def __init__(
+        self,
+        scenario: ScenarioConfig,
+        title: Optional[str] = None,
+        *,
+        agent_runtime_factories: Optional[Dict[str, Any]] = None,
+    ):
         self._scenario = scenario
         self._title = title or scenario.name
+        # Defaults to the real Hermes container runtime; callers (e.g. tests)
+        # may override with a stub without reintroducing a silent fallback.
+        self._agent_runtime_factories = (
+            agent_runtime_factories
+            if agent_runtime_factories is not None
+            else default_hermes_runtime_factories()
+        )
         self._lock = Lock()
         self._session: Session
         self._history: List[Dict[str, Any]]
@@ -134,7 +148,10 @@ class WebGameAdapter:
     def _reset_locked(self) -> None:
         output = io.StringIO()
         with redirect_stdout(output):
-            self._session = create_session(self._scenario)
+            self._session = create_session(
+                self._scenario,
+                agent_runtime_factories=self._agent_runtime_factories,
+            )
         self._boot_log = output.getvalue().strip()
         self._history = [
             self._to_public_entry({

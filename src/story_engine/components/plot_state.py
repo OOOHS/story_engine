@@ -1,7 +1,11 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pydantic import Field
 from src.story_engine.core.component import Component
 from src.story_engine.scenarios.config import PlotEntityConfig
+
+
+RUNTIME_STORYLET_PREFIX = "runtime"
+MAX_CANDIDATE_BEATS_PER_THREAD = 8
 
 
 class PlotState(Component):
@@ -179,7 +183,13 @@ class PlotState(Component):
         plot.setdefault("candidate_beats", []).append(dict(beat))
         return True
 
-    def consume_beat(self, plot_id: str, beat_id: str) -> bool:
+    def consume_beat(
+        self,
+        plot_id: str,
+        beat_id: str,
+        *,
+        current_step: Optional[int] = None,
+    ) -> bool:
         plot = self.plots.get(str(plot_id or ""))
         if not plot:
             return False
@@ -187,7 +197,104 @@ class PlotState(Component):
         remaining = [item for item in beats if str(item.get("beat_id", "")) != str(beat_id)]
         consumed = len(remaining) != len(beats)
         plot["candidate_beats"] = remaining
+        if consumed and current_step is not None:
+            plot["last_advanced_step"] = int(current_step)
+            # Authored clocks still move only via causal plot rules. Runtime
+            # threads have no authored rules, so realizing a beat is the host
+            # edge that proves the thread is not idle.
+            if str(plot.get("opened_reason", "")).strip() not in {"", "authored"}:
+                plot["clock"] = min(
+                    int(plot.get("max_clock", 0) or 0),
+                    max(0, int(plot.get("clock", 0) or 0) + 1),
+                )
         return consumed
+
+    @staticmethod
+    def runtime_storylet_id(plot_id: str, beat_id: str) -> str:
+        return f"{RUNTIME_STORYLET_PREFIX}:{plot_id}:{beat_id}"
+
+    @staticmethod
+    def parse_runtime_storylet_id(storylet_id: str) -> Optional[Tuple[str, str]]:
+        text = str(storylet_id or "").strip()
+        prefix = f"{RUNTIME_STORYLET_PREFIX}:"
+        if not text.startswith(prefix):
+            return None
+        rest = text[len(prefix):]
+        plot_id, separator, beat_id = rest.partition(":")
+        if not separator or not plot_id.strip() or not beat_id.strip():
+            return None
+        return plot_id.strip(), beat_id.strip()
+
+    def apply_beat_proposals(
+        self,
+        proposals: List[Dict[str, Any]],
+        *,
+        current_step: int,
+        known_actors: Optional[set] = None,
+    ) -> List[str]:
+        """Soft-apply compiled GM beat proposals. Never raises."""
+        skipped: List[str] = []
+        actors = {str(item).strip() for item in (known_actors or set()) if str(item).strip()}
+        for index, proposal in enumerate(proposals or []):
+            if not isinstance(proposal, dict):
+                skipped.append(f"plot_beat_proposals[{index}]:not_an_object")
+                continue
+            plot_id = str(proposal.get("plot_id", "")).strip()
+            beat_id = str(proposal.get("beat_id", "")).strip()
+            if not plot_id or not beat_id:
+                skipped.append(f"plot_beat_proposals[{index}]:missing_id")
+                continue
+            open_thread = proposal.get("open_thread")
+            if isinstance(open_thread, dict):
+                if plot_id in self.plots:
+                    skipped.append(f"plot_beat_proposals[{index}]:plot_exists")
+                    continue
+                participants = [
+                    str(item).strip()
+                    for item in (open_thread.get("participants") or [])
+                    if str(item).strip() and (not actors or str(item).strip() in actors)
+                ]
+                try:
+                    self.create_thread(
+                        plot_id,
+                        str(open_thread.get("title", "") or plot_id),
+                        str(open_thread.get("description", "")),
+                        opened_reason=str(open_thread.get("opened_reason", "")),
+                        current_step=int(current_step),
+                        participants=participants,
+                    )
+                except ValueError:
+                    skipped.append(f"plot_beat_proposals[{index}]:open_thread")
+                    continue
+            elif plot_id not in self.plots:
+                skipped.append(f"plot_beat_proposals[{index}]:unknown_plot")
+                continue
+            plot = self.plots.get(plot_id) or {}
+            if plot.get("status") == "sunset":
+                skipped.append(f"plot_beat_proposals[{index}]:sunset")
+                continue
+            existing = plot.get("candidate_beats", []) or []
+            if len(existing) >= MAX_CANDIDATE_BEATS_PER_THREAD:
+                skipped.append(f"plot_beat_proposals[{index}]:beat_cap")
+                continue
+            beat = {
+                "beat_id": beat_id,
+                "intent": str(proposal.get("intent", "")).strip(),
+                "kind": str(proposal.get("kind", "environment")).strip(),
+                "conditions": [
+                    dict(item)
+                    for item in (proposal.get("conditions") or [])
+                    if isinstance(item, dict)
+                ],
+                "one_shot": bool(proposal.get("one_shot", True)),
+                "effect": dict(proposal.get("effect") or {})
+                if isinstance(proposal.get("effect"), dict)
+                else {},
+                "opened_step": int(current_step),
+            }
+            if not self.register_candidate_beat(plot_id, beat):
+                skipped.append(f"plot_beat_proposals[{index}]:duplicate_or_missing")
+        return skipped
 
     def add_open_hook(self, plot_id: str, hook: str) -> bool:
         plot = self.plots.get(str(plot_id or ""))

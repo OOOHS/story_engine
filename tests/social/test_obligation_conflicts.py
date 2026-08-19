@@ -204,8 +204,8 @@ def test_only_debtor_receives_private_conflict_analysis():
             _location_obligation("north", "去北站", "北站", 1),
             _location_obligation("south", "去南站", "南站", 1),
         ],
-    )
-    bystander = create_agent("北站收件人", "收件人", "平静", [])
+    agent_runtime="llm")
+    bystander = create_agent("北站收件人", "收件人", "平静", [], agent_runtime="llm")
 
     messenger_perception = InputSystem().build_agent_perception(
         messenger,
@@ -239,7 +239,7 @@ def test_near_conflict_wakes_background_agent_but_dormant_policy_still_wins():
             _location_obligation("north", "去北站", "北站", 1),
             _location_obligation("south", "去南站", "南站", 1),
         ],
-    )
+    agent_runtime="llm")
     dormant = create_agent(
         "休眠信使",
         "信使",
@@ -272,7 +272,7 @@ def test_near_conflict_wakes_background_agent_but_dormant_policy_still_wins():
                 ],
             },
         ],
-    )
+    agent_runtime="llm")
     scene.actor_states["休眠信使"] = {"location": "起点"}
     scheduler = AgentScheduler()
 
@@ -318,7 +318,7 @@ def test_far_conflict_does_not_force_background_inference_before_horizon():
             _location_obligation("north", "去北站", "北站", 20),
             _location_obligation("island", "去孤岛", "孤岛", 20),
         ],
-    )
+    agent_runtime="llm")
 
     reason = AgentScheduler()._urgent_obligation_conflict(
         messenger,

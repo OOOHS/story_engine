@@ -634,6 +634,7 @@ def test_exchange_ownership_participates_in_same_turn_causal_plot():
     )
     scenario = ScenarioConfig(
         name="交换因果",
+        default_agent_runtime="llm",
         description="交换推动剧情",
         environment="集市",
         initial_state="钥匙仍在乙手中",

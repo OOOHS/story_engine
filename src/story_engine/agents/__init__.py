@@ -6,6 +6,7 @@ from .hermes_container import (
     HermesContainerConversation,
     HermesInvocationBudget,
     HermesInvocationBudgetExceeded,
+    default_hermes_runtime_factories,
     make_hermes_container_runtime_factory,
 )
 from .llm_runtime import LLMCharacterAgent
@@ -47,6 +48,7 @@ __all__ = [
     "HermesInvocationBudget",
     "HermesInvocationBudgetExceeded",
     "HermesConversation",
+    "default_hermes_runtime_factories",
     "LLMCharacterAgent",
     "ObservationMode",
     "RegisteredAgent",

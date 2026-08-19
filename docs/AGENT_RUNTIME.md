@@ -43,9 +43,9 @@ ScenarioConfig                     # 故事种子：人物、地点、初态、�
 - `AgentScheduler`：决定角色本轮是前台、后台还是休眠，不负责修改世界。
 - `Cognition`：角色私有的主观信念、秘密、承诺和关注点。
 
-默认的 `LLMCharacterAgent` 是进程内实现。它不是引擎特权组件，只是一个可以被替换的 runtime。
+`LLMCharacterAgent` 是进程内实现，但**不是默认 runtime**：`Runner` 不会自动注册它，也没有任何角色/场景字段会隐式指向它。它是一个显式的逃生通道——手工拼一次性 prompt、单轮无状态 LLM 调用，没有跨轮记忆和多候选权衡——只有调用方显式传入 `agent_runtime_factories={"llm": ...}` 才会被用到，适合临时本地跑通或不关心角色认知质量的单测。`CharacterConfig.agent_runtime`、`AgentController.runtime` 均为必填字段，没有默认值；找不到匹配 factory 会在 `register_agent()` 直接报错，不会静默退化到任何 runtime。
 
-Hermes 采用更强的 subject-owned 边界：`CharacterEntity` 是世界中的身体和法律/资产锚点，长程 `HermesCharacterAgent` 是该角色的私有心智。Host 只投递 POV-safe 身体视图、可执行能力、被动刺激与主动任务结果；Hermes 持有跨轮 conversation、JSON memory、注意、评价、动机和计划，并只向 Host 提交一个最终行动 proposal。普通 LLM runtime 暂时保留旧的 Host candidate policy 作为兼容路径，不能据此把 Hermes 重新降级为候选生成器。
+Hermes 采用更强的 subject-owned 边界：`CharacterEntity` 是世界中的身体和法律/资产锚点，长程 `HermesCharacterAgent` 是被指派给该角色的决策过程。Host 只投递 POV-safe 身体视图、可执行能力、被动刺激与主动任务结果；Hermes 按人设、私有知识和本轮证据选择这个人物的下一步，持有跨轮 conversation、JSON memory、注意、评价、动机和计划，并只向 Host 提交一个最终行动 proposal。提示词把 Hermes 写成“负责这个人物的行动”，而不是“你就是这个人”；自治性仍由“只有该角色的 agent 能提交其 proposal”保证。普通 LLM runtime 暂时保留旧的 Host candidate policy 作为兼容路径，不能据此把 Hermes 重新降级为候选生成器。
 
 Hermes subject 目前已有 `SubjectInbox` 基础层：被动观察、主动观察结果和世界信号以稳定 message id 去重，只有形成合法决策后才确认；失败调用保留消息供重试。消息按 Host 可验证的基础优先级排序，但“人格/目标相关的注意竞争、异步运行中抢占和自然衰退”仍是待实现的 Global Workspace 层，当前不能宣称已经完成。
 
@@ -125,11 +125,11 @@ from src.story_engine.agents import (
 )
 
 factory = make_hermes_container_runtime_factory(
-    HermesContainerConfig(
-        image="hermes-story:latest",
-        allowed_toolsets=("file",),
+        HermesContainerConfig(
+            image="hermes-story:latest",
+            allowed_toolsets=("memory",),
+        )
     )
-)
 
 session = create_session(
     scenario,
@@ -148,9 +148,9 @@ session = create_session(
     "subject_id": "entity uuid",
     "wake": {"step": 12, "body": {}, "visible_world": {}},
     "messages": [],
-    "identity_bootstrap": "仅首轮存在"
+    "identity_bootstrap": "仅首轮存在，含 persona_constraints"
   },
-  "enabled_toolsets": ["file"]
+  "enabled_toolsets": ["memory"]
 }
 ```
 
@@ -318,7 +318,7 @@ Runtime candidate 可以附带最多八个 `motive_refs`，当前接受 `{"kind"
 
 Runtime 可以依据 `private_sentiments` 理解“为什么我刚刚对乙感到受伤或怀疑”，但不能自行写持续时间、效用权重或长期关系值。Simulation 的 `social_impacts` 必须引用 affected 亲自可观察的已提交 source 行动；SentimentSystem 在宿主副本上原子创建/积累感受，随后让固定目录中的少量效果沉淀到 affected→source Relationship Tracks。宿主会忽略模型自报的 `source_event`，以已验证 action 节点替换；Agreement 的权威履约 transition 则引用独立的 performance resolution。Track provenance 指回 actor-qualified Sentiment，因而审计层可以保留完整社会后果链。
 
-语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates`、`plot_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。Plot 只能由候选世界状态触发 `CausalPlotEngine`，长期关系只能由宿主社会规则沉淀。
+语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates`、`plot_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。已有 Plot 的钟只能由候选世界状态触发 `CausalPlotEngine`；GM 可用 `plot_beat_proposals` 登记带条件的新剧情点，但不能直接写 clock。长期关系只能由宿主社会规则沉淀。
 
 Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系、Plot、Agreement、Obligation 和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
 
@@ -402,7 +402,7 @@ Simulation 完成后，`CognitionSystem` 会把结构化结果归档为角色经
 
 角色间的秘密传播使用显式 `knowledge_updates`。发送者必须此前确实知道该陈述、与接收者同地点，并且本轮存在发送者的已结算交流行动；满足条件后，陈述只进入指定接收者的私有 belief，并记录来源与置信度。普通对白不会让所有角色自动获得知识。
 
-默认 LLM runtime 会解析可选的 `plan / focus / belief_updates / commitments` 字段。角色配置中的 `system_instruction_extras` 只进入角色 prompt，不再被误传给模型 provider 作为未知网络参数。
+默认 LLM runtime 会解析可选的 `plan / focus / belief_updates / commitments` 字段。角色配置中的 `system_instruction_extras` 进入 Hermes 首轮 `identity_bootstrap.persona_constraints`（以及显式 LLM runtime 的角色 prompt），不再被误传给模型 provider 作为未知网络参数。
 
 动态角色首先必须持有宿主签发的 `character_entry` capability。授权只能来自本轮 `inject_events` 或到期的 Timeline commitment，固定 authorization id、name、role、location、initial_state、runtime 侧配置和私有初始事实；授权不随 prompt 跨步持久化。`profile_mode=fixed` 时 GM 不能改人物表征，`semantic` 时也只能补充 personality 与自然语言 goals，不能制造携带物、能力、秘密或地点。无授权、过期或已消费的 spawn 请求会被忽略并记入 `character_entry_rejections`，不会牺牲同轮其他合法行动。
 

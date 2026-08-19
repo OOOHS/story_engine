@@ -10,18 +10,32 @@ from src.story_engine.agents.types import (
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.components.identity import Identity
 from src.story_engine.core.entity import Entity
+from src.story_engine.core.logger import logger
 from src.story_engine.llm.provider import LLMProvider
 
 
 class LLMCharacterAgent:
-    """Default in-process character runtime.
+    """Explicit opt-in escape hatch, not a default character runtime.
 
-    This is intentionally a thin implementation of the generic agent contract.
-    A Hermes-backed runtime can replace it without changing InputSystem or the
-    authoritative simulation loop.
+    This hand-assembles a single-shot prompt from ``AgentPerception`` and
+    makes one stateless LLM call per turn: no persistent memory, no tool
+    use, no multi-candidate deliberation. It exists for quick local runs
+    and unit tests that need *some* runtime and do not care about character
+    cognition quality. Story Engine no longer registers this as a default
+    runtime anywhere -- a caller must explicitly pass
+    ``agent_runtime_factories={"llm": ...}`` (or similar) to ``Runner`` to
+    use it. Prefer a real agent framework (e.g. the Hermes container
+    runtime in ``hermes_container.py``) for anything beyond throwaway runs.
     """
 
     def __init__(self, llm_config: Dict[str, Any] | None = None) -> None:
+        logger.warning(
+            "LLMCharacterAgent instantiated: this is a hand-rolled, "
+            "single-shot prompt escape hatch, not a real agent framework. "
+            "It must be explicitly registered (e.g. "
+            "agent_runtime_factories={'llm': ...}) -- it is never a "
+            "silent default."
+        )
         provider_config = dict(llm_config or {})
         self._instruction_extras = str(
             provider_config.pop("system_instruction_extras", "") or ""

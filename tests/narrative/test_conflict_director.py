@@ -16,6 +16,7 @@ class Clock:
 def _scenario():
     return ScenarioConfig(
         name="冲突测试",
+        default_agent_runtime="llm",
         description="测试冲突节奏。",
         environment="大厅",
         initial_state="两人意见不合。",

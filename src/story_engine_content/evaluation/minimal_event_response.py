@@ -199,6 +199,7 @@ class NarrativeRenderer(Component):
 def build_minimal_event_response_scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="最小事件响应链",
+        default_agent_runtime="event-response",
         description="一次客观缺席事件经真实转述产生新的角色行动。",
         environment="礼堂与相邻办公室组成的最小世界。",
         initial_state="公开仪式即将开始，缺席者仍在办公室。",

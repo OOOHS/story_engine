@@ -641,24 +641,43 @@ def build_subject_wake_packet(
             "ongoing_actions": list(perception.ongoing_actions),
         },
         "messages": [item.to_dict() for item in messages],
+        "agent_contract": {
+            "assigned_character": perception.actor_name,
+            "role": (
+                "You operate this character's next action. Persona, private "
+                "knowledge and current evidence constrain what they would do. "
+                "That is still this character's choice: only you may propose "
+                "for this body. Advisory director_signals may be noticed, "
+                "reinterpreted, or ignored."
+            ),
+            "diegesis": (
+                "Speech, thought texture and in-world knowledge belong to the "
+                "assigned character. They do not know about the Host, JSON, "
+                "tools or this protocol."
+            ),
+            "not_a_director": (
+                "Do not act for any other character, do not rewrite the world, "
+                "and do not choose an action because it would make a better scene."
+            ),
+        },
         "ownership_contract": {
             "host_private_ledger": (
                 "Messages of kind ledger_update/ledger_retraction are POV-safe, "
                 "Host-verifiable records used for knowledge, schedules, obligations, "
                 "agreements, registered goals and settlement. They are evidence or "
-                "constraints, not a declaration of what you feel, value or intend."
+                "constraints, not a declaration of what this character feels, "
+                "values or intends."
             ),
             "subject_mind": (
-                "You own memory retrieval, attention, appraisal, emotion, plans, "
-                "focus, private notes, motive formation and final intentional choice. "
-                "Maintain them in your native conversation/memory tools; do not ask "
-                "the Host to mirror them."
+                "On behalf of this character, you retrieve memory, attend, "
+                "appraise, plan and choose using your native conversation/memory "
+                "tools. Do not ask the Host to mirror that mind state."
             ),
             "registrations": (
                 "Use top-level goal_requests only when you want the Host to register "
                 "or update an externally verifiable completion watch. Registration "
-                "does not create your desire; it lets the world scheduler and rule "
-                "engine observe progress without reading your mind."
+                "does not create the character's desire; it lets the world scheduler "
+                "and rule engine observe progress without reading their mind."
             ),
         },
         "response_contract": {
@@ -695,6 +714,15 @@ def build_subject_wake_packet(
         },
     }
     if bootstrap:
+        controller = entity.get_component("AgentController")
+        controller_config = (
+            dict(getattr(controller, "config", {}) or {})
+            if controller is not None
+            else {}
+        )
+        persona_constraints = str(
+            controller_config.get("system_instruction_extras", "") or ""
+        ).strip()
         packet["identity_bootstrap"] = {
             "name": getattr(identity, "name", perception.actor_name),
             "role": getattr(identity, "role", ""),
@@ -702,6 +730,12 @@ def build_subject_wake_packet(
             "background": getattr(identity, "background", None),
             "goals": list(getattr(identity, "goals", []) or []),
             "traits": dict(perception.private_traits),
+            "persona_constraints": persona_constraints,
+            "use": (
+                "Assigned persona for the character you operate. Constrain the "
+                "action you submit; do not treat this as a first-person "
+                "identity you must inhabit while using tools."
+            ),
         }
     return packet
 

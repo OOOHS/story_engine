@@ -263,7 +263,7 @@ def test_agent_perception_contains_only_its_private_drives_and_visible_affordanc
             {"name": "hunger", "pressure": 0.8, "drift_per_turn": 0.1}
         ],
         risk_tolerance=0.2,
-    )
+    agent_runtime="llm")
 
     perception = InputSystem().build_agent_perception(
         traveler,
@@ -289,7 +289,7 @@ def test_drive_system_advances_each_component_once_per_clock_step():
         initial_needs=[
             {"name": "hunger", "pressure": 0.2, "drift_per_turn": 0.1}
         ],
-    )
+    agent_runtime="llm")
     clock = type("Clock", (), {"current_step": 4})()
     context = {"clock": clock}
     system = DriveSystem()
@@ -319,7 +319,7 @@ def test_simulation_system_commits_resource_use_and_private_need_effect_together
         "务实",
         ["活下去"],
         initial_needs=[{"name": "hunger", "pressure": 0.8}],
-    )
+    agent_runtime="llm")
     entities = {"GameMaster": gm, "旅人": traveler}
     context = {
         "intents": [{"actor": "旅人", "intent": "吃掉一份面包"}],
@@ -344,6 +344,7 @@ def test_simulation_system_reads_emergent_meter_budget_from_scenario():
             scripted_result=scripted,
             scenario=ScenarioConfig(
                 name="test",
+                default_agent_runtime="llm",
                 description="test",
                 environment="test",
                 initial_state="",
@@ -360,7 +361,7 @@ def test_simulation_system_reads_emergent_meter_budget_from_scenario():
         "务实",
         ["活下去"],
         initial_needs=[{"name": "hunger", "pressure": 0.8}],
-    )
+    agent_runtime="llm")
     entities = {"GameMaster": gm, "旅人": traveler}
     context = {
         "intents": [{"actor": "旅人", "intent": "吃掉一份面包"}],

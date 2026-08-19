@@ -12,7 +12,6 @@ from src.story_engine.environment.world_transaction import (
 from src.story_engine.narrative import (
     ConflictDirector,
     CausalPlotEngine,
-    SituationEngine,
     StoryletEngine,
     TimelineEngine,
 )
@@ -39,7 +38,6 @@ class SimulationSystem(System):
     def __init__(self) -> None:
         super().__init__()
         self.storylets = StoryletEngine()
-        self.situations = SituationEngine()
         self.timeline = TimelineEngine()
         self.legality = LegalityEngine()
         self.conflicts = ConflictDirector()
@@ -78,7 +76,6 @@ class SimulationSystem(System):
             relationship_book = (
                 relation_registry.to_relationship_book() if relation_registry else None
             )
-            situation_state = entity.get_component("SituationState")
             scenario = getattr(simulation, "scenario", None)
             player_name = scenario.player_character_name if scenario else None
             current_step = context.get("clock").current_step if context.get("clock") else 0
@@ -99,7 +96,6 @@ class SimulationSystem(System):
             situation_packet = self._refresh_situations(
                 scene_state=scene_state,
                 plot_state=plot_state,
-                situation_state=situation_state,
                 player_name=player_name,
                 player_pov=player_pov,
                 timeline_packet=timeline_packet,
@@ -203,6 +199,16 @@ class SimulationSystem(System):
                     context.get("character_spawn_authorizations", [])
                 ),
                 "plot_threads": plot_packets,
+                "storylet_opportunities": self._build_storylet_opportunities(
+                    active_storylets
+                ),
+                "narrative_pressure": {
+                    "directive": str(director_packet.get("directive", "") or ""),
+                    "instruction": str(director_packet.get("instruction", "") or ""),
+                    "tension": director_packet.get("tension"),
+                }
+                if director_packet
+                else {},
             }
 
             semantic_result = simulation.simulate(input_payload)
@@ -357,6 +363,7 @@ class SimulationSystem(System):
                 entities,
                 scene_state,
                 entry_resolution.request,
+                agent_runtime=getattr(scenario, "default_agent_runtime", ""),
                 player_name=player_name,
                 agent_registry=context.get("agent_registry"),
                 memory_namespace=context.get("memory_namespace"),
@@ -423,6 +430,7 @@ class SimulationSystem(System):
                     consumed_storylet_ids=self.storylets.consumable_hits(
                         scenario,
                         result.get("storylet_hits", []),
+                        active_storylets=active_storylets,
                     ),
                     emergent_meter_budget=int(
                         getattr(scenario, "emergent_meter_budget", 0) or 0
@@ -521,7 +529,6 @@ class SimulationSystem(System):
                 situation_packet = self._refresh_situations(
                     scene_state=scene_state,
                     plot_state=plot_state,
-                    situation_state=situation_state,
                     player_name=player_name,
                     player_pov=player_pov,
                     timeline_packet=timeline_packet,
@@ -975,16 +982,14 @@ class SimulationSystem(System):
         self,
         scene_state: Any,
         plot_state: Any,
-        situation_state: Any,
         player_name: Any,
         player_pov: Dict[str, Any],
         timeline_packet: Dict[str, Any],
         current_step: int,
     ) -> Dict[str, Any]:
-        return self.situations.refresh(
+        return self.storylets.refresh_situations(
             scene_state=scene_state,
             plot_state=plot_state,
-            situation_state=situation_state,
             player_name=player_name,
             player_pov=player_pov,
             timeline_packet=timeline_packet,
@@ -998,7 +1003,7 @@ class SimulationSystem(System):
         player_pov: Dict[str, Any],
         timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
-        return self.situations._frontstage(
+        return self.storylets._frontstage(
             scene_state, player_name, player_pov, timeline_packet
         )
 
@@ -1009,7 +1014,7 @@ class SimulationSystem(System):
         timeline_packet: Dict[str, Any],
         current_step: int,
     ) -> List[Dict[str, Any]]:
-        return self.situations._commitments(
+        return self.storylets._commitments(
             scene_state, player_name, timeline_packet, current_step
         )
 
@@ -1018,17 +1023,17 @@ class SimulationSystem(System):
         player_name: Any,
         timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
-        return self.situations._transition(player_name, timeline_packet)
+        return self.storylets._transition(player_name, timeline_packet)
 
     def _build_aftermath_situation(
         self,
         player_name: Any,
         timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
-        return self.situations._aftermath(player_name, timeline_packet)
+        return self.storylets._aftermath(player_name, timeline_packet)
 
     def _build_plot_situations(self, plot_state: Any, current_step: int) -> List[Dict[str, Any]]:
-        return self.situations._plots(plot_state, current_step)
+        return self.storylets._plots(plot_state, current_step)
 
     def _collect_situation_tags(
         self,
@@ -1038,15 +1043,15 @@ class SimulationSystem(System):
         visibility: str,
         content_tags: Any = None,
     ) -> List[str]:
-        return self.situations.collect_tags(
+        return self.storylets._collect_situation_tags(
             kind, phase, location_kind, visibility, content_tags
         )
 
     def _situation_sort_key(self, item: Dict[str, Any]) -> Any:
-        return self.situations.sort_key(item)
+        return self.storylets._situation_sort_key(item)
 
     def _dedupe_texts(self, items: List[Any]) -> List[str]:
-        return self.situations.dedupe(items)
+        return self.storylets._dedupe_texts(items)
 
     def _build_storylet_packet(
         self,
@@ -1061,6 +1066,37 @@ class SimulationSystem(System):
             current_step=current_step,
             situation_packet=situation_packet,
         )
+
+    def _build_storylet_opportunities(
+        self,
+        active_storylets: List[Dict[str, Any]],
+        limit: int = 5,
+    ) -> List[Dict[str, Any]]:
+        """Trim active_storylets down to what a resolver needs to decide
+        whether a director_signal is warranted: what the opportunity is,
+        who it concerns, what's at stake. Not authoritative content and not
+        an instruction -- the resolver can act on it, ignore it, or note
+        that no in-scene actor is a good fit.
+        """
+        opportunities: List[Dict[str, Any]] = []
+        for item in (active_storylets or [])[:limit]:
+            if not isinstance(item, dict):
+                continue
+            beat = item.get("beat", {}) if isinstance(item.get("beat", {}), dict) else {}
+            opportunities.append(
+                {
+                    "storylet_id": item.get("storylet_id", ""),
+                    "intent": item.get("intent", ""),
+                    "tags": list(item.get("tags", [])),
+                    "kind": item.get("kind") or "",
+                    "plot_id": item.get("plot_id") or "",
+                    "preferred_actors": list(beat.get("preferred_actors", [])),
+                    "target_actor": beat.get("target_actor"),
+                    "stake": beat.get("stake", ""),
+                    "visibility": beat.get("visibility", "public"),
+                }
+            )
+        return opportunities
 
     def _pick_salient_storylet(
         self,

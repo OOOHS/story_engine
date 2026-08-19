@@ -49,7 +49,7 @@ def _register_scene_actors(runner: Runner, scene: SceneState) -> None:
             "平静",
             [],
             activation_policy="dormant",
-        )
+        agent_runtime="llm")
         runner.add_entity(actor)
         runner.agent_registry.register(actor, object())
 
@@ -203,9 +203,9 @@ def test_committed_local_route_change_becomes_a_pov_safe_world_event():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "旅人": create_agent("旅人", "行路者", "警觉", []),
-        "旁观者": create_agent("旁观者", "守卫", "沉着", []),
-        "远人": create_agent("远人", "居民", "平静", []),
+        "旅人": create_agent("旅人", "行路者", "警觉", [], agent_runtime="llm"),
+        "旁观者": create_agent("旁观者", "守卫", "沉着", [], agent_runtime="llm"),
+        "远人": create_agent("远人", "居民", "平静", [], agent_runtime="llm"),
     }
     goal_state = entities["旅人"].get_component("GoalState")
     adopted, error = goal_state.adopt_agent_goal(

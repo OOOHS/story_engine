@@ -405,6 +405,7 @@ def test_invalid_claim_batch_does_not_publish_valid_discovery():
 def test_public_claims_are_shared_but_secret_claims_remain_selective():
     scenario = ScenarioConfig(
         name="Claim 种子",
+        default_agent_runtime="llm",
         description="验证公开与秘密命题。",
         environment="房间",
         initial_state="两人同处一室。",

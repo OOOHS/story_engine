@@ -263,6 +263,7 @@ def test_hermes_subject_owns_sampling_and_host_receives_one_committed_action():
         personality="骄傲而好奇",
         goals=["查明信封的去向"],
         agent_runtime="hermes",
+        agent_config={"system_instruction_extras": "从不在室内奔跑。"},
     )
     conversation = _SubjectConversation(entity.id, [_deliberation()])
     runtime = HermesCharacterAgent(
@@ -298,6 +299,10 @@ def test_hermes_subject_owns_sampling_and_host_receives_one_committed_action():
     assert selection.action == decision.action_spec
     packet = conversation.packets[0]
     assert packet["identity_bootstrap"]["name"] == "伊芙"
+    assert packet["identity_bootstrap"]["persona_constraints"] == "从不在室内奔跑。"
+    assert packet["agent_contract"]["assigned_character"] == "伊芙"
+    assert "operate this character's next action" in packet["agent_contract"]["role"]
+    assert "You are one character inside" not in json.dumps(packet)
     assert packet["messages"][0]["message_id"] == "evt-envelope"
     snapshot = runtime.subject_snapshot(entity)
     assert snapshot["inbox"]["pending"] == []

@@ -37,7 +37,7 @@ def _scene():
 
 def test_upcoming_schedule_wakes_offscreen_agent_without_moving_it():
     scene = _scene()
-    entity = create_agent("甲", "来宾", "谨慎", [])
+    entity = create_agent("甲", "来宾", "谨慎", [], agent_runtime="llm")
 
     activation = AgentScheduler().activation_for(
         entity,

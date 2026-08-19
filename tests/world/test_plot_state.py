@@ -191,3 +191,87 @@ def test_get_pressure_packets_skips_sunset_threads():
     packet_ids = {packet["plot_id"] for packet in plot_state.get_pressure_packets()}
     assert "southern_drought" not in packet_ids
     assert "succession_crisis" in packet_ids
+
+
+def test_consume_beat_advances_runtime_clock_but_not_authored_clock():
+    plot_state = _authored_plot_state()
+    plot_state.create_thread(
+        "southern_drought", "南方旱情", "", opened_reason="粮价连续走高", current_step=1
+    )
+    plot_state.register_candidate_beat(
+        "southern_drought", {"beat_id": "letter", "intent": "求援信"}
+    )
+    plot_state.register_candidate_beat(
+        "succession_crisis", {"beat_id": "rumor", "intent": "传闻"}
+    )
+
+    assert plot_state.consume_beat(
+        "southern_drought", "letter", current_step=4
+    ) is True
+    assert plot_state.consume_beat(
+        "succession_crisis", "rumor", current_step=4
+    ) is True
+
+    runtime = plot_state.get_snapshot()["southern_drought"]
+    authored = plot_state.get_snapshot()["succession_crisis"]
+    assert runtime["clock"] == 1
+    assert runtime["last_advanced_step"] == 4
+    assert authored["clock"] == 0
+    assert authored["last_advanced_step"] == 4
+
+
+def test_apply_beat_proposals_opens_thread_and_registers_beat():
+    plot_state = _authored_plot_state()
+    skipped = plot_state.apply_beat_proposals(
+        [
+            {
+                "plot_id": "southern_drought",
+                "beat_id": "visitor_letter",
+                "intent": "一封求援信出现在粮仓",
+                "kind": "environment",
+                "conditions": [
+                    {
+                        "scope": "world_object",
+                        "target": "求援信",
+                        "path": "",
+                        "operator": "exists",
+                    }
+                ],
+                "effect": {"visibility": "local"},
+                "open_thread": {
+                    "title": "南方旱情",
+                    "description": "粮仓告急",
+                    "opened_reason": "连续三名角色抱怨粮价",
+                    "participants": ["守卫甲", "幽灵"],
+                },
+            }
+        ],
+        current_step=7,
+        known_actors={"守卫甲"},
+    )
+
+    assert skipped == []
+    thread = plot_state.get_snapshot()["southern_drought"]
+    assert thread["opened_reason"] == "连续三名角色抱怨粮价"
+    assert thread["participants"] == ["守卫甲"]
+    assert thread["candidate_beats"][0]["beat_id"] == "visitor_letter"
+
+
+def test_apply_beat_proposals_skips_unknown_plot_without_open_thread():
+    plot_state = _authored_plot_state()
+    skipped = plot_state.apply_beat_proposals(
+        [
+            {
+                "plot_id": "missing",
+                "beat_id": "x",
+                "intent": "x",
+                "conditions": [
+                    {"scope": "scene", "path": "scene_flags.alarm", "operator": "eq", "value": True}
+                ],
+            }
+        ],
+        current_step=1,
+    )
+
+    assert skipped == ["plot_beat_proposals[0]:unknown_plot"]
+    assert "missing" not in plot_state.plots

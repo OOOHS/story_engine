@@ -25,8 +25,8 @@ class HermesEpisodeConfig:
     docker_binary: str = "docker"
     timeout_seconds: float = 180.0
     network_mode: str = "bridge"
-    allowed_toolsets: Tuple[str, ...] = field(default_factory=tuple)
-    requested_toolsets: Tuple[str, ...] = field(default_factory=tuple)
+    allowed_toolsets: Tuple[str, ...] = ("memory",)
+    requested_toolsets: Tuple[str, ...] = ("memory",)
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
@@ -51,6 +51,7 @@ def create_hermes_episode_session(
 
     policy = config or HermesEpisodeConfig()
     bound_scenario = deepcopy(scenario)
+    bound_scenario.default_agent_runtime = "hermes"
     for character in bound_scenario.characters:
         character.agent_runtime = "hermes"
         character.agent_config = {

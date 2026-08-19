@@ -63,10 +63,34 @@ class SemanticAuthorityFilter:
         "medium": 0.06,
         "high": 0.12,
     }
+    # Governs how much a missed/breached obligation costs the debtor's
+    # pressure_need. Same philosophy as DRIVE_SCALE: the resolver names a
+    # qualitative severity tier when creating the obligation, the host owns
+    # what number that tier means -- it cannot tune the exact cost of its
+    # own deadline to the decimal.
+    OBLIGATION_DUE_SCALE = {
+        "light": 0.05,
+        "moderate": 0.12,
+        "severe": 0.22,
+    }
+    OBLIGATION_BREACH_SCALE = {
+        "light": 0.1,
+        "moderate": 0.2,
+        "severe": 0.35,
+    }
     # A hard, small ceiling so the GM cannot turn "one soft nudge" into a
     # directive stream across every actor in a single tick.
     MAX_DIRECTOR_SIGNALS_PER_TICK = 3
     MAX_DIRECTOR_SIGNAL_LENGTH = 280
+    MAX_PLOT_BEAT_PROPOSALS_PER_TICK = 2
+    MAX_PLOT_BEAT_CONDITIONS = 6
+    BEAT_KINDS = ("environment", "character_decision")
+    CONDITION_SCOPES = ("scene", "world_object", "actor", "plot")
+    CONDITION_OPERATORS = (
+        "eq", "ne", "gt", "gte", "lt", "lte",
+        "contains", "in", "exists", "not_exists",
+    )
+    BEAT_VISIBILITY = ("public", "local", "hidden")
 
     def sanitize(self, candidate: Any) -> AuthorityFilterResult:
         if not isinstance(candidate, dict):
@@ -79,6 +103,7 @@ class SemanticAuthorityFilter:
         rejected: List[str] = []
         self._strip_container(result, "result", rejected, ensure_fields=True)
         self._compile_semantic_effects(result, "result", rejected)
+        self._compile_plot_beat_proposals(result, "result", rejected)
 
         checks = result.get("uncertain_outcomes", [])
         if isinstance(checks, list):
@@ -132,6 +157,10 @@ class SemanticAuthorityFilter:
             if value not in (None, {}):
                 rejected.append(f"{path}.{field_name}")
             container[field_name] = {}
+        if not ensure_fields and "plot_beat_proposals" in container:
+            if container.get("plot_beat_proposals") not in (None, []):
+                rejected.append(f"{path}.plot_beat_proposals")
+            container.pop("plot_beat_proposals", None)
 
     def _compile_semantic_effects(
         self,
@@ -154,6 +183,7 @@ class SemanticAuthorityFilter:
         self._compile_drive_updates(container, path, rejected)
         self._compile_drive_creations(container, path, rejected)
         self._compile_director_signals(container, path, rejected)
+        self._compile_obligation_updates(container, path, rejected)
 
         raw_tension = container.get("tension_delta")
         if raw_tension not in (None, 0, 0.0):
@@ -258,6 +288,56 @@ class SemanticAuthorityFilter:
             creation["drift_per_turn"] = self.DRIFT_SCALE[drift]
             creation["critical_threshold"] = self.THRESHOLD_SCALE[threshold]
 
+    def _compile_obligation_updates(
+        self,
+        container: Dict[str, Any],
+        path: str,
+        rejected: List[str],
+    ) -> None:
+        """Shape obligation_updates.create: a resolver may name a qualitative
+        severity tier for the due/breach pressure cost, but never the raw
+        float. Everything else about the operation (due_step, grace_steps,
+        completion_conditions, ...) is a scheduling/eligibility fact the
+        resolver already states directly and ObligationDynamics validates
+        against real world state -- only the two cost fields are numeric
+        magnitudes a resolver could otherwise use to fine-tune severity.
+        """
+        updates = container.get("obligation_updates")
+        if not isinstance(updates, list):
+            return
+        for index, update in enumerate(updates):
+            if not isinstance(update, dict):
+                continue
+            if str(update.get("operation", "")).strip() != "create":
+                continue
+            prefix = f"{path}.obligation_updates[{index}]"
+
+            raw_due = update.pop("due_pressure_delta", None)
+            if raw_due is not None:
+                rejected.append(f"{prefix}.due_pressure_delta")
+            due_severity = str(
+                update.get("due_pressure_severity", "moderate")
+            ).strip().lower()
+            if due_severity not in self.OBLIGATION_DUE_SCALE:
+                rejected.append(f"{prefix}.due_pressure_severity")
+                due_severity = "moderate"
+            update["due_pressure_severity"] = due_severity
+            update["due_pressure_delta"] = self.OBLIGATION_DUE_SCALE[due_severity]
+
+            raw_breach = update.pop("breach_pressure_delta", None)
+            if raw_breach is not None:
+                rejected.append(f"{prefix}.breach_pressure_delta")
+            breach_severity = str(
+                update.get("breach_pressure_severity", "moderate")
+            ).strip().lower()
+            if breach_severity not in self.OBLIGATION_BREACH_SCALE:
+                rejected.append(f"{prefix}.breach_pressure_severity")
+                breach_severity = "moderate"
+            update["breach_pressure_severity"] = breach_severity
+            update["breach_pressure_delta"] = self.OBLIGATION_BREACH_SCALE[
+                breach_severity
+            ]
+
     def _compile_director_signals(
         self,
         container: Dict[str, Any],
@@ -295,6 +375,9 @@ class SemanticAuthorityFilter:
                     "actor": actor,
                     "suggestion": suggestion[: self.MAX_DIRECTOR_SIGNAL_LENGTH],
                     "source_plot_id": str(item.get("source_plot_id", "")).strip(),
+                    "source_storylet_id": str(
+                        item.get("source_storylet_id", "")
+                    ).strip(),
                     "tags": [
                         str(tag).strip()
                         for tag in (item.get("tags") or [])[:6]
@@ -303,3 +386,220 @@ class SemanticAuthorityFilter:
                 }
             )
         container["director_signals"] = compiled
+
+    def _compile_plot_beat_proposals(
+        self,
+        container: Dict[str, Any],
+        path: str,
+        rejected: List[str],
+    ) -> None:
+        """Shape plot_beat_proposals: a resolver may open a thread and name
+        a future opportunity (conditions + cash-out kind), but cannot write
+        plot clocks or mutate the world through this field. World setup still
+        goes through object_lifecycle / state_updates in the same tick.
+        """
+        raw = container.get("plot_beat_proposals")
+        if raw is None:
+            container["plot_beat_proposals"] = []
+            return
+        if not isinstance(raw, list):
+            rejected.append(f"{path}.plot_beat_proposals")
+            container["plot_beat_proposals"] = []
+            return
+
+        compiled: List[Dict[str, Any]] = []
+        for index, item in enumerate(raw):
+            prefix = f"{path}.plot_beat_proposals[{index}]"
+            if not isinstance(item, dict):
+                rejected.append(prefix)
+                continue
+            if len(compiled) >= self.MAX_PLOT_BEAT_PROPOSALS_PER_TICK:
+                rejected.append(f"{prefix}:over_budget")
+                continue
+            proposal = self._compile_one_plot_beat(item, prefix, rejected)
+            if proposal is not None:
+                compiled.append(proposal)
+        container["plot_beat_proposals"] = compiled
+
+    def _compile_one_plot_beat(
+        self,
+        item: Dict[str, Any],
+        prefix: str,
+        rejected: List[str],
+    ) -> Dict[str, Any] | None:
+        for banned in (
+            "clock",
+            "max_clock",
+            "advance",
+            "stage_shift",
+            "plot_updates",
+            "state_updates",
+            "object_lifecycle",
+            "current_stage",
+        ):
+            if item.pop(banned, None) is not None:
+                rejected.append(f"{prefix}.{banned}")
+
+        plot_id = self._clean_stable_id(item.get("plot_id"))
+        beat_id = self._clean_stable_id(item.get("beat_id"))
+        intent = " ".join(str(item.get("intent", "")).split()).strip()[:300]
+        if not plot_id or not beat_id or not intent:
+            rejected.append(prefix)
+            return None
+
+        kind = str(item.get("kind", "environment")).strip()
+        if kind not in self.BEAT_KINDS:
+            rejected.append(f"{prefix}.kind")
+            kind = "environment"
+
+        conditions = self._compile_beat_conditions(
+            item.get("conditions"),
+            f"{prefix}.conditions",
+            rejected,
+        )
+        if not conditions:
+            rejected.append(f"{prefix}.conditions")
+            return None
+
+        raw_open = item.get("open_thread")
+        open_thread = self._compile_open_thread(
+            raw_open,
+            f"{prefix}.open_thread",
+            rejected,
+        )
+        if raw_open not in (None, {}, False) and open_thread is None:
+            return None
+        effect = self._compile_beat_effect(
+            item.get("effect"),
+            f"{prefix}.effect",
+            rejected,
+        )
+        return {
+            "plot_id": plot_id,
+            "beat_id": beat_id,
+            "intent": intent,
+            "kind": kind,
+            "one_shot": bool(item.get("one_shot", True)),
+            "conditions": conditions,
+            "effect": effect,
+            "open_thread": open_thread,
+        }
+
+    def _compile_open_thread(
+        self,
+        raw: Any,
+        prefix: str,
+        rejected: List[str],
+    ) -> Dict[str, Any] | None:
+        if raw in (None, {}, False):
+            return None
+        if not isinstance(raw, dict):
+            rejected.append(prefix)
+            return None
+        for banned in ("clock", "max_clock", "current_stage", "stages", "advance"):
+            if raw.pop(banned, None) is not None:
+                rejected.append(f"{prefix}.{banned}")
+        opened_reason = " ".join(str(raw.get("opened_reason", "")).split()).strip()[:300]
+        if not opened_reason:
+            rejected.append(f"{prefix}.opened_reason")
+            return None
+        participants = [
+            str(item).strip()[:80]
+            for item in (raw.get("participants") or [])[:8]
+            if str(item).strip()
+        ]
+        return {
+            "title": " ".join(str(raw.get("title", "")).split()).strip()[:80],
+            "description": " ".join(str(raw.get("description", "")).split()).strip()[:300],
+            "opened_reason": opened_reason,
+            "participants": participants,
+        }
+
+    def _compile_beat_effect(
+        self,
+        raw: Any,
+        prefix: str,
+        rejected: List[str],
+    ) -> Dict[str, Any]:
+        effect = raw if isinstance(raw, dict) else {}
+        if raw not in (None, {}) and not isinstance(raw, dict):
+            rejected.append(prefix)
+            effect = {}
+        for banned in (
+            "plot_updates",
+            "state_updates",
+            "object_lifecycle",
+            "advance",
+            "clock",
+        ):
+            if effect.pop(banned, None) is not None:
+                rejected.append(f"{prefix}.{banned}")
+        visibility = str(effect.get("visibility", "public")).strip()
+        if visibility not in self.BEAT_VISIBILITY:
+            rejected.append(f"{prefix}.visibility")
+            visibility = "public"
+        preferred = [
+            str(item).strip()[:80]
+            for item in (effect.get("preferred_actors") or [])[:6]
+            if str(item).strip()
+        ]
+        target = str(effect.get("target_actor") or "").strip()[:80]
+        return {
+            "visibility": visibility,
+            "preferred_actors": preferred,
+            "target_actor": target or None,
+            "stake": " ".join(str(effect.get("stake", "")).split()).strip()[:80],
+        }
+
+    def _compile_beat_conditions(
+        self,
+        raw: Any,
+        prefix: str,
+        rejected: List[str],
+    ) -> List[Dict[str, Any]]:
+        if not isinstance(raw, list):
+            return []
+        compiled: List[Dict[str, Any]] = []
+        for index, item in enumerate(raw):
+            if len(compiled) >= self.MAX_PLOT_BEAT_CONDITIONS:
+                rejected.append(f"{prefix}[{index}]:over_budget")
+                continue
+            if not isinstance(item, dict):
+                rejected.append(f"{prefix}[{index}]")
+                continue
+            scope = str(item.get("scope", "scene")).strip()
+            if scope not in self.CONDITION_SCOPES:
+                rejected.append(f"{prefix}[{index}].scope")
+                continue
+            operator = str(item.get("operator", "eq")).strip()
+            if operator not in self.CONDITION_OPERATORS:
+                rejected.append(f"{prefix}[{index}].operator")
+                continue
+            path = str(item.get("path", "")).strip()[:80]
+            if not path and operator not in {"exists", "not_exists"}:
+                rejected.append(f"{prefix}[{index}].path")
+                continue
+            if path.count(".") > 5:
+                rejected.append(f"{prefix}[{index}].path")
+                continue
+            target = str(item.get("target") or "").strip()[:80]
+            if scope != "scene" and not target:
+                rejected.append(f"{prefix}[{index}].target")
+                continue
+            compiled.append(
+                {
+                    "scope": scope,
+                    "target": target or None,
+                    "path": path,
+                    "operator": operator,
+                    "value": item.get("value"),
+                }
+            )
+        return compiled
+
+    @staticmethod
+    def _clean_stable_id(raw: Any) -> str:
+        text = " ".join(str(raw or "").split()).strip()[:80]
+        for char in (":", "|", "/", "\\"):
+            text = text.replace(char, "_")
+        return text

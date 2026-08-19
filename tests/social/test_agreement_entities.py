@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from pydantic import Field
 
+from src.story_engine.agents.llm_runtime import LLMCharacterAgent
 from src.story_engine.environment.agreement_offers import AgreementOfferEngine
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.plot_state import PlotState
@@ -206,17 +207,25 @@ def test_agreement_entity_is_not_scheduled_as_character_agent():
 def test_new_session_gm_no_longer_owns_contract_state_component():
     scenario = ScenarioConfig(
         name="最小关系世界",
+        default_agent_runtime="llm",
         description="测试关系实体边界",
         environment="空房间",
         initial_state="甲独自在场。",
         initial_world_objects={"房间": {}},
         initial_actor_states={"甲": {"location": "房间"}},
         characters=[
-            CharacterConfig(name="甲", role="访客", personality="平静", goals=[])
+            CharacterConfig(name="甲", role="访客", personality="平静", goals=[], agent_runtime="llm")
         ],
     )
 
-    session = create_session(scenario)
+    session = create_session(
+        scenario,
+        agent_runtime_factories={
+            "llm": lambda entity, cfg: LLMCharacterAgent(
+                llm_config=cfg.get("llm_config", {})
+            )
+        },
+    )
     gm = session.entities["GameMaster"]
 
     assert gm.get_component("ContractState") is None

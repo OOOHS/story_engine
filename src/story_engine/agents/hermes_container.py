@@ -64,7 +64,10 @@ class HermesContainerConfig:
     docker_binary: str = "docker"
     timeout_seconds: float = 180.0
     network_mode: str = "bridge"
-    allowed_toolsets: Tuple[str, ...] = field(default_factory=tuple)
+    # Default production subjects need Hermes' native memory tool for
+    # long-term recall; Host no longer retrieves relevant memories for them.
+    # Callers may widen or narrow this allowlist explicitly.
+    allowed_toolsets: Tuple[str, ...] = ("memory",)
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
@@ -99,12 +102,15 @@ class HermesContainerConversation:
         if not self.agent_id.strip():
             raise ValueError("Hermes agent_id must not be empty")
         self.host_config = host_config
-        allowed = set(host_config.allowed_toolsets)
-        self.enabled_toolsets = tuple(dict.fromkeys(
+        self.requested_toolsets = tuple(dict.fromkeys(
             str(item).strip()
             for item in requested_toolsets
-            if str(item).strip() in allowed
+            if str(item).strip()
         ))
+        allowed = set(host_config.allowed_toolsets)
+        self.enabled_toolsets = tuple(
+            item for item in self.requested_toolsets if item in allowed
+        )
         self._run = command_runner or subprocess.run
         self._process_factory = subprocess.Popen if command_runner is None else None
         self._subject_process = None
@@ -310,6 +316,31 @@ class HermesContainerConversation:
         return data
 
 
+def default_hermes_runtime_factories(
+    config: HermesContainerConfig | None = None,
+    command_runner: Callable[..., Any] | None = None,
+) -> Dict[str, Callable[..., Any]]:
+    """Convenience wiring for non-evaluation callers (console, web) that just
+    want the standard Hermes container runtime registered under "hermes",
+    without the evaluation-only deterministic GM swap that
+    ``create_hermes_episode_session`` performs.
+
+    Bundled/production content declares ``agent_runtime="hermes"`` per
+    character (and a scenario-level ``default_agent_runtime`` for
+    runtime-spawned characters); this only supplies the matching factory.
+    With no Docker install and no vendored ``hermes-agent`` snapshot in this
+    environment, invoking a character backed by this factory will fail
+    loudly at the ``docker run`` step -- that is the intended fail-fast
+    behavior, not a bug in this helper.
+    """
+    return {
+        "hermes": make_hermes_container_runtime_factory(
+            config or HermesContainerConfig(),
+            command_runner=command_runner,
+        )
+    }
+
+
 def make_hermes_container_runtime_factory(
     host_config: HermesContainerConfig,
     command_runner: Callable[..., Any] | None = None,
@@ -318,6 +349,13 @@ def make_hermes_container_runtime_factory(
 
     def factory(entity, runtime_config):
         requested_toolsets = runtime_config.get("enabled_toolsets", [])
+        if not isinstance(requested_toolsets, (list, tuple)):
+            requested_toolsets = []
+        # The subject needs its native memory tool even when content forgot
+        # to ask; other requests still have to pass the Host allowlist.
+        requested_toolsets = tuple(
+            dict.fromkeys(["memory", *[str(item) for item in requested_toolsets]])
+        )
 
         def conversation_factory(character_entity, character_config):
             del character_config

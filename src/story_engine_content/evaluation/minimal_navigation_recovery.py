@@ -84,6 +84,7 @@ class NarrativeRenderer(Component):
 def build_minimal_navigation_recovery_scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="最小过时地图恢复",
+        default_agent_runtime="navigation-recovery",
         description="角色遭遇过时路线后，自主形成绕路目标并继续行动。",
         environment="村口通往城镇的东桥已经断开，南路仍可通行。",
         initial_state="旅人仍记得东桥，也知道一条较远的南路。",

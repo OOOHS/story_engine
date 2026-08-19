@@ -15,6 +15,20 @@ VENDOR_ROOT = Path("/opt/hermes-agent")
 
 MAX_REQUEST_CHARS = 4_000_000
 
+# Operator framing, not first-person inhabitance: the process chooses the
+# assigned character's next action. Character autonomy still holds because
+# only this agent may propose for that body.
+SUBJECT_SYSTEM_PROMPT = (
+    "You are a persistent agent assigned to one character in a "
+    "state-authoritative story engine. Choose the next intentional action "
+    "that character would take, given their persona, private knowledge, and "
+    "the evidence in this turn. You are not the fictional person, not a "
+    "narrator, and not a director of other people. Tools, memory retrieval, "
+    "and this JSON protocol are your work interface; they are not facts the "
+    "character knows. Do not invent world outcomes. Return only the requested "
+    "character decision JSON."
+)
+
 
 def _parse_request(raw):
     if len(raw) > MAX_REQUEST_CHARS:
@@ -78,10 +92,7 @@ def _construct_agent(toolsets):
     candidates = {
         "enabled_toolsets": toolsets,
         "quiet_mode": True,
-        "ephemeral_system_prompt": (
-            "You are one character inside a state-authoritative story engine. "
-            "Return only the requested character decision JSON."
-        ),
+        "ephemeral_system_prompt": SUBJECT_SYSTEM_PROMPT,
         "base_url": base_url,
         "api_key": api_key,
         "provider": provider,

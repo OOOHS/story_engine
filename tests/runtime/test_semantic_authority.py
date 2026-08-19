@@ -224,3 +224,115 @@ def test_simulation_boundary_prevents_semantic_gm_from_writing_tracks_or_plot():
     }
     assert context["simulation_result"]["plot_updates"] == []
     assert context["simulation_result"]["relationship_updates"] == []
+
+
+def _valid_beat_proposal(**overrides):
+    proposal = {
+        "plot_id": "southern_drought",
+        "beat_id": "visitor_letter",
+        "intent": "粮仓出现一封求援信",
+        "kind": "environment",
+        "open_thread": {
+            "title": "南方旱情",
+            "opened_reason": "连续三名角色抱怨粮价",
+        },
+        "conditions": [
+            {
+                "scope": "world_object",
+                "target": "求援信",
+                "path": "",
+                "operator": "exists",
+            }
+        ],
+        "effect": {"visibility": "local", "stake": "赈灾"},
+    }
+    proposal.update(overrides)
+    return proposal
+
+
+def test_authority_filter_compiles_plot_beat_proposals_and_strips_clock_writes():
+    filtered = SemanticAuthorityFilter().sanitize(
+        {
+            "plot_beat_proposals": [
+                _valid_beat_proposal(
+                    clock=9,
+                    advance=3,
+                    open_thread={
+                        "title": "南方旱情",
+                        "opened_reason": "连续三名角色抱怨粮价",
+                        "max_clock": 99,
+                    },
+                )
+            ]
+        }
+    )
+
+    proposal = filtered.result["plot_beat_proposals"][0]
+    assert proposal["plot_id"] == "southern_drought"
+    assert proposal["kind"] == "environment"
+    assert proposal["open_thread"]["opened_reason"] == "连续三名角色抱怨粮价"
+    assert "max_clock" not in proposal["open_thread"]
+    assert "clock" not in proposal
+    assert "advance" not in proposal
+    assert set(filtered.rejected_writes) == {
+        "result.plot_beat_proposals[0].clock",
+        "result.plot_beat_proposals[0].advance",
+        "result.plot_beat_proposals[0].open_thread.max_clock",
+    }
+
+
+def test_authority_filter_drops_plot_beat_without_conditions_or_provenance():
+    filtered = SemanticAuthorityFilter().sanitize(
+        {
+            "plot_beat_proposals": [
+                {
+                    "plot_id": "x",
+                    "beat_id": "y",
+                    "intent": "没有条件",
+                    "kind": "environment",
+                    "conditions": [],
+                    "open_thread": {"title": "x", "opened_reason": "因为"},
+                },
+                {
+                    "plot_id": "x",
+                    "beat_id": "z",
+                    "intent": "没有来源",
+                    "kind": "environment",
+                    "conditions": [
+                        {
+                            "scope": "scene",
+                            "path": "scene_flags.alarm",
+                            "operator": "eq",
+                            "value": True,
+                        }
+                    ],
+                    "open_thread": {"title": "x"},
+                },
+            ]
+        }
+    )
+
+    assert filtered.result["plot_beat_proposals"] == []
+    assert "result.plot_beat_proposals[0].conditions" in filtered.rejected_writes
+    assert "result.plot_beat_proposals[1].open_thread.opened_reason" in filtered.rejected_writes
+
+
+def test_authority_filter_strips_plot_beat_proposals_from_uncertain_branches():
+    filtered = SemanticAuthorityFilter().sanitize(
+        {
+            "uncertain_outcomes": [
+                {
+                    "success": {
+                        "plot_beat_proposals": [_valid_beat_proposal()],
+                    },
+                    "failure": {},
+                }
+            ]
+        }
+    )
+
+    assert "plot_beat_proposals" not in filtered.result["uncertain_outcomes"][0]["success"]
+    assert (
+        "uncertain_outcomes[0].success.plot_beat_proposals"
+        in filtered.rejected_writes
+    )

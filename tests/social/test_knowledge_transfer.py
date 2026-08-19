@@ -25,9 +25,9 @@ def _world(target_location="书房"):
     source = create_agent(
         "知情者", "证人", "谨慎", ["保护秘密"],
         initial_secrets=["钥匙藏在旧钟后面"],
-    )
-    target = create_agent("听众", "调查员", "多疑", ["寻找钥匙"])
-    observer = create_agent("旁观者", "仆人", "沉默", ["完成工作"])
+    agent_runtime="llm")
+    target = create_agent("听众", "调查员", "多疑", ["寻找钥匙"], agent_runtime="llm")
+    observer = create_agent("旁观者", "仆人", "沉默", ["完成工作"], agent_runtime="llm")
     return gm, source, target, observer
 
 

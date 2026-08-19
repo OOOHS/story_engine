@@ -153,8 +153,8 @@ def test_host_world_edit_becomes_local_event_and_reactivates_dependent_goal():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "甲": create_agent("甲", "调查者", "谨慎", []),
-        "乙": create_agent("乙", "远方居民", "平静", []),
+        "甲": create_agent("甲", "调查者", "谨慎", [], agent_runtime="llm"),
+        "乙": create_agent("乙", "远方居民", "平静", [], agent_runtime="llm"),
     }
     goals = entities["甲"].get_component("GoalState")
     adopted, error = goals.adopt_agent_goal(
@@ -211,8 +211,8 @@ def test_hidden_host_world_edit_changes_truth_without_leaking_observation():
     gm.add_component(scene)
     entities = {
         "GameMaster": gm,
-        "甲": create_agent("甲", "调查者", "谨慎", []),
-        "乙": create_agent("乙", "远方居民", "平静", []),
+        "甲": create_agent("甲", "调查者", "谨慎", [], agent_runtime="llm"),
+        "乙": create_agent("乙", "远方居民", "平静", [], agent_runtime="llm"),
     }
     context = {
         "clock": SimpleNamespace(current_step=5),
@@ -245,7 +245,7 @@ def test_runner_publishes_committed_host_world_edit_without_raw_patch_leakage():
             "谨慎",
             [],
             activation_policy="dormant",
-        )
+        agent_runtime="llm")
         runner.add_entity(actor)
         runner.agent_registry.register(actor, object())
 

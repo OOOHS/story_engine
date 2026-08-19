@@ -18,6 +18,7 @@ from src.story_engine.scenarios.config import (
 cthulhu_arkham_scenario = ScenarioConfig(
     name="阿卡姆港的低语 (Whispers in Arkham Harbor)",
     description="1920 年代，马萨诸塞州阿卡姆港。调查员因一桩离奇失踪案来到镇上，逐渐卷入与禁忌典籍、古老崇拜与不可名状存在相关的阴谋。",
+    default_agent_runtime="hermes",
     environment="""
     [阿卡姆港，1920 年代]
     新英格兰滨海小镇，雾霭、码头、老式煤气灯与维多利亚式建筑。密斯卡托尼克大学在不远处；镇上有一家老旅馆、一座废弃的码头仓库、以及传闻藏有禁书的私人图书馆。人们说话谨慎，对陌生人既好奇又戒备；夜晚常有奇怪的声响与梦境。
@@ -214,6 +215,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
     characters=[
         CharacterConfig(
             name="托马斯·韦伯",
+            agent_runtime="hermes",
             role="旅馆老板 (Innkeeper)",
             personality="谨慎、迷信、对陌生人客气但不愿多谈镇上怪事；偶尔会压低声音提到「不该看的书」或「码头那边的仪式」。",
             goals=[
@@ -260,6 +262,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="调查员",
+            agent_runtime="hermes",
             role="调查员 (Investigator)",
             personality="理性、好奇、略带紧张；为查案而来，会追问线索但也会因诡异现象而动摇。",
             goals=[
@@ -302,6 +305,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="艾琳·沃斯",
+            agent_runtime="hermes",
             role="私人图书馆管理员 (Librarian)",
             personality="冷淡、博学、对「不该存在的书」既恐惧又着迷；知道一些禁书的下落但不会轻易透露。",
             goals=[

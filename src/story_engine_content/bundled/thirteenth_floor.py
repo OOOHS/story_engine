@@ -11,6 +11,7 @@ from src.story_engine.scenarios.config import (
 thirteenth_floor_scenario = ScenarioConfig(
     name="异次元骇客 (The Thirteenth Floor)",
     description="1999 年创造的 1937 年洛杉矶 VR 模拟；创造者富勒在现实中被谋杀，其门生霍尔进入模拟寻找遗言，并逐渐发现嵌套的模拟真相。",
+    default_agent_runtime="hermes",
     environment="""
     [当前层：1937 年洛杉矶模拟]
     时间是 1937 年。雨夜。爵士乐、廉价烟草与霓虹灯。威尔希尔大酒店 (Wilshire Grand Hotel) 的酒吧是主要场景——木质吧台、铜制酒架、老式收银机。窗外是湿漉漉的街道与老式汽车。
@@ -52,6 +53,7 @@ thirteenth_floor_scenario = ScenarioConfig(
     characters=[
         CharacterConfig(
             name="Jerry Ashton",
+            agent_runtime="hermes",
             role="酒保 (Bartender)",
             personality="愤世嫉俗、疲惫、对熟客细心但对刺探戒备。典型的 1937 年酒吧老手。",
             goals=[
@@ -66,6 +68,7 @@ thirteenth_floor_scenario = ScenarioConfig(
         ),
         CharacterConfig(
             name="Douglas Hall",
+            agent_runtime="hermes",
             role="主角 / 调查者 (Protagonist)",
             personality="困惑但执着，正在追查富勒之死与真相；在模拟中可能以「约翰·弗格森」身份活动，但本设定中统一用道格拉斯·霍尔。",
             goals=[

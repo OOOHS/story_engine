@@ -24,7 +24,9 @@ def _entity(traits=(), risk_tolerance=0.5):
     entity = Entity("甲")
     entity.add_component(TraitState.from_initial(traits))
     entity.add_component(DriveState(risk_tolerance=risk_tolerance))
-    entity.add_component(AgentController(config={"policy": {"temperature": 0.8}}))
+    entity.add_component(
+        AgentController(runtime="llm", config={"policy": {"temperature": 0.8}})
+    )
     return entity
 
 
@@ -271,7 +273,7 @@ def test_repeated_policy_choice_gets_soft_diminishing_return():
 
 
 def test_wait_repetition_penalty_is_lighter_and_controller_ledger_resets():
-    controller = AgentController()
+    controller = AgentController(runtime="llm")
     wait = AgentAction("wait", "继续等待。")
     observe = AgentAction("observe", "再次检查房间。", "房间")
     wait_signature = CharacterPolicy.repetition_signature(wait)

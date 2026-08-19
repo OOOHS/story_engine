@@ -144,6 +144,7 @@ class NarrativeRenderer(Component):
 def _session(seed):
     scenario = ScenarioConfig(
         name="最小涌现种子",
+        default_agent_runtime="llm",
         description="两个有独立目标的角色第一次交谈。",
         environment="一间没有预写剧情的会客室。",
         initial_state="甲与乙刚刚见面。",
@@ -187,6 +188,7 @@ def _session(seed):
 def _idle_session(seed):
     scenario = ScenarioConfig(
         name="停滞种子",
+        default_agent_runtime="llm",
         description="一个角色持续等待。",
         environment="一间空房。",
         initial_state="屋内没有正在发展的事件。",
@@ -219,6 +221,7 @@ def _idle_session(seed):
 def _choice_session(seed):
     scenario = ScenarioConfig(
         name="候选审计种子",
+        default_agent_runtime="llm",
         description="角色可以调查或询问。",
         environment="一间有房门的大厅。",
         initial_state="守门人站在房门旁。",

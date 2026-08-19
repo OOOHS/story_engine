@@ -195,6 +195,7 @@ def build_minimal_service_scenario() -> ScenarioConfig:
     }
     return ScenarioConfig(
         name="最小托管委托与履约",
+        default_agent_runtime="service-policy",
         description="两名 Agent 自主协商托管服务、履约或承担违约后果。",
         environment="一座驿站，委托人带着报酬，承运人持有待交付包裹。",
         initial_state="双方尚未达成协议，报酬和包裹仍由各自持有。",
