@@ -15,10 +15,9 @@ from src.story_engine.agents import (
     SubjectMessage,
 )
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import CharacterPolicy
+from src.story_engine.agents.commitment import commit_runtime_action
 from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.components.memory import Memory
-from src.story_engine.simulation.randomness import DeterministicRandomStreams
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.memory import MemorySystem
 
@@ -286,17 +285,10 @@ def test_hermes_subject_owns_sampling_and_host_receives_one_committed_action():
 
     decision = runtime.decide(entity, perception)
 
-    assert decision.candidates == ()
     assert decision.action_spec is not None
-    selection = CharacterPolicy().select(
-        entity=entity,
-        perception=perception,
-        decision=decision,
-        random_streams=DeterministicRandomStreams("host-seed"),
-        world_version=2,
-    )
-    assert selection.trace["mode"] == "runtime_committed"
-    assert selection.action == decision.action_spec
+    commitment = commit_runtime_action(decision)
+    assert commitment.trace["mode"] == "runtime_committed"
+    assert commitment.action == decision.action_spec
     packet = conversation.packets[0]
     assert packet["identity_bootstrap"]["name"] == "伊芙"
     assert packet["identity_bootstrap"]["persona_constraints"] == "从不在室内奔跑。"
@@ -413,6 +405,44 @@ def test_hermes_subject_keeps_mind_private_but_can_register_a_goal_watch():
     }
     assert "Host 不应替 Hermes 声明心情" not in packet_text
     assert "subject_mind" in conversation.packets[0]["ownership_contract"]
+
+
+def test_hermes_subject_can_report_her_own_sentiment_toward_someone():
+    entity = create_agent(
+        name="伊芙",
+        role="调查者",
+        personality="谨慎",
+        goals=[],
+        agent_runtime="hermes",
+    )
+    response = {
+        "action": {
+            "kind": "observe",
+            "detail": "留意阿德里安的反应。",
+            "target": "阿德里安",
+        },
+        "sentiment_updates": [
+            {
+                "toward": "阿德里安",
+                "kind": "betrayed",
+                "magnitude": 0.7,
+                "reason": "他把信件交给了敌对势力",
+            }
+        ],
+    }
+    conversation = _SubjectConversation(entity.id, [response])
+    runtime = HermesCharacterAgent(
+        conversation_factory=lambda _entity, _config: conversation,
+        config={"character_seed": "eve"},
+    )
+    perception = AgentPerception(actor_name="伊芙", step=5)
+
+    decision = runtime.decide(entity, perception)
+
+    assert decision.metadata == {
+        "subject_runtime": True,
+        "sentiment_updates": [response["sentiment_updates"][0]],
+    }
 
     planning = entity.get_component("Planning")
     cognition = entity.get_component("Cognition")

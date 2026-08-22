@@ -16,7 +16,10 @@ class RandomRoll:
 class DeterministicRandomStreams:
     """Order-independent, replayable random streams owned by the host."""
 
-    STREAMS = {"policy", "world", "observation"}
+    # No character-choice stream: characters sample their own decisions inside
+    # their own runtime, so the Host only owns objective outcomes and what a
+    # given character manages to observe of them.
+    STREAMS = {"world", "observation"}
 
     def __init__(self, seed: int | str) -> None:
         self.seed = str(seed)

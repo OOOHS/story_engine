@@ -183,7 +183,6 @@ class TraitConfig(BaseModel):
     trait_id: str
     intensity: float = Field(default=1.0, ge=0.0, le=1.0)
     description: str = ""
-    policy_weights: Dict[str, float] = Field(default_factory=dict)
 
 
 class ObligationConfig(BaseModel):

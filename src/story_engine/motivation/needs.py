@@ -181,10 +181,10 @@ class NeedDynamics:
     ) -> List[str]:
         """Validate and apply drive_creations against real DriveState.
 
-        By the time this runs, SemanticAuthorityFilter has already replaced
-        drift/critical_threshold with fixed numbers from a closed qualitative
-        vocabulary -- this pass only owns things that need live state to
-        check: the actor must exist, the need must not already exist, the
+        By the time this runs, SemanticAuthorityFilter has already bounded
+        drift_per_turn/critical_threshold to a sane numeric range -- this
+        pass only owns things that need live state to check: the actor must
+        exist, the need must not already exist, the
         creation must be backed by a resolved action this round (same
         evidence requirement as drive_updates), and the actor must still be
         under emergent_meter_budget. budget<=0 means the scenario has not

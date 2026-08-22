@@ -23,13 +23,6 @@ DEFAULT_TRACK_BOUNDS = {
     "trust": (-5.0, 5.0),
 }
 
-DEFAULT_TRACK_POLICY_WEIGHTS = {
-    "favor": {"social": 0.45, "aid": 0.75, "confront": -0.4, "deception": -0.2},
-    "malice": {"social": -0.25, "aid": -0.8, "confront": 0.85, "deception": 0.25},
-    "trust": {"social": 0.55, "aid": 0.45, "confront": -0.2, "deception": -0.7},
-}
-
-
 class PairRelationshipRecord(BaseModel):
     participants: List[str] = Field(min_length=2, max_length=2)
     directed_tracks: Dict[str, Dict[str, RelationshipTrack]] = Field(default_factory=dict)
@@ -65,7 +58,6 @@ class RelationshipBook(BaseModel):
         *,
         created_step: int = 0,
         provenance: Optional[Dict[str, Any]] = None,
-        policy_weights: Optional[Dict[str, float]] = None,
     ) -> PairRelationshipRecord:
         relation_id = self.relation_id(first, second)
         participants = relation_id.removeprefix("pair:").split("<->", 1)
@@ -125,7 +117,6 @@ class RelationshipBook(BaseModel):
         decay_per_step: float = 0.0,
         updated_step: int = 0,
         provenance: Optional[Dict[str, Any]] = None,
-        policy_weights: Optional[Dict[str, float]] = None,
     ) -> RelationshipTrack:
         record = self.ensure(source, target, created_step=updated_step)
         track_key = str(track_id).strip()
@@ -141,11 +132,6 @@ class RelationshipBook(BaseModel):
             decay_per_step=float(decay_per_step),
             updated_step=int(updated_step),
             provenance=deepcopy(provenance or {}),
-            policy_weights=deepcopy(
-                policy_weights
-                if policy_weights is not None
-                else DEFAULT_TRACK_POLICY_WEIGHTS.get(track_key, {})
-            ),
         )
         record.directed_tracks.setdefault(
             self.direction_key(source, target), {}
@@ -173,13 +159,7 @@ class RelationshipBook(BaseModel):
             current = direction.get(track_id)
             if current is None:
                 lower, upper = DEFAULT_TRACK_BOUNDS.get(track_id, (-5.0, 5.0))
-                current = RelationshipTrack(
-                    minimum=lower,
-                    maximum=upper,
-                    policy_weights=deepcopy(
-                        DEFAULT_TRACK_POLICY_WEIGHTS.get(track_id, {})
-                    ),
-                )
+                current = RelationshipTrack(minimum=lower, maximum=upper)
                 direction[track_id] = current
             current.value = min(
                 current.maximum,

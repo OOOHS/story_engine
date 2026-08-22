@@ -20,7 +20,7 @@ def test_minimal_service_seed_has_no_storylet_or_plot_script():
 
 
 def test_service_episode_can_breach_deliver_late_refund_and_settle_compensation():
-    session = create_minimal_service_session(4)
+    session = create_minimal_service_session(7)
     report = EpisodeRunner().run(session, steps=14)
 
     assert report.authoritative is True
@@ -30,8 +30,9 @@ def test_service_episode_can_breach_deliver_late_refund_and_settle_compensation(
     assert report.metrics["commitment_resolution_count"] == 2
     assert report.metrics["agreement_creation_count"] == 2
     assert report.metrics["obligation_creation_count"] == 1
-    assert report.metrics["policy_motive_handoff_count"] >= 3
-    assert report.metrics["policy_motivated_action_count"] >= 3
+    assert report.metrics["motive_handoff_count"] >= 3
+    assert report.metrics["motivated_action_count"] >= 3
+    assert report.metrics["rejected_motive_ref_count"] == 0
     assert "unattributed_agreement" not in report.quality_flags
     assert "unattributed_obligation" not in report.quality_flags
     changes = [
@@ -71,19 +72,18 @@ def test_service_episode_can_breach_deliver_late_refund_and_settle_compensation(
         "obligation:承运人:deliver_parcel<-agreement:escrow_delivery"
         in handoffs
     )
-    assert (
-        "resolved_action:step:7:actor:承运人"
-        "<-obligation:承运人:deliver_parcel"
-        in handoffs
-    )
-    assert (
-        "resolved_action:step:7:actor:承运人"
-        "<-goal:承运人:earn_payment"
-        in handoffs
-    )
+    # The courier's action is attributed to the reason he gave for it, at
+    # whatever step he finally moved -- not to a step number baked into this
+    # test, and not to a motive the Host guessed on his behalf.
+    delivery_actions = [
+        item.split("<-", 1)[0]
+        for item in handoffs
+        if item.endswith("<-goal:承运人:earn_payment")
+    ]
+    assert delivery_actions
     assert any(
         item.startswith("world_event:object:")
-        and item.endswith("<-resolved_action:step:7:actor:承运人")
+        and item.split("<-", 1)[1] in delivery_actions
         for item in handoffs
     )
     assert (
@@ -131,7 +131,10 @@ def test_service_episode_can_breach_deliver_late_refund_and_settle_compensation(
         )
         for item in handoffs
     )
-    assert report.metrics["max_causal_chain_depth"] >= 8
+    # One link shorter than when the Host scored motives: a character now
+    # cites the single reason she acted for, not every term that happened to
+    # weigh positively.
+    assert report.metrics["max_causal_chain_depth"] >= 7
     assert report.metrics["cross_step_causal_handoff_count"] >= 1
     assert report.metrics["max_causal_span_steps"] >= 2
     assert report.metrics["causal_arc_present"] is True
@@ -153,9 +156,9 @@ def test_service_multi_seed_sweep_keeps_world_state_connected_to_action():
 
     assert sweep.authoritative is True
     assert sweep.quality_flags == ()
-    assert sweep.metrics["sampled_policy_episode_count"] == 3
-    assert sweep.metrics["policy_motivated_episode_count"] == 3
-    assert sweep.metrics["policy_motivated_episode_rate"] == 1.0
-    assert sweep.metrics["policy_motivated_action_count"] >= 6
-    assert sweep.metrics["policy_motive_handoff_count"] >= 6
+    assert sweep.metrics["motivated_episode_count"] == 3
+    assert sweep.metrics["motivated_episode_rate"] == 1.0
+    assert sweep.metrics["motivated_action_count"] >= 6
+    assert sweep.metrics["motive_handoff_count"] >= 6
+    assert sweep.metrics["rejected_motive_ref_count"] == 0
     assert sweep.metrics["unique_action_trace_count"] >= 2

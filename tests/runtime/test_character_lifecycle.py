@@ -259,7 +259,9 @@ def test_simulation_commits_character_body_entity_and_registration_together():
     ]
     assert scene.description == "信使已经抵达"
     assert plots.plots["arrival"]["clock"] == 1
-    assert drama.tension == pytest.approx(0.4)
+    # tension_delta=0.2 is above the host's bound and gets clamped to 0.15,
+    # not remapped/zeroed -- the raw value is honored, only bounded.
+    assert drama.tension == pytest.approx(0.55)
     assert context["semantic_authority_rejections"] == [
         "result.plot_updates",
         "result.tension_delta",

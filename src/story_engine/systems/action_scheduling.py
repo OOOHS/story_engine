@@ -25,10 +25,11 @@ class ActionSchedulingSystem(System):
         for proposal in submissions:
             proposal = dict(proposal)
             actor = str(proposal.get("actor", "")).strip()
-            policy_trace = (
-                context.get("policy_traces", {}).get(actor)
-                if actor
-                else None
+            # A slow action outlives the turn it was chosen on, so her stated
+            # reason travels with the event; otherwise the audit would attribute
+            # the completion to whatever she happens to be thinking later.
+            motive_refs = (
+                context.get("agent_motive_refs", {}).get(actor) if actor else None
             )
             target = str(proposal.get("action_target", "")).strip()
             if scene_state := self._scene_state(entities):
@@ -42,8 +43,8 @@ class ActionSchedulingSystem(System):
                 event = queue.schedule(
                     proposal,
                     host_metadata=(
-                        {"policy_trace": deepcopy(policy_trace)}
-                        if isinstance(policy_trace, dict)
+                        {"motive_refs": deepcopy(motive_refs)}
+                        if isinstance(motive_refs, list) and motive_refs
                         else {}
                     ),
                 )
@@ -69,20 +70,20 @@ class ActionSchedulingSystem(System):
             )
         except (TypeError, ValueError):
             world_version = 0
-        completed_policy_traces = {}
+        completed_motive_refs = {}
         for proposal in completed:
             host_metadata = proposal.pop("_host_metadata", {})
             actor = str(proposal.get("actor", "")).strip()
             event_id = str(proposal.get("event_id", "")).strip()
-            policy_trace = (
-                host_metadata.get("policy_trace")
+            motive_refs = (
+                host_metadata.get("motive_refs")
                 if isinstance(host_metadata, dict)
                 else None
             )
-            if actor and event_id and isinstance(policy_trace, dict):
-                completed_policy_traces[actor] = {
+            if actor and event_id and isinstance(motive_refs, list) and motive_refs:
+                completed_motive_refs[actor] = {
                     "event_id": event_id,
-                    "trace": deepcopy(policy_trace),
+                    "motive_refs": deepcopy(motive_refs),
                 }
             try:
                 based_on = int(proposal.get("based_on_world_version", world_version))
@@ -97,7 +98,7 @@ class ActionSchedulingSystem(System):
         context["scheduled_actions"] = scheduled
         context["action_scheduling_errors"] = errors
         context["completed_action_events"] = completed
-        context["completed_action_policy_traces"] = completed_policy_traces
+        context["completed_action_motive_refs"] = completed_motive_refs
         context["action_queue_snapshot"] = queue.snapshot()
         context["intents"] = completed
 

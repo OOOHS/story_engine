@@ -9,7 +9,12 @@ from .hermes_container import (
     default_hermes_runtime_factories,
     make_hermes_container_runtime_factory,
 )
-from .llm_runtime import LLMCharacterAgent
+from .commitment import (
+    RuntimeCommitment,
+    commit_runtime_action,
+    repetition_signature,
+    repetition_target,
+)
 from .registry import AgentRegistry, RegisteredAgent
 from .runtime import CharacterAgentRuntime, runtime_owns_subjective_state
 from .scheduler import AgentScheduler
@@ -25,7 +30,6 @@ from .subject import (
 from .types import (
     AgentActivation,
     AgentDecision,
-    AgentMotiveReference,
     AgentPerception,
 )
 from .observations import ObservationMode
@@ -36,7 +40,6 @@ __all__ = [
     "ActionKind",
     "AgentAction",
     "AgentDecision",
-    "AgentMotiveReference",
     "AgentPerception",
     "AgentRegistry",
     "AgentScheduler",
@@ -49,9 +52,12 @@ __all__ = [
     "HermesInvocationBudgetExceeded",
     "HermesConversation",
     "default_hermes_runtime_factories",
-    "LLMCharacterAgent",
     "ObservationMode",
     "RegisteredAgent",
+    "RuntimeCommitment",
+    "commit_runtime_action",
+    "repetition_signature",
+    "repetition_target",
     "GumbelSubjectSampler",
     "IntentSignature",
     "SubjectActionOption",

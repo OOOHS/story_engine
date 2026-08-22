@@ -61,7 +61,7 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 - Relation/Agreement Entity 不能进入 AgentRegistry；
 - Scene 中每个行为角色必须同时拥有 Entity、AgentController 和 live runtime；
 - live runtime 缺失、概率检查错误、Sentiment 或 WorldEvent 发布错误会成为 Episode violation；
-- Intent 的 `policy_candidate_id` 必须与宿主 Policy Trace 的选中项一致。
+- Intent 的 `policy_candidate_id` 必须与该角色本轮提交收据上的行动一致，确保交给 GM 结算的意图就是角色实际提交的那一个。
 
 质量标记不是“故事好不好”的自动裁判，而是低成本退化报警：
 
@@ -76,7 +76,7 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 这里把三种容易混淆的信号分开：
 
 - `world_change_steps` 只计算实质状态，`world_version`、时间阶段计数、渲染连续性缓存等内部记账不会伪装成剧情推进；
-- `goal_engagement_*` 只表示宿主策略选择的行动受角色目标影响，不声称自然语言目标已经完成；
+- `goal_engagement_*` 只表示角色自己把该行动归因于某个目标，不声称自然语言目标已经完成；
 - `commitment_resolution_count` 只统计由权威条件证明的 Obligation/Agreement performance 结算。没有条件证据时，评估器宁可报告“不知道”，不会让 LLM 自评成功。
 - `goal_resolution_count`、`goal_achievement_count` 和 `goal_failure_count` 只统计 `GoalState` 根据权威世界条件产生的生命周期转换；普通自然语言目标没有验证条件时会继续保持 active。
 
@@ -84,11 +84,8 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 
 - `causal_transition_steps`：宿主因果规则实际触发的轮数；
 - `causal_handoff_steps/count`：本轮新增多少条带权威 provenance 的后果承接边，例如 `agreement <- resolved_action`、`obligation <- agreement`、`world_event <- resolved_action/host_transition/obligation`、`event_response <- world_event`、`sentiment <- resolved_action/agreement performance`、`relationship track <- sentiment`、`goal_resolution <- goal`、`agent goal <- goal_resolution/world_event/event_response/sentiment/navigation_problem`；resolved Goal 使用带 actor/id/status 的结算事件节点，而不是长期存在的 Goal 实体，因此“上一轮完成旧目标、下一轮长出后续目标”会被正确识别为跨 step 因果；
-- `policy_motive_handoff_count` / `policy_motivated_action_count`：有多少条实际被选中且已提交的行动，由宿主 Policy Trace 证明获得了 Goal、Sentiment、有向 Relationship Track、Obligation、Claim knowledge、Agreement、Modifier、Drive need、Timeline commitment、WorldEvent 或 EventResponse 的正向效用支持。负向贡献只表示抑制，不建立因果父边；评估器也不会从行动文案反猜动机；
-- `attention_motive_available_decision_count` / `urgent_attention_motive_available_decision_count`：有多少次宿主抽样决策时，角色实际收到普通/高显著性 pending WorldEvent 或 EventResponse；`event_motive_reference_decision_count` / `event_motive_selected_decision_count` 分别记录候选中声明有效事件动机引用、以及最终选中事件动机行动的决策数。`event_motive_reference_rate` / `event_motive_selection_rate` 用于观察 Agent 是否把刚发生的 POV-safe 后果接入下一步行动，而不是只被动收到事件；这些是诊断指标，不强迫角色回应每一条事件。
-- `policy_decision_count` / `sampled_policy_decision_count`：实际形成策略记录的角色决策数，以及其中交给 Host 抽样的决策数；
-- `runtime_candidate_count` / `minimum_runtime_candidate_count` / `maximum_runtime_candidate_count` / `mean_runtime_candidate_count`：Agent runtime 提供并通过 Host 语义去重后的候选规模。真实 Hermes 每轮必须至少保留两个实质不同候选，否则该轮直接失败；
-- `selected_runtime_candidate_count`：Host 最终选择 runtime 候选而非环境补充候选的次数；`continuity_supported_selection_count` 和 `motivated_selection_count` 分别记录所选方案是否受到角色当前 plan/focus/private commitment 或其他结构化动机的正向支持。这些审计只保存数量、来源、动作类别和布尔值，不保存 thought、未选行动文本、target、秘密引用或精确效用；
+- `motive_handoff_count` / `motivated_action_count`：有多少条已提交的行动被角色自己说明了动机。宿主不再选择角色的行动，因此也无法重建“她为什么这么做”；这些边只来自角色自报的 `motive_refs`，且必须先通过 InputSystem 对照她实际持有的 Goal、Obligation、Sentiment、Drive need 校验。引用她并不持有的东西会被丢弃而不是采信，评估器也不会从行动文案反猜动机；
+- `decision_count` / `stated_motive_count` / `rejected_motive_ref_count`：本 Episode 有多少次角色决策、其中多少条附带了通过校验的动机自述、以及多少条动机引用因为角色并不持有而被驳回。驳回数持续偏高说明 runtime 在编造自己的内部状态；
 - `causal_source_kind_count`：Episode 实际使用了多少种不同的权威来源类型，避免仅用动作/状态变化数量冒充因果丰富度；
 - `causal_consequence_node_count`：显式因果图中有来源的后果节点数量；
 - `max_causal_chain_depth`：沿 `consequence <- source` provenance 图得到的最长链深度；例如 `Goal <- NavigationProblem <- movement_failure` 深度为 2。算法只遍历显式边并对循环 fail-safe，不尝试从自然语言补边；
@@ -97,7 +94,7 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 - `narrative_step_count` / `narrative_character_count` / `unique_narrative_step_count` / `narrative_repetition_rate` / `max_narrative_repetition`：前台 transcript 的覆盖、规模、整体重复率和单一模板最高出现次数。已提交 Episode 完全没有 narration 会标记 `missing_narrative_output`；任一归一化 narration 出现四次以上会标记 `repetitive_narration`，即使中间夹有少量不同文本也不会漏报。这些指标不评价文风优劣，但能发现 renderer 失效和明显模板循环；
 - `material_stability_blocked_steps` / `terminal_material_change_count`：启用自然闭合时，有多少步因为仍在发生结构变化而不能进入安静窗口，以及 step limit 最后一轮仍有多少类变化。若 Episode 未闭合且最后一步仍被这一条件阻塞，会额外标记 `materially_active_at_step_limit`；它表示故事仍在发展，不等同于 deadlock 或未结义务；
 - `actionable_critical_need_blocked_steps` / `terminal_actionable_critical_need_count`：多少步因为 autonomous 角色仍有临界且眼前可缓解的 need 而不能闭合，以及上限时仍剩多少项。持续到 step limit 会标记 `actionable_critical_needs_at_step_limit`；无可见结构化解决办法或 dormant 角色的 need 分别只进入 closure details 的 `unactionable_critical_need_count` / `dormant_actionable_critical_need_count`；
-- `max_repeated_policy_action_count`：任一角色连续被 Host 选中同一语义行动的最大次数。达到四次会标记 `repetitive_policy_choices`；它比只看粗动作类型的 `repetitive_actions` 更精确，因为连续观察不同对象不会被当成同一个方案，而同义改写无法逃避计数；
+- `max_repeated_policy_action_count`：任一角色连续提交同一语义行动的最大次数。达到四次会标记 `repetitive_policy_choices`；它比只看粗动作类型的 `repetitive_actions` 更精确，因为连续观察不同对象不会被当成同一个方案，而同义改写无法逃避计数；
 - `irreversible_change_steps/count`：产生不可逆局势变化的轮数和事件数；新建/被新事实更新的 Sentiment 与有新 provenance 的 Relationship Track/Bit 计入，单纯衰减和到期不计入；
 - `modifier_change_count`：由新权威事实创建或更新的 Modifier 数量；单纯到期不计入。若存在变化却没有 `modifier <- source`，报告标记 `unattributed_modifier`；
 - `drive_need_cause_count`：新增的 `drive_need <- resolved_action/obligation/clock` provenance 数量；need ledger 本身属于宿主审计状态，不进入角色或玩家视图；

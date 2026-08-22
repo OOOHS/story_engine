@@ -7,7 +7,7 @@ from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
-from src.story_engine.environment.world_transaction import WorldStateTransaction
+from src.story_engine.narrative import CausalPlotEngine
 from src.story_engine.narrative.storylets import StoryletEngine
 from src.story_engine.scenarios.config import ScenarioConfig
 from src.story_engine.systems.simulation import SimulationSystem
@@ -95,42 +95,75 @@ def test_runtime_beat_waits_for_setup_object_then_surfaces_as_storylet():
     assert active[0]["runtime_beat"] is True
 
 
-def test_world_transaction_registers_plot_beat_and_rolls_it_back_on_failure():
+def test_causal_engine_settle_registers_plot_beat_from_committed_result():
     scene = _scene()
     plots = PlotState()
-    committed = WorldStateTransaction().commit(
-        scene,
-        plots,
-        None,
-        {
-            "state_updates": {},
-            "plot_beat_proposals": [_proposal(with_letter_condition=False)],
-        },
+    scenario = ScenarioConfig(
+        name="beat registration",
+        default_agent_runtime="llm",
+        description="",
+        environment="粮仓",
+        initial_state="",
+    )
+    result = {"plot_beat_proposals": [_proposal(with_letter_condition=False)]}
+
+    CausalPlotEngine().settle(
+        scene_state=scene,
+        plot_state=plots,
+        scenario=scenario,
+        result=result,
         current_step=5,
     )
 
-    assert committed.committed is True
     assert "southern_drought" in plots.plots
     assert plots.plots["southern_drought"]["candidate_beats"][0]["beat_id"] == (
         "visitor_letter"
     )
 
-    scene_fail = _scene()
-    plots_fail = PlotState()
-    rejected = WorldStateTransaction().commit(
-        scene_fail,
-        plots_fail,
-        None,
-        {
-            "state_updates": {},
-            "plot_beat_proposals": [_proposal(with_letter_condition=False)],
-            "plot_updates": [{"plot_id": "no_such_plot", "advance": 1}],
-        },
-        current_step=5,
-    )
 
-    assert rejected.committed is False
-    assert plots_fail.plots == {}
+def test_simulation_never_settles_plot_beats_when_world_commit_fails():
+    """Narrative settlement only ever consumes a real commit -- a batch that
+    fails ``WorldStateTransaction.commit`` never reaches
+    ``CausalPlotEngine.settle`` at all, so a proposed beat from that same
+    batch cannot register."""
+    scene = _scene()
+    plots = PlotState()
+    gm = Entity("GameMaster")
+    gm.add_component(
+        SimulationControl(
+            scenario=ScenarioConfig(
+                name="造点失败",
+                default_agent_runtime="llm",
+                description="",
+                environment="粮仓",
+                initial_state="",
+            ),
+            scripted_results=[
+                {
+                    "state_updates": {
+                        "scene": {},
+                        "world_objects": {},
+                        "actor_states": {"不存在的人": {"location": "粮仓"}},
+                    },
+                    "plot_beat_proposals": [_proposal(with_letter_condition=False)],
+                }
+            ],
+        )
+    )
+    gm.add_component(scene)
+    gm.add_component(plots)
+    gm.add_component(DramaState())
+    entities = {"GameMaster": gm}
+    intent = {
+        "actor": "守卫甲",
+        "intent": "守夜",
+        "action_kind": "wait",
+        "location": "粮仓",
+    }
+
+    SimulationSystem().update(entities, {"intents": [intent]})
+
+    assert plots.plots == {}
 
 
 def test_simulation_registers_beat_then_cashes_it_on_the_next_tick():

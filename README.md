@@ -54,9 +54,9 @@
 - 它只负责把确定事实渲染成给玩家看的文字。
 - 渲染后文本进入 `Observation`，结构化结果与渲染文本一起写入长期记忆。
 
-`Cognition` 与 `Memory` 都不会改写已经结算的世界。对普通 LLM runtime，它们仍分别承担 Host 私有经验与长期检索；对 Hermes，`Cognition` 只保留 POV/知识校验需要的有界收据，长期记忆、解释和回忆由 Hermes 原生 memory 独占。
+`Cognition` 与 `Memory` 都不会改写已经结算的世界。对 Hermes，`Cognition` 只保留 POV/知识校验需要的有界收据，长期记忆、解释和回忆由 Hermes 原生 memory 独占。
 
-普通 `LLMCharacterAgent` 的长期记忆上下文由宿主按 `situation / goals / commitments / claims / social / reflection` 多路构造，并受固定条数/字符预算约束。Hermes 不接收“一股脑拼好的完整回忆”：它持续保有自己的 conversation 与原生 JSON memory/tool 上下文，宿主只投递当前身体/世界边界和新的 POV-safe 私人刺激，由 Hermes 主动回忆。两条路径都不能混入 GM 记忆或其他角色私有状态。
+Hermes 不接收“一股脑拼好的完整回忆”：它持续保有自己的 conversation 与原生 JSON memory/tool 上下文，宿主只投递当前身体/世界边界和新的 POV-safe 私人刺激，由 Hermes 主动回忆。宿主侧仍保留按 `situation / goals / commitments / claims / social / reflection` 多路构造、受固定预算约束的检索上下文，供无原生 memory 的规则 runtime 使用；两条路径都不能混入 GM 记忆或其他角色私有状态。
 
 Hermes 的主观状态不再与 Host 双写。Host 只维护可验证的私人账本，例如角色实际接触的事件/Claim、身体压力、义务、协议、日程、地图和已登记目标；这些以带 revision 的 `ledger_update/ledger_retraction` 增量投递。计划、focus、情绪、主观推断、私人承诺和长期回忆由 Hermes 原生 memory 独占，Hermes 角色也不会触发 Host Chroma 检索与归档。逐字段契约见 `docs/SUBJECTIVE_STATE_OWNERSHIP.md`。
 
@@ -130,7 +130,7 @@ Agent 与语义 GM 不会看到精确的 favor/trust/malice 数值。宿主把 T
 
 即时 exchange 之外，明确且需要跨时执行的承诺会成为独立 Agreement Entity。双人协议通过 `parent_relation_id` 挂靠 `Relationship:甲<->乙`，多方协议挂靠稀疏 Group Relationship；协议不塞进关系组件数组。`AgreementTerms` 和 `AgreementLifecycle` 保存协议自身的条款及状态。普通试探和含糊讨价还价仍只存在于 Communication、Cognition 与 Memory。第一回合 propose 不移动资产；后续参与者可独立 accept、reject 或 counter。最后一方接受时，引擎根据当时真实的所有权、库存、地点、可见性和义务状态重新结算，不能凭旧承诺冻结或复制资产。
 
-Hermes 的概率策略属于角色主体：需要权衡时，它先用角色私有的分层 Gumbel 采样选择 `motive_lens`，再在该动机下采样具体行动，最后只向宿主提交一个 action；宿主看不到也不会重排私人候选。评测可固定 per-character seed，生产使用随机 subject seed 并只记录 fingerprint。普通 `LLMCharacterAgent` 暂时保留旧 `CharacterPolicy` 兼容路径，由宿主根据 Trait、风险承受力、需求、义务和关系给候选计分并使用 `policy` 流采样。世界成功率与观察噪声始终由独立的宿主 `world` / `observation` 流决定，因此 Hermes 的主体性不会越过客观结算边界。当前尚未实现人格/目标条件化的全局工作空间竞争和 appraisal，只完成了持久主体、私人 inbox 与两级采样骨架。
+Hermes 的概率策略属于角色主体：需要权衡时，它先用角色私有的分层 Gumbel 采样选择 `motive_lens`，再在该动机下采样具体行动，最后只向宿主提交一个 action；宿主看不到也不会重排私人候选。评测可固定 per-character seed，生产使用随机 subject seed 并只记录 fingerprint。宿主一侧没有第二套打分策略，也没有“角色选择”随机流：Trait、风险承受力、需求、义务和关系只作为证据进入角色的输入包。世界成功率与观察噪声始终由独立的宿主 `world` / `observation` 流决定，因此 Hermes 的主体性不会越过客观结算边界。当前尚未实现人格/目标条件化的全局工作空间竞争和 appraisal，只完成了持久主体、私人 inbox 与两级采样骨架。
 
 语义 GM 也不能替宿主决定概率结果。真正不确定的尝试必须输出 `uncertain_outcomes`，同时给出成功和失败两个结构化后果分支；宿主先同时检查两边的位置权限，只允许当前 move actor 留在原地或抵达空间规则已经授权的目的地，再根据固定难度、权威 capability/skill 与独立随机流选中一个分支并提交 `WorldStateTransaction`。模型自报的 probability、roll、数值 modifier、非移动坐标或替换目的地都会被拒绝，未选分支不会泄漏给叙述或角色记忆。
 

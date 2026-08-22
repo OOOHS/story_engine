@@ -21,6 +21,7 @@ from src.story_engine.simulation import (
     AffordanceActionResolver,
     EvidenceObservationResolver,
     ClaimCommunicationResolver,
+    CommunicationResolver,
     ObjectDeliveryResolver,
     AgreementActionResolver,
     RouteCommunicationResolver,
@@ -52,6 +53,7 @@ class SimulationSystem(System):
         self.uncertain_outcomes = UncertainOutcomeResolver()
         self.affordance_actions = AffordanceActionResolver()
         self.evidence_observations = EvidenceObservationResolver()
+        self.communications = CommunicationResolver()
         self.claim_communications = ClaimCommunicationResolver()
         self.object_deliveries = ObjectDeliveryResolver()
         self.agreement_actions = AgreementActionResolver()
@@ -265,59 +267,82 @@ class SimulationSystem(System):
                     context["semantic_authority_rejections"].extend(
                         outcome_resolution.rejected_writes
                     )
-            affordance_resolution = self.affordance_actions.resolve(
-                result,
-                intents=context.get("intents", []),
+            # Each of these compiles Agent references the Input layer already
+            # validated into exact Host writes, once the semantic layer has
+            # judged that actor's action positive this round -- same
+            # "reference in -> Host write out" shape, different domain. They
+            # only differ in which extra context (scene_state, a registry,
+            # the scenario) their domain needs to double-check before
+            # materializing, so they run as one declarative pipeline instead
+            # of a hand-copied call per resolver.
+            intents = context.get("intents", [])
+            communication_resolution = self.communications.resolve(
+                intents=intents,
+                legality_checks=legality_context.get("checks", []),
                 scene_state=scene_state,
             )
-            result = affordance_resolution.result
-            context["affordance_action_traces"] = list(
-                affordance_resolution.traces
+            # The GM may still have opinions about whether these actors'
+            # utterances "succeeded" -- discard them unconditionally. Only
+            # its knowledge_updates/social_impacts for these actors (content,
+            # not delivery) survive untouched.
+            result["resolved_actions"] = [
+                action
+                for action in result.get("resolved_actions", []) or []
+                if not (
+                    isinstance(action, dict)
+                    and str(action.get("actor", "")).strip()
+                    in communication_resolution.consumed_actors
+                )
+            ]
+            result["resolved_actions"].extend(
+                communication_resolution.resolved_actions
             )
-            evidence_resolution = self.evidence_observations.resolve(
-                result,
-                intents=context.get("intents", []),
-                scene_state=scene_state,
-                claim_registry=context.get("claim_registry"),
-            )
-            result = evidence_resolution.result
-            context["evidence_observation_traces"] = list(
-                evidence_resolution.traces
-            )
-            communication_resolution = self.claim_communications.resolve(
-                result,
-                intents=context.get("intents", []),
-            )
-            result = communication_resolution.result
-            context["claim_communication_traces"] = list(
-                communication_resolution.traces
-            )
-            route_resolution = self.route_communications.resolve(
-                result, intents=context.get("intents", [])
-            )
-            result = route_resolution.result
-            context["route_communication_traces"] = list(
-                route_resolution.traces
-            )
-            delivery_resolution = self.object_deliveries.resolve(
-                result,
-                intents=context.get("intents", []),
-                scene_state=scene_state,
-            )
-            result = delivery_resolution.result
-            context["object_delivery_traces"] = list(
-                delivery_resolution.traces
-            )
-            agreement_action_resolution = self.agreement_actions.resolve(
-                result,
-                intents=context.get("intents", []),
-                scenario=scenario,
-                current_step=current_step,
-            )
-            result = agreement_action_resolution.result
-            context["agreement_action_traces"] = list(
-                agreement_action_resolution.traces
-            )
+            context["communication_traces"] = [
+                dict(action) for action in communication_resolution.resolved_actions
+            ]
+            for trace_key, resolver, kwargs in (
+                (
+                    "affordance_action_traces",
+                    self.affordance_actions,
+                    {"intents": intents, "scene_state": scene_state},
+                ),
+                (
+                    "evidence_observation_traces",
+                    self.evidence_observations,
+                    {
+                        "intents": intents,
+                        "scene_state": scene_state,
+                        "claim_registry": context.get("claim_registry"),
+                    },
+                ),
+                (
+                    "claim_communication_traces",
+                    self.claim_communications,
+                    {"intents": intents},
+                ),
+                (
+                    "route_communication_traces",
+                    self.route_communications,
+                    {"intents": intents},
+                ),
+                (
+                    "object_delivery_traces",
+                    self.object_deliveries,
+                    {"intents": intents, "scene_state": scene_state},
+                ),
+                (
+                    "agreement_action_traces",
+                    self.agreement_actions,
+                    {
+                        "intents": intents,
+                        "scenario": scenario,
+                        "current_step": current_step,
+                    },
+                ),
+            ):
+                resolution = resolver.resolve(result, **kwargs)
+                result = resolution.result
+                context[trace_key] = list(resolution.traces)
             agreement_registry = context.get("agreement_registry")
             agreement_book = (
                 agreement_registry.to_book()
@@ -402,19 +427,6 @@ class SimulationSystem(System):
                     transaction_result.errors,
                 )
             else:
-                result["storylet_hits"] = self.storylets.detect_hits(
-                    active_storylets,
-                    result,
-                )
-                result = self.causal_plots.enrich_result(
-                    scene_state=scene_state,
-                    plot_state=plot_state,
-                    scenario=scenario,
-                    result=result,
-                    character_spawn_plan=spawn_plan,
-                    proposal_actors=proposal_actors,
-                )
-
                 transaction_result = self.transaction.commit(
                     scene_state=scene_state,
                     plot_state=plot_state,
@@ -427,11 +439,6 @@ class SimulationSystem(System):
                     current_step=current_step,
                     proposal_actors=proposal_actors,
                     agreement_book=agreement_book,
-                    consumed_storylet_ids=self.storylets.consumable_hits(
-                        scenario,
-                        result.get("storylet_hits", []),
-                        active_storylets=active_storylets,
-                    ),
                     emergent_meter_budget=int(
                         getattr(scenario, "emergent_meter_budget", 0) or 0
                     ),
@@ -471,6 +478,39 @@ class SimulationSystem(System):
                             False,
                             [f"agreement entity publication rolled back: {exc}"],
                         )
+                if (
+                    transaction_result.committed
+                    and scene_state is not None
+                    and plot_state is not None
+                ):
+                    result["storylet_hits"] = self.storylets.detect_hits(
+                        active_storylets, result
+                    )
+                    consumed_storylet_ids = self.storylets.consumable_hits(
+                        scenario,
+                        result["storylet_hits"],
+                        active_storylets=active_storylets,
+                    )
+                    narrative_director = entity.get_component("NarrativeDirector")
+                    if narrative_director is not None:
+                        self._run_narrative_director(
+                            narrative_director,
+                            scene_state=scene_state,
+                            result=result,
+                            plot_packets=plot_packets,
+                            director_packet=director_packet,
+                            active_storylets=active_storylets,
+                            current_step=current_step,
+                            context=context,
+                        )
+                    self.causal_plots.settle(
+                        scene_state=scene_state,
+                        plot_state=plot_state,
+                        scenario=scenario,
+                        result=result,
+                        consumed_storylet_ids=consumed_storylet_ids,
+                        current_step=current_step,
+                    )
                 if not transaction_result.committed:
                     result = self.transaction.sanitize_rejected_result(
                         result,
@@ -1097,6 +1137,72 @@ class SimulationSystem(System):
                 }
             )
         return opportunities
+
+    def _run_narrative_director(
+        self,
+        narrative_director: Any,
+        *,
+        scene_state: Any,
+        result: Dict[str, Any],
+        plot_packets: List[Dict[str, Any]],
+        director_packet: Dict[str, Any],
+        active_storylets: List[Dict[str, Any]],
+        current_step: int,
+        context: Dict[str, Any],
+    ) -> None:
+        """Run narrative intuition strictly after this tick's commit.
+
+        Never raises: an unavailable or malformed response just means no
+        new beat/signal this tick, not a rolled-back one. The tick already
+        committed; this pass is a bonus, not a dependency.
+        """
+        try:
+            payload = {
+                "committed_facts": {
+                    "resolved_actions": result.get("resolved_actions", []),
+                    "social_impacts": result.get("social_impacts", []),
+                    "object_lifecycle": result.get("object_lifecycle", []),
+                    "storylet_hits": result.get("storylet_hits", []),
+                    "tension_delta": result.get("tension_delta", 0.0),
+                    "conflict_level": result.get("conflict_level", "none"),
+                },
+                "plot_threads": plot_packets,
+                "storylet_opportunities": self._build_storylet_opportunities(
+                    active_storylets
+                ),
+                "narrative_pressure": {
+                    "directive": str(director_packet.get("directive", "") or ""),
+                    "instruction": str(director_packet.get("instruction", "") or ""),
+                    "tension": director_packet.get("tension"),
+                }
+                if director_packet
+                else {},
+            }
+            narrative_result = narrative_director.direct(payload)
+        except Exception:
+            return
+        if not isinstance(narrative_result, dict):
+            return
+        filtered = self.authority.sanitize(narrative_result)
+        context.setdefault("semantic_authority_rejections", []).extend(
+            filtered.rejected_writes
+        )
+        result["plot_beat_proposals"] = filtered.result.get("plot_beat_proposals", [])
+        director_signals = filtered.result.get("director_signals", [])
+        result["director_signals"] = director_signals
+        for signal in director_signals:
+            if not isinstance(signal, dict):
+                continue
+            actor = str(signal.get("actor", "")).strip()
+            if scene_state is None or actor not in scene_state.actor_states:
+                continue
+            scene_state.queue_director_signal(
+                actor,
+                str(signal.get("suggestion", "")),
+                current_step=int(current_step),
+                source_plot_id=str(signal.get("source_plot_id", "")),
+                tags=list(signal.get("tags", []) or []),
+            )
 
     def _pick_salient_storylet(
         self,

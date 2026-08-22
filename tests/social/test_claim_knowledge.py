@@ -1,6 +1,5 @@
 from types import SimpleNamespace
 
-from src.story_engine.agents.policy import CharacterPolicy
 from src.story_engine.agents.types import AgentPerception
 from src.story_engine.components.knowledge_state import KnowledgeState
 from src.story_engine.components.plot_state import PlotState
@@ -467,43 +466,6 @@ def test_public_claims_are_shared_but_secret_claims_remain_selective():
     assert not session.runner.agent_registry.is_registered(
         session.entities["Claim:ledger_owner"]
     )
-
-
-def test_leverage_becomes_a_generic_host_candidate_without_truth_leakage():
-    perception = AgentPerception(
-        actor_name="甲",
-        step=1,
-        world_view={"visible_actors": ["甲", "乙"], "visible_world": {}},
-        private_knowledge={
-            "claims": [
-                {
-                    "claim_id": "ledger_owner",
-                    "statement": "乙秘密控制着这本账册。",
-                }
-            ],
-            "potential_leverage": [
-                {
-                    "claim_id": "ledger_owner",
-                    "targets": ["乙"],
-                    "confidence": 0.9,
-                    "evidence_backed": True,
-                }
-            ],
-        },
-    )
-
-    candidates = CharacterPolicy()._environment_candidates(perception)
-    leverage = next(
-        item for item in candidates
-        if item.candidate_id.startswith("environment:leverage:")
-    )
-
-    assert leverage.action.target == "乙"
-    assert leverage.metadata["claim_id"] == "ledger_owner"
-    assert CharacterPolicy._knowledge_score(perception, leverage) == 0.66
-    assert "truth_status" not in leverage.metadata
-
-
 def test_claim_updates_are_removed_from_public_render_payload():
     visible = RenderingSystem()._build_visible_simulation(
         {

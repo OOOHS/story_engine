@@ -81,9 +81,9 @@ artifacts/minimal-investigation/
 - 每项 Episode metric 的 mean/min/max/sum；
 - 每种质量 flag 的 count/rate；
 - 不同动作轨迹和最终世界状态数量；
-- sampled policy 实际参与的 Episode 数；
-- 每个 Episode 的 runtime 候选规模、Host 选择 runtime 候选次数、连续性支持与结构化动机支持次数，并通过 `metric_summary` 汇总 mean/min/max/sum；
-- 有多少 sampled-policy Episode 至少出现一条由 Goal、Sentiment、Relationship、Obligation、Knowledge、Agreement、Modifier、Drive 或 Timeline 正向推动的真实行动，以及跨 seed 的动机边数量/行动数量；
+- 实际发生过角色决策的 Episode 数；
+- 每个 Episode 的决策数、通过校验的动机自述数与被驳回的动机引用数，并通过 `metric_summary` 汇总 mean/min/max/sum；
+- 有多少 Episode 至少出现一条角色自己归因到 Goal、Obligation、Sentiment 或 Drive need 的真实行动，以及跨 seed 的动机边数量/行动数量；
 - 可验证 Goal 的结算率；
 - Agent Goal 的采用、开放目标细化、结尾开放积压和最终结算数量；这些指标也直接进入 `review.md` 与 Hermes launcher 的终端 JSON 摘要；
 - 自然完结数量/比例与 steps-to-closure 的 mean/min/max；
@@ -93,7 +93,7 @@ artifacts/minimal-investigation/
 
 完整的 `episodes/*.json` 在每个 step 中保存有界、POV-safe 的 `narrative_text`。`transcripts/*.md` 只整理这些玩家可见文本，便于直接人工审阅；`summary.json` 的每个 `episode_files` 条目同时给出 `path` 和 `transcript_path`。顶层 summary 不复制整段故事，从而保持批量摘要轻量，也避免把私有 Agent/GM 状态误当作玩家文本。
 
-`review.md` 是人工审阅入口：它汇总闭合、因果弧、候选规模、连续性与动机支持、Replay、Hermes 调用预算和质量标记，并为每个 seed 链接 transcript 与完整 JSON。它不复制故事正文，也不保存 Agent thought、未选行动、隐藏关系或 GM 私有包；最后的“故事是否有趣”仍明确要求阅读 transcript，结构指标不能代替审美判断。
+`review.md` 是人工审阅入口：它汇总闭合、因果弧、决策规模、动机自述与驳回情况、Replay、Hermes 调用预算和质量标记，并为每个 seed 链接 transcript 与完整 JSON。它不复制故事正文，也不保存 Agent thought、未选行动、隐藏关系或 GM 私有包；最后的“故事是否有趣”仍明确要求阅读 transcript，结构指标不能代替审美判断。
 
 单个 seed 失败不会终止整个 sweep。失败会记录 seed、phase、异常类型和截断后的错误信息，其余 seed 继续运行。
 
@@ -106,14 +106,14 @@ artifacts/minimal-investigation/
 - `all_episodes_stagnant`：所有完成 Episode 都停滞；
 - `frequent_deadlock`：至少一半 Episode 进入僵局；
 - `frequent_repetitive_actions`：至少一半 Episode 长期重复同一动作批次；
-- `seed_insensitive_policy`：至少三个使用宿主采样策略的 Episode 得到完全相同的角色/动作类型/显式目标与候选选择轨迹；
+- `seed_insensitive_policy`：至少三个发生过角色决策的 Episode 得到完全相同的角色/动作类型/显式目标与动机自述轨迹；
 - `no_verifiable_goal_resolution`：存在有权威条件的 Goal，但跨 sweep 没有任何 achieved/failed 转换。
 - `open_goal_backlog`：至少一个运行了 12 step 的 Episode，且这些长程 Episode 平均每个仍保留至少一个没有权威完成路径的 active Agent Goal；这是结构退化提醒，不等于审美判定。
 - `no_episode_closure`：启用完结策略后，没有 Episode 在上限内收束；
 - `low_closure_rate`：启用完结策略后，少于一半 Episode 收束。
-- `no_policy_motive_chain`：存在宿主采样 Episode，但没有任何 Episode 产生结构化动机到真实行动的因果边；
-- `low_policy_motive_coverage`：至少三个采样 Episode 中，少于一半出现结构化动机推动的真实行动；
-- `no_urgent_event_motive_link`：跨 sweep 至少有三个高显著性事件注意机会，但没有任何候选声明有效 WorldEvent/EventResponse 动机引用；这是 Agent 没有把关键后果接入行动链的诊断，不等于每个事件都必须被回应；
+- `no_policy_motive_chain`：存在发生过角色决策的 Episode，但没有任何 Episode 产生动机到真实行动的因果边；
+- `low_policy_motive_coverage`：至少三个有决策的 Episode 中，少于一半出现带动机自述的真实行动；
+- `unbacked_motive_claims`：被驳回的动机引用数达到决策数的一半以上，说明 runtime 在编造自己并不持有的目标或义务；引用不存在的动机比不解释动机更糟，因此单独标记而不是稀释上面的覆盖率；
 
 这些仍然是结构性证据，不是“故事好看分数”。跨 seed 多样性太低可能表示策略失效，但多样性很高也可能只是随机噪声；需要结合因果变化、Goal 收束、角色区分度和权限审计共同判断。
 

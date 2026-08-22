@@ -19,11 +19,9 @@ from src.story_engine.social import SocialDynamics
 @dataclass
 class WorldStateCheckpoint:
     scene_state: Any = field(repr=False, default=None)
-    plot_state: Any = field(repr=False, default=None)
     drama_state: Any = field(repr=False, default=None)
     relationship_book: Any = field(repr=False, default=None)
     scene_snapshot: Any = field(repr=False, default=None)
-    plot_snapshot: Any = field(repr=False, default=None)
     drama_snapshot: Any = field(repr=False, default=None)
     relationship_snapshot: Any = field(repr=False, default=None)
     drive_states: Any = field(repr=False, default=None)
@@ -45,8 +43,6 @@ class WorldStateCheckpoint:
             self.scene_state.private_scene_fields = deepcopy(
                 self.scene_snapshot.get("private_scene_fields", [])
             )
-        if self.plot_state is not None and self.plot_snapshot is not None:
-            self.plot_state.plots = deepcopy(self.plot_snapshot)
         if self.drama_state is not None and self.drama_snapshot is not None:
             self.drama_state.tension = self.drama_snapshot
         if self.relationship_book is not None and self.relationship_snapshot is not None:
@@ -112,6 +108,7 @@ class WorldStateTransaction:
         "world_version",
         "consumed_character_entry_authorizations",
         "consumed_storylets",
+        "consumed_plot_rules",
     }
 
     def __init__(self) -> None:
@@ -145,21 +142,25 @@ class WorldStateTransaction:
         # callers.  New runtime code passes the transaction-scoped AgreementBook.
         if agreement_book is not None:
             contract_state = agreement_book
+        # ``plot_state`` and ``consumed_storylet_ids`` are accepted only for
+        # call-site compatibility. Plot clocks, storylet consumption, new
+        # plot_beat_proposals, and director_signals are no longer
+        # staged/committed here: they are narrative derivations of
+        # already-committed world facts, produced by NarrativeDirector and
+        # settled by ``CausalPlotEngine.settle`` after this transaction
+        # succeeds, not rehearsed against a guess of what it will produce.
         errors: List[str] = []
         updates = result.get("state_updates", {})
         self._validate_scene_updates(scene_state, updates, errors)
-        self._validate_plot_updates(plot_state, result.get("plot_updates", []), errors)
         tension_delta = self._validate_tension_delta(result.get("tension_delta", 0.0), errors)
         if errors:
             return TransactionResult(False, errors)
 
         checkpoint = WorldStateCheckpoint(
             scene_state=scene_state,
-            plot_state=plot_state,
             drama_state=drama_state,
             relationship_book=relationship_book,
             scene_snapshot=deepcopy(scene_state.get_snapshot()) if scene_state else None,
-            plot_snapshot=deepcopy(plot_state.get_snapshot()) if plot_state else None,
             drama_snapshot=deepcopy(drama_state.tension) if drama_state else None,
             relationship_snapshot=(
                 relationship_book.__class__(**deepcopy(relationship_book.model_dump()))
@@ -187,11 +188,6 @@ class WorldStateTransaction:
         )
 
         staged_scene = SceneState(**deepcopy(scene_state.get_snapshot())) if scene_state else None
-        staged_plot = (
-            plot_state.__class__(**deepcopy(plot_state.model_dump()))
-            if plot_state
-            else None
-        )
         staged_drama = (
             drama_state.__class__(**deepcopy(drama_state.model_dump()))
             if drama_state
@@ -223,12 +219,6 @@ class WorldStateTransaction:
                 staged_scene.apply_updates(deepcopy(updates))
                 errors.extend(
                     self.characters.stage(staged_scene, character_spawn_plan)
-                )
-                errors.extend(
-                    self._stage_storylet_consumption(
-                        staged_scene,
-                        consumed_storylet_ids or [],
-                    )
                 )
                 contract_resolution = self.contracts.resolve(
                     staged_contract,
@@ -334,41 +324,6 @@ class WorldStateTransaction:
                         errors.append(
                             f"obligation state references missing actor: {actor}"
                         )
-                # Best-effort, never batch-failing: a director signal is a
-                # soft suggestion, not a fact, so a malformed or unknown-actor
-                # entry is just dropped rather than rejecting the whole
-                # transaction the way an invalid resolved_action would.
-                for signal in working_result.get("director_signals", []) or []:
-                    if not isinstance(signal, dict):
-                        continue
-                    actor = str(signal.get("actor", "")).strip()
-                    if actor not in staged_scene.actor_states:
-                        continue
-                    staged_scene.queue_director_signal(
-                        actor,
-                        str(signal.get("suggestion", "")),
-                        current_step=int(current_step),
-                        source_plot_id=str(signal.get("source_plot_id", "")),
-                        tags=list(signal.get("tags", []) or []),
-                    )
-            if staged_plot:
-                staged_plot.apply_updates(
-                    deepcopy(working_result.get("plot_updates", [])),
-                    current_step=current_step,
-                )
-                if hasattr(staged_plot, "apply_beat_proposals"):
-                    staged_plot.apply_beat_proposals(
-                        list(working_result.get("plot_beat_proposals") or []),
-                        current_step=int(current_step),
-                        known_actors=(
-                            set(staged_scene.actor_states) if staged_scene else None
-                        ),
-                    )
-                self._consume_runtime_beats(
-                    staged_plot,
-                    consumed_storylet_ids or [],
-                    current_step=int(current_step),
-                )
             if staged_drama:
                 staged_drama.apply_delta(tension_delta)
         except Exception as exc:
@@ -390,8 +345,6 @@ class WorldStateTransaction:
             scene_state.world_objects = staged_scene.world_objects
             scene_state.actor_states = staged_scene.actor_states
             scene_state.scene_flags = staged_scene.scene_flags
-        if plot_state and staged_plot:
-            plot_state.plots = staged_plot.plots
         if drama_state and staged_drama:
             drama_state.tension = staged_drama.tension
         if relationship_book and staged_relationships:
@@ -410,51 +363,6 @@ class WorldStateTransaction:
             result.clear()
             result.update(working_result)
         return TransactionResult(True, [], checkpoint=checkpoint)
-
-    def _stage_storylet_consumption(
-        self,
-        scene_state: Any,
-        storylet_ids: List[str],
-    ) -> List[str]:
-        if not storylet_ids:
-            return []
-        if not isinstance(storylet_ids, list):
-            return ["consumed storylet ids must be a list"]
-        consumed = scene_state.get_scene_flag("consumed_storylets", [])
-        if not isinstance(consumed, list):
-            return ["consumed_storylets must be a list"]
-        normalized = [str(item).strip() for item in consumed if str(item).strip()]
-        errors: List[str] = []
-        for index, raw_id in enumerate(storylet_ids):
-            storylet_id = str(raw_id).strip()
-            if not storylet_id:
-                errors.append(f"consumed storylet id is empty: {index}")
-                continue
-            if storylet_id not in normalized:
-                normalized.append(storylet_id)
-        if not errors:
-            scene_state.update_scene_flags({"consumed_storylets": normalized})
-        return errors
-
-    def _consume_runtime_beats(
-        self,
-        plot_state: Any,
-        storylet_ids: List[str],
-        *,
-        current_step: int,
-    ) -> None:
-        if plot_state is None or not hasattr(plot_state, "parse_runtime_storylet_id"):
-            return
-        for raw_id in storylet_ids or []:
-            parsed = plot_state.parse_runtime_storylet_id(raw_id)
-            if not parsed:
-                continue
-            plot_id, beat_id = parsed
-            plot_state.consume_beat(
-                plot_id,
-                beat_id,
-                current_step=int(current_step),
-            )
 
     def sanitize_rejected_result(
         self,
@@ -886,23 +794,6 @@ class WorldStateTransaction:
                     )
         if len(affordance_ids) != len(set(affordance_ids)):
             errors.append(f"object affordance ids must be unique: {object_id}")
-
-    def _validate_plot_updates(self, plot_state, updates, errors):
-        if not isinstance(updates, list):
-            errors.append("plot_updates must be a list")
-            return
-        for index, update in enumerate(updates):
-            if not isinstance(update, dict):
-                errors.append(f"plot_updates[{index}] must be an object")
-                continue
-            plot_id = update.get("plot_id")
-            if not plot_id or not plot_state or plot_id not in plot_state.plots:
-                errors.append(f"unknown plot: {plot_id}")
-            for key in ("advance", "stage_shift"):
-                try:
-                    int(update.get(key, 0))
-                except (TypeError, ValueError):
-                    errors.append(f"plot update {key} must be an integer: {plot_id}")
 
     def _validate_relationship_invariants(self, scene_state, relationship_book, errors):
         known_actors = set(scene_state.actor_states)

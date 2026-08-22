@@ -64,7 +64,12 @@ def _result(actor, outcome, *, claimed_hits=None):
             {
                 "actor": actor,
                 "intent": "表达自己的意见",
-                "action_kind": "communicate",
+                # interact, not communicate: communicate is now settled
+                # deterministically by the host (always "success" once
+                # legality allows it) and never carries a scripted
+                # outcome, so it cannot exercise the blocked/complication/
+                # partial beat-realization path this suite is testing.
+                "action_kind": "interact",
                 "action_target": "甲" if actor == "乙" else "乙",
                 "outcome": outcome,
                 "location": "大厅",
@@ -85,7 +90,7 @@ def test_natural_committed_action_is_detected_and_consumes_one_shot_storylet():
             {
                 "actor": "乙",
                 "intent": "表达自己的意见",
-                "action_kind": "communicate",
+                "action_kind": "interact",
                 "action_target": "甲",
                 "location": "大厅",
             }
@@ -108,7 +113,7 @@ def test_gm_claimed_storylet_hit_is_ignored_when_no_matching_action_occurred():
             {
                 "actor": "甲",
                 "intent": "表达自己的意见",
-                "action_kind": "communicate",
+                "action_kind": "interact",
                 "action_target": "乙",
                 "location": "大厅",
             }
@@ -134,7 +139,7 @@ def test_natural_hit_is_not_consumed_when_world_transaction_fails():
             {
                 "actor": "乙",
                 "intent": "表达自己的意见",
-                "action_kind": "communicate",
+                "action_kind": "interact",
                 "action_target": "甲",
                 "location": "大厅",
             }

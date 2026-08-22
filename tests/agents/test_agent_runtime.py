@@ -5,14 +5,11 @@ import pytest
 from src.story_engine.attention import HostAttentionPolicy
 from src.story_engine.agents import (
     AgentDecision,
-    AgentMotiveReference,
     AgentPerception,
     AgentRegistry,
     AgentScheduler,
 )
-from src.story_engine.agents.llm_runtime import LLMCharacterAgent
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import PolicySelection
 from src.story_engine.agents.memory_context import (
     AgentMemoryContextBuilder,
     MemoryQueryRoute,
@@ -38,9 +35,14 @@ from src.story_engine.session import create_session
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.cognition import CognitionSystem
 
-_LLM_RUNTIME_FACTORIES = {
-    "llm": lambda entity, cfg: LLMCharacterAgent(llm_config=cfg.get("llm_config", {}))
-}
+class _WaitingRuntime:
+    """A registered runtime that always commits to the same trivial action."""
+
+    def decide(self, _entity, _perception):
+        return AgentDecision(action="安静等待。")
+
+
+_LLM_RUNTIME_FACTORIES = {"llm": lambda entity, cfg: _WaitingRuntime()}
 
 
 class RecordingRuntime:
@@ -1344,94 +1346,6 @@ def test_agent_can_retire_private_continuity_state_before_next_turn():
     assert second_perception.private_cognition["current_focus"] == ""
     assert second_perception.private_cognition["commitments"] == []
     assert second_perception.private_cognition["beliefs"] == []
-
-
-def test_only_host_selected_candidate_applies_its_private_continuity_updates():
-    class SimulationControl(Component):
-        pass
-
-    class CandidateRuntime:
-        def decide(self, entity, perception):
-            del entity, perception
-            candidates = (
-                AgentAction("observe", "调查北门。", "北门"),
-                AgentAction("move", "前往南院。", "南院"),
-            )
-            return AgentDecision(
-                action=candidates[0].detail,
-                action_spec=candidates[0],
-                candidates=candidates,
-                metadata={
-                    "plan": "不应采用的顶层计划",
-                    "belief_updates": [
-                        {
-                            "statement": "院内可能有人",
-                            "confidence": 0.6,
-                            "source": "远处声音",
-                        }
-                    ],
-                    "resolved_commitments": ["旧调查已经由上一轮结果结束"],
-                    "candidate_updates": [
-                        {"plan": "查清北门后回大厅", "focus": "北门"},
-                        {
-                            "plan": "抵达南院后寻找乙",
-                            "focus": "南院",
-                            "resolved_commitments": ["找到乙"],
-                        },
-                    ],
-                },
-            )
-
-    class SelectSecondPolicy:
-        def select(self, **kwargs):
-            decision = kwargs["decision"]
-            return PolicySelection(
-                action=decision.candidates[1],
-                trace={
-                    "mode": "host_sampled",
-                    "selected_candidate_id": "runtime:1",
-                    "selected_action": decision.candidates[1].to_dict(),
-                    "candidates": [],
-                },
-            )
-
-    character = _character("甲")
-    character.get_component("Cognition").commitments = [
-        "旧调查已经由上一轮结果结束",
-        "找到乙",
-    ]
-    registry = AgentRegistry()
-    registry.register(character, CandidateRuntime())
-    gm = Entity("GameMaster")
-    gm.add_component(SimulationControl())
-    gm.add_component(
-        SceneState(
-            world_objects={"大厅": {}, "北门": {}, "南院": {}},
-            actor_states={"甲": {"location": "大厅"}},
-        )
-    )
-    input_system = InputSystem()
-    input_system.policy = SelectSecondPolicy()
-    context = {
-        "dispatcher": None,
-        "agent_registry": registry,
-        "overrides": {},
-        "clock": SimpleNamespace(current_step=1),
-        "player_name": "甲",
-        "inject_events": [],
-        "intents": [],
-    }
-
-    input_system.update({"GameMaster": gm, "甲": character}, context)
-
-    assert character.get_component("Planning").get_plan() == "抵达南院后寻找乙"
-    cognition = character.get_component("Cognition").get_private_snapshot()
-    assert cognition["current_focus"] == "南院"
-    assert cognition["beliefs"][0]["statement"] == "院内可能有人"
-    assert cognition["commitments"] == ["找到乙"]
-    assert context["intents"][-1]["action_target"] == "南院"
-
-
 def test_memory_retrieval_uses_structured_goal_and_social_routes_without_new_events():
     class SimulationControl(Component):
         pass
@@ -1904,180 +1818,6 @@ def test_cognition_system_does_not_leak_remote_or_hidden_outcomes():
         for item in remote.get_component("Cognition").experiences[-1]["events"]
     ]
     assert remote_results == ["乙看见了箱中的信。"]
-
-
-def test_llm_agent_parses_private_cognition_updates_as_metadata():
-    runtime = LLMCharacterAgent(llm_config={})
-    decision = runtime._parse_decision(
-        '{"thought":"先别声张","action":"检查门锁","plan":"确认后再告诉同伴",'
-        '"focus":"门后的声音","belief_updates":[{"statement":"屋里有人",'
-        '"confidence":0.6,"source":"声音"}],"commitments":["保护同伴"]}'
-    )
-
-    assert decision.action == "检查门锁"
-    assert decision.metadata["plan"] == "确认后再告诉同伴"
-    assert decision.metadata["belief_updates"][0]["statement"] == "屋里有人"
-
-    retired = runtime._parse_decision(
-        '{"thought":"旧事已了","action":"观察四周",'
-        '"clear_plan":true,"clear_focus":true,'
-        '"resolved_commitments":["保护同伴"]}'
-    )
-    assert retired.metadata["clear_plan"] is True
-    assert retired.metadata["clear_focus"] is True
-    assert retired.metadata["resolved_commitments"] == ["保护同伴"]
-
-    retracted = runtime._parse_decision(
-        '{"thought":"先前判断错了","action":"继续观察",'
-        '"belief_updates":[{"operation":"retract",'
-        '"statement":"屋里有人"}]}'
-    )
-    assert retracted.metadata["belief_updates"] == [
-        {"operation": "retract", "statement": "屋里有人"}
-    ]
-
-    sampled = runtime._parse_decision(
-        '{"thought":"比较两条路","candidates":['
-        '{"kind":"observe","detail":"调查北门","target":"北门",'
-        '"motive_refs":[{"kind":"goal","ref":"find-exit"}],'
-        '"next_plan":"查清北门","next_focus":"北门"},'
-        '{"kind":"move","detail":"前往南院","target":"南院",'
-        '"next_plan":"抵达南院后找乙","clear_focus":true}]}'
-    )
-    assert sampled.metadata["candidate_updates"] == [
-        {
-            "plan": "查清北门",
-            "clear_plan": False,
-            "focus": "北门",
-            "clear_focus": False,
-            "commitments": [],
-        },
-        {
-            "plan": "抵达南院后找乙",
-            "clear_plan": False,
-            "focus": "",
-            "clear_focus": True,
-            "commitments": [],
-        },
-    ]
-    assert sampled.candidate_motive_refs == (
-        (AgentMotiveReference("goal", "find-exit"),),
-        (),
-    )
-
-
-def test_llm_agent_preserves_goal_requests_for_host_validation():
-    runtime = LLMCharacterAgent(llm_config={})
-    decision = runtime._parse_decision(
-        '{"thought":"需要继续追查","action":"检查账本",'
-        '"goal_requests":[{"operation":"adopt","title":"找到幕后买家",'
-        '"source_kind":"claim","source_ref":"hidden_buyer"}]}'
-    )
-
-    assert decision.metadata["goal_requests"] == [
-        {
-            "operation": "adopt",
-            "title": "找到幕后买家",
-            "source_kind": "claim",
-            "source_ref": "hidden_buyer",
-        }
-    ]
-
-
-def test_llm_prompt_exposes_host_validated_goal_refinement_and_abandonment():
-    runtime = LLMCharacterAgent(llm_config={})
-    prompt = runtime._build_prompt(
-        Identity(
-            name="甲",
-            role="调查者",
-            personality="谨慎",
-            goals=[],
-        ),
-        AgentPerception(
-            actor_name="甲",
-            step=2,
-            private_goals={
-                "active": [
-                    {
-                        "goal_id": "agent-goal:abc",
-                        "title": "追查旧线索",
-                        "origin": "agent",
-                        "status": "active",
-                    }
-                ]
-            },
-        ),
-    )
-
-    assert '"operation":"refine"' in prompt
-    assert '"operation":"abandon"' in prompt
-    assert "宿主只允许细化一次" in prompt
-    assert "当前 active 的 agent goal id" in prompt
-
-
-def test_llm_prompt_has_one_time_anchor_and_separates_possessions():
-    runtime = LLMCharacterAgent(llm_config={})
-    prompt = runtime._build_prompt(
-        Identity(
-            name="甲",
-            role="旅人",
-            personality="谨慎",
-            goals=["兼容目标不应重复"],
-        ),
-        AgentPerception(
-            actor_name="甲",
-            step=7,
-            activation_scope="background",
-            world_view={
-                "viewer": "甲",
-                "location": "大厅",
-                "visible_objects": ["背包", "灯"],
-                "visible_world": {
-                    "背包": {"owner": "甲", "portable": True},
-                    "灯": {"location": "大厅", "powered": True},
-                },
-            },
-            self_state={"location": "大厅", "stance": "standing"},
-            private_goals={
-                "active": [
-                    {
-                        "goal_id": "unique-goal",
-                        "title": "完成独有目标",
-                        "status": "active",
-                    }
-                ]
-            },
-        ),
-    )
-
-    assert "- 世界步：7" in prompt
-    assert "- 激活范围：background" in prompt
-    assert "- 所在地点：大厅" in prompt
-    assert "当前由你直接持有的物品" in prompt
-    assert prompt.count('"背包"') == 1
-    assert prompt.count('"灯"') == 2
-    assert prompt.count("完成独有目标") == 1
-    assert "兼容目标不应重复" not in prompt
-    assert '"viewer"' not in prompt
-
-
-def test_llm_agent_returns_semantic_candidates_without_sampling_them():
-    runtime = LLMCharacterAgent(llm_config={})
-    decision = runtime._parse_decision(
-        '{"thought":"需要权衡", "candidates":['
-        '{"kind":"observe","detail":"检查门锁","target":"门"},'
-        '{"kind":"communicate","detail":"询问乙是否听见声音","target":"乙"}'
-        ']}'
-    )
-
-    assert [candidate.kind for candidate in decision.candidates] == [
-        "observe",
-        "communicate",
-    ]
-    assert decision.action_spec == decision.candidates[0]
-    assert "probability" not in decision.metadata
-
-
 def test_same_turn_npcs_cannot_see_each_others_uncommitted_proposals():
     class SimulationControl(Component):
         pass

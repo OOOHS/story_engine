@@ -5,6 +5,8 @@ Storylets or character-name checks outside its own content-owned runtimes and
 semantic test resolver.
 """
 
+import hashlib
+
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.components.host_rule_simulation import (
@@ -26,7 +28,27 @@ CLAIM_ID = "ledger_implicates_keeper"
 
 
 class InvestigationPolicyRuntime:
-    """Open candidates only; CharacterPolicy owns the seeded choice."""
+    """A content-owned runtime that commits to one action per turn.
+
+    Deliberation is the character's own business, so this seed does its own
+    choosing instead of handing the Host a candidate list to score.
+
+    The investigator is purposeful: she examines the ledger, then goes for it.
+    That is what an investigator does, and it is what makes the
+    evidence-to-claim chain reachable at all. The keeper is the one who
+    wavers between seizing the ledger, denying and probing, so whether she
+    gets there first varies by seed -- which is where a multi-seed sweep gets
+    its different outcomes.
+    """
+
+    def __init__(self, seed=0):
+        self._seed = seed
+
+    def _choose(self, options, actor, step):
+        digest = hashlib.sha256(
+            f"{self._seed}|{actor}|{step}".encode("utf-8")
+        ).hexdigest()
+        return options[int(digest, 16) % len(options)]
 
     def decide(self, entity, perception):
         if entity.name == INVESTIGATOR:
@@ -71,10 +93,22 @@ class InvestigationPolicyRuntime:
                 ),
                 AgentAction("wait", "保持镇定，不主动暴露更多信息。"),
             )
+        step = int(getattr(perception, "step", 0) or 0)
+        if entity.name == INVESTIGATOR:
+            action = candidates[0] if step <= 0 else candidates[1]
+        else:
+            action = self._choose(candidates, entity.name, step)
+        goal_id = (
+            "secure_evidence" if entity.name == INVESTIGATOR else "retain_evidence"
+        )
         return AgentDecision(
-            action=candidates[0].detail,
-            candidates=candidates,
+            action=action.detail,
+            action_spec=action,
             thought="根据自己的目标权衡调查、控制证据与交流。",
+            metadata={
+                "subject_runtime": True,
+                "motive_refs": [{"kind": "goal", "ref": goal_id}],
+            },
         )
 
 
@@ -149,18 +183,11 @@ def build_minimal_investigation_scenario() -> ScenarioConfig:
                     {
                         "trait_id": "curious",
                         "intensity": 0.9,
-                        "policy_weights": {
-                            "information": 0.55,
-                            "interact": 0.35,
-                            "cautious": 0.2,
-                            "risk": 0.2,
-                        },
                     }
                 ],
                 risk_tolerance=0.45,
                 is_player=True,
                 agent_runtime="investigation-policy",
-                agent_config={"policy": {"temperature": 1.3}},
             ),
             CharacterConfig(
                 name=KEEPER,
@@ -180,12 +207,6 @@ def build_minimal_investigation_scenario() -> ScenarioConfig:
                     {
                         "trait_id": "guarded",
                         "intensity": 0.9,
-                        "policy_weights": {
-                            "interact": 0.2,
-                            "deception": 0.55,
-                            "confront": 0.2,
-                            "information": 0.1,
-                        },
                     }
                 ],
                 initial_claim_knowledge=[
@@ -200,7 +221,6 @@ def build_minimal_investigation_scenario() -> ScenarioConfig:
                 ],
                 risk_tolerance=0.35,
                 agent_runtime="investigation-policy",
-                agent_config={"policy": {"temperature": 1.3}},
             ),
         ],
     )
@@ -213,7 +233,7 @@ def create_minimal_investigation_session(seed):
         random_seed=seed,
         agent_runtime_factories={
             "investigation-policy": (
-                lambda entity, config: InvestigationPolicyRuntime()
+                lambda entity, config: InvestigationPolicyRuntime(seed)
             )
         },
     )

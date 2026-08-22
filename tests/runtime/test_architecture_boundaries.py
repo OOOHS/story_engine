@@ -227,16 +227,16 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
             )
         ],
     )
-    from src.story_engine.agents.llm_runtime import LLMCharacterAgent
+    from src.story_engine.agents.types import AgentDecision
+
+    class _WaitingRuntime:
+        def decide(self, _entity, _perception):
+            return AgentDecision(action="安静等待。")
 
     session = create_session(
         scenario,
         random_seed=3,
-        agent_runtime_factories={
-            "llm": lambda entity, cfg: LLMCharacterAgent(
-                llm_config=cfg.get("llm_config", {})
-            )
-        },
+        agent_runtime_factories={"llm": lambda entity, cfg: _WaitingRuntime()},
     )
     gm = session.entities["GameMaster"]
     gm.add_component(CapturingSimulationControl(scenario=scenario))

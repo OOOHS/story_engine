@@ -54,8 +54,8 @@ class SimulationControl(Component):
             drive_creation_guidance = (
                 "只有当现有 DriveState 中确实没有 need 能承载某个新出现、且会反复起效的持续压力时，"
                 f"才输出 `drive_creations` 新建一个 need；每个角色本局最多创建 {emergent_meter_budget} 个，"
-                "超出会被整批回滚。drift 和 threshold 只能用定性档位（none/slow/steady/urgent，"
-                "fragile/normal/durable），不得填写具体数值或初始 pressure；新建的 need 永远从 0 开始累积。"
+                "超出会被整批回滚。drift_per_turn 和 critical_threshold 直接给浮点数（宿主只做范围裁剪），"
+                "不得填写初始 pressure；新建的 need 永远从 0 开始累积。"
                 "创建必须由本轮已结算行动支持并给出 reason；能用已有 need 表达就不要新建。"
             )
         else:
@@ -63,32 +63,6 @@ class SimulationControl(Component):
                 "当前剧本未开放运行时创建新的持续压力条，不要输出 `drive_creations`"
                 "（留空数组或省略）。"
             )
-
-        director_signal_guidance = (
-            "`director_signals` 是可选的、软性的、非事实的私人提示，宿主会把它投递到某个角色的收件箱里，"
-            "该角色可以采纳、重新解读或直接无视，不构成本轮或未来任何一轮的强制行动。"
-            "先判断一条【当前叙事机会】/剧情线线索的性质：如果它是纯环境性的事实"
-            "（不需要哪个具体角色做出行动决定，比如场景变化、消息传来、局势变动），"
-            "直接把它结算进 resolved_actions（actor=World）/state_updates/object_lifecycle，"
-            "标注 source_storylet_id，不要走 director_signal。"
-            "只有当内容需要某个具体在场角色自己做出行动/表态的决定时，"
-            "才对一个跟该线索/机会有合理关联的在场角色给出一句提示；不能无凭无据地新建暗示，"
-            "不能替角色决定要做什么，只能指出\"有什么值得注意\"。如果某个 storylet 的 target_actor/"
-            "preferred_actors 都不在场或都不合适，就不要为它勉强指定别人，留空即可。"
-            "每轮每个角色最多一条，全局每轮最多 3 条，超出会被丢弃。没有合适对象时留空数组。"
-        )
-        plot_beat_guidance = (
-            "`plot_beat_proposals` 用来登记**尚未兑现**的新剧情点，不是当场改剧情钟。"
-            "当【叙事压力】为 inject_crisis 或 raise_pressure，或本轮已提交事实确实打开了新的因果线时，"
-            "可以提案；stay_course / allow_release 时不要为了热闹硬造。"
-            "每条必须写清触发条件（StateCondition：scene / world_object / actor / plot）和兑现方式："
-            "kind=environment 表示条件成立后由你在之后的回合结算成 actor=World 的事实；"
-            "kind=character_decision 表示条件成立后走 director_signal，不能替角色做决定。"
-            "需要新的可观察物件时，在**同一输出**里用 object_lifecycle.spawn 放到已有地点；"
-            "不能新建地点或改拓扑。触发条件可以引用本轮即将 spawn 的对象，下回合条件成立后才会进入【当前叙事机会】。"
-            "开新剧情线时填写 open_thread（必须有 opened_reason）；已有 plot_id 只登记 beat。"
-            "不要写 clock / advance / plot_updates。每轮最多 2 条，缺条件或越权字段会被丢弃。"
-        )
 
         prompt = f"""
 你现在处于故事引擎的【Simulation】阶段。你的职责是做结构化结算，而不是写给玩家看的文本。
@@ -100,13 +74,14 @@ class SimulationControl(Component):
 4. **受限视角**：异地事件只能以余波、传话、态度变化回流，不切全知镜头
 5. **有效推进**：只依据当前事实形成清晰、可结算的变化；没有有效变化时诚实返回稳定、失败或受阻，不为追求节奏编造结果
 6. **可观察事实**：使用可观察的行为和事实，不下文学化诊断结论
-7. **不得替角色选角**：resolved_actions 只能结算“本轮意图”中真实出现的 actor，或 actor=World 的事实（已注入的世界事件，或【当前叙事机会】里不需要具体角色决定、纯环境性的 storylet——比如天气突变、公告张贴、远处传来消息，这类可以直接由你写成 actor=World 的 resolved_action/state_updates/object_lifecycle 并落地为事实，同时填上 source_storylet_id）；Drama、Conflict、Storylet 和内容模板都不能凭空让未 proposal 的角色行动，也不能借 actor=World 替某个具体角色做决定或行动——那种情况必须走 director_signal，不能直接写进事实
+7. **不得替角色选角**：resolved_actions 只能结算“本轮意图”中真实出现的 actor，或 actor=World 的事实（已注入的世界事件，或【当前叙事机会】里不需要具体角色决定、纯环境性的 storylet——比如天气突变、公告张贴、远处传来消息，这类可以直接由你写成 actor=World 的 resolved_action/state_updates/object_lifecycle 并落地为事实，同时填上 source_storylet_id）；Drama、Conflict、Storylet 和内容模板都不能凭空让未 proposal 的角色行动，也不能借 actor=World 替某个具体角色做决定或行动——那种情况留给结算之后的叙事导演去决定要不要给该角色一句提示，你这里不写进事实
 8. **动作完成时结算**：本轮意图是离散事件队列中同时完成的一批原子动作。`action.kind` 只有 observe、move、interact、communicate、wait；自然语言 detail/target 说明具体语义。规则层先约束可确定部分，你只裁定剩余语义
 9. **主动与被动观察分离**：observe 是角色主动花费行动获取细节；可公开观察到的动作是其他角色的被动观察来源。主动观察发现的角色私有信息写入 private_result，不能塞进公开 result 泄漏给旁观者
 10. **不替宿主掷骰**：规则和当前事实足以确定的行动直接写 resolved_actions；真正存在不确定性的物理或观察行动只能写 uncertain_outcomes，同时给出成功/失败两个候选事实分支。你只能选择固定 difficulty 和所需 capability，不能输出概率、随机数、数值 modifier，不能同时把该 actor 写进 resolved_actions
 11. **临时 Modifier 不是万能状态**：只有本轮已提交行动确实让角色形成疲惫、专注、受伤后的谨慎等临时非社交行为影响时，才可从 `modifier_catalog` 选择 kind。物理事实仍写 SceneState，针对某人的感受仍写 social_impacts；持续时间、叠加、权重和到期由宿主决定
 12. **客观事实与角色知识分离**：`claim_catalog` 是 GM 可用的客观命题目录，但角色只能通过有效主动观察发现已连接且可见的 evidence，或由同场知情角色通过 communicate 传播 Claim。WorldEvent 同样只能由直接或自身见证者使用真实 event_id 转述；宿主从事件实体读取原始 statement，不能借 event_id 改写事件内容。不能把 truth_status、宿主条件、未发现的证据或未获知事件写进角色知识
-13. **数值效果由宿主管理**：不要输出 relationship_updates、plot_updates、tension_delta、magnitude 或 drive delta。短期反应和 Modifier 使用 `minor/moderate/major/extreme` 定性强度，Drive 另加 increase/decrease 方向；宿主把这些标签编译为固定数值。长期关系轨道由宿主固定映射沉淀。已有 Plot 的钟只能由已提交世界事实触发因果规则；要开新剧情线或登记新剧情点，只能用 `plot_beat_proposals`，不能直接写 plot_updates 或编造 clock
+13. **结构性写权由宿主管理，数值幅度由你直接给**：不要输出 relationship_updates 或 plot_updates——长期关系轨道由宿主固定映射沉淀；已有 Plot 的钟只能由已提交世界事实触发因果规则，不能直接写 plot_updates 或编造 clock；要不要开新剧情线、登记新剧情点或给某个角色投递提示，不是你的职责，由结算之后的叙事导演决定。但短期社会反应（social_impacts/modifier_updates 的 magnitude）、Drive 变化（drive_updates 的 delta）、新压力条的漂移与临界值（drive_creations 的 drift_per_turn/critical_threshold）、义务成本（obligation_updates 的 due_pressure_delta/breach_pressure_delta）、以及场景张力（tension_delta），都由你按情境给出具体浮点数；宿主只做范围裁剪，不重新定档
+14. **communicate 不需要你裁定成不成功**：说话能不能说出口，不是语义判断——只要合法性没有拦（同地点可达），宿主一律无条件视为送达成功，你在 resolved_actions 里给这类 actor 写的 outcome/result 都会被宿主直接丢弃重写，写了不会生效，不必费力去判断。但这句话说了什么仍然可能有内容后果，那部分依然由你判断：如果它构成对已知 WorldEvent 的转述/回应，照常给 knowledge_updates（event_id + response_kind）；如果内容本身构成值得记录的社会互动，照常给 social_impacts/modifier_updates
 
 ## 剧本设定
 **剧本**：{self.scenario.name if self.scenario else "通用剧本"}
@@ -136,13 +111,15 @@ class SimulationControl(Component):
 ## 本轮宿主签发的角色入口授权
 {json.dumps(input_payload.get("character_entry_authorizations", []), ensure_ascii=False, indent=2)}
 
-## 当前剧情线（仅供参考；推进已有钟不能写 plot_updates，开新线/新剧情点用 plot_beat_proposals）
+## 当前剧情线（仅供参考；推进已有钟不能写 plot_updates，那是因果规则的事）
 {json.dumps(input_payload.get("plot_threads", []), ensure_ascii=False, indent=2)}
 
-## 叙事压力（Drama 节奏，不是强制事件）
-{json.dumps(input_payload.get("narrative_pressure", {}), ensure_ascii=False, indent=2)}
-
 ## 当前叙事机会（storylet，仅供参考，不是事实也不是指令）
+下面每条机会只有在本轮已提交事实真正满足其触发条件时，才能由你结算成事实（environment 类直接写
+actor=World 的 resolved_action/state_updates/object_lifecycle 并标注 source_storylet_id；
+character_decision 类只能等在场角色自己 proposal 才结算，不能替他们决定）。
+是否要新开一条剧情线、新登记一个尚未兑现的剧情点、或给某个角色投递一条软性提示，都不是你的职责——
+那些由结算之后单独运行的叙事导演决定，你只负责结算已经成立的事实。
 {json.dumps(input_payload.get("storylet_opportunities", []), ensure_ascii=False, indent=2)}
 
 ## 行动角色的私有驱动力
@@ -205,7 +182,7 @@ class SimulationControl(Component):
       "source": "产生可观察社会影响的行动者",
       "affected": "亲自观察到该行动并形成感受的角色",
       "kind": "grateful | admiring | hurt | angry | afraid | suspicious | betrayed | relieved",
-      "intensity": "minor | moderate | major | extreme",
+      "magnitude": "0.0~1.0 之间的浮点数，感受强度",
       "reason": "哪条已提交行动为何形成这种短期感受",
       "source_event": "可选的稳定事件引用"
     }}
@@ -216,7 +193,7 @@ class SimulationControl(Component):
       "target": "受到临时影响的角色",
       "source": "产生该影响的本轮行动者，或 World",
       "kind": "只能来自 modifier_catalog",
-      "intensity": "minor | moderate | major | extreme",
+      "magnitude": "0.0~1.0 之间的浮点数，影响强度",
       "reason": "哪条已结算行动为何形成或解除该影响",
       "source_event": "可选的稳定事件引用"
     }}
@@ -334,8 +311,7 @@ class SimulationControl(Component):
       "actor": "需求受到影响的角色",
       "source": "产生该后果的已结算行动 actor",
       "need": "该角色 DriveState 中已有的 need 名称",
-      "direction": "increase | decrease",
-      "intensity": "minor | moderate | major | extreme",
+      "delta": "-0.4~0.4 之间的浮点数，正数加剧、负数缓解",
       "reason": "哪条本轮事实让压力上升或缓解"
     }}
   ],
@@ -343,49 +319,10 @@ class SimulationControl(Component):
     {{
       "actor": "需要新压力条的角色",
       "need": "新 need 的名称，不能与该角色已有 need 重名",
-      "drift": "none | slow | steady | urgent",
-      "threshold": "fragile | normal | durable",
+      "drift_per_turn": "0.0~0.08 之间的浮点数，每步自然上升量",
+      "critical_threshold": "0.5~0.95 之间的浮点数，超过此比例视为危急",
       "description": "这个持续压力代表什么",
       "reason": "哪条本轮事实催生了这个全新的持续压力"
-    }}
-  ],
-  "director_signals": [
-    {{
-      "actor": "接收提示的角色（不会被强制执行）",
-      "suggestion": "一句自然语言提示，说明有什么值得这个角色注意",
-      "source_plot_id": "引用【当前剧情线】里已存在的 plot_id，没有关联线索则留空字符串",
-      "source_storylet_id": "引用【当前叙事机会】里已存在的 storylet_id，没有关联机会则留空字符串",
-      "tags": ["可选的简短标签"]
-    }}
-  ],
-  "plot_beat_proposals": [
-    {{
-      "plot_id": "已有剧情线 id，或与 open_thread 一起给出的新 id",
-      "beat_id": "本条剧情点的稳定 id",
-      "intent": "条件成立后这条机会是什么",
-      "kind": "environment | character_decision",
-      "one_shot": true,
-      "open_thread": {{
-        "title": "仅在开新线时填写",
-        "description": "这条线在跟踪什么",
-        "opened_reason": "必须填写：依据哪条已提交事实或当前压力打开这条线",
-        "participants": ["已有角色"]
-      }},
-      "conditions": [
-        {{
-          "scope": "scene | world_object | actor | plot",
-          "target": "world_object/actor/plot 必填的已有或本轮 spawn 的对象名",
-          "path": "location | owner | hidden | kind | scene_flags.xxx；exists 可留空",
-          "operator": "eq | ne | gt | gte | lt | lte | contains | in | exists | not_exists",
-          "value": "与权威状态比较的值"
-        }}
-      ],
-      "effect": {{
-        "visibility": "public | local | hidden",
-        "preferred_actors": ["character_decision 时可选的在场角色"],
-        "target_actor": "可选的单一角色",
-        "stake": "简短利害"
-      }}
     }}
   ],
   "obligation_updates": [
@@ -401,8 +338,8 @@ class SimulationControl(Component):
       "grace_steps": 0,
       "wake_before_steps": 1,
       "pressure_need": "可选，该角色已有的 need 名称",
-      "due_pressure_severity": "light | moderate | severe",
-      "breach_pressure_severity": "light | moderate | severe",
+      "due_pressure_delta": "0.0~0.3 之间的浮点数，到期成本",
+      "breach_pressure_delta": "0.0~0.4 之间的浮点数，违约成本，必须不小于到期成本",
       "completion_conditions": [
         {{
           "scope": "actor | world_object",
@@ -432,21 +369,17 @@ class SimulationControl(Component):
 
 你不能输出 `agreement_updates` 或 `contract_updates`。正式 Agreement 只能来自角色 proposal 中经过 Input 校验的模板、资产报价或 pending Agreement 引用，并由宿主在你的语义结算之后编译。你只需把角色真实的 communicate 结算为正向、失败或受阻；普通试探、含糊答复和未正式接受的讨价还价只属于 communication、Cognition 与 Memory。不要声明协议已经 settled/countered/expired，不要生成托管、授权、履约状态或资产条款。
 
-`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capabilities/skills 的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识、协议提议、Drive 或 Obligation 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates、plot_updates、tension_delta、magnitude 或 drive delta。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
+`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capabilities/skills 的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识、协议提议、Drive 或 Obligation 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates、plot_updates 或 tension_delta；分支内的 social_impacts/drive_updates 遵循与顶层相同的数值规则。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
 
 `knowledge_updates.event_id` 的规范 statement 由宿主 Event Entity 决定。可选 `response_kind` 只描述本轮真实 communicate 对该事件采取的社会行为：report、explain、apologize、accuse、request、forgive 或 acknowledge；无效值会退化为普通 report。它只形成可审计的 Event response，不代表接收者相信、接受道歉、承认指控或改变关系。
 
-即时羞辱、帮助、威胁、欺骗嫌疑、被救助或违约带来的主观反应写 `social_impacts`。source 必须有一条 affected 在同地点亲自可观察的非 hidden 已结算行动；kind 只能使用模板枚举，intensity 只能使用 `minor/moderate/major/extreme`，不能附带 magnitude、policy weight、概率、关系 delta 或持续时间。宿主会把强度标签映射为固定数值，再依据 Sentiment 定义创建感受、决定衰减和行动效用，并让其中一小部分按固定函数沉淀到长期 Relationship Track。Event response 与 Sentiment 分离：例如“甲道歉”是客观社会行为，“乙感到 relieved 或仍然 angry”才是乙的私有评价。
+即时羞辱、帮助、威胁、欺骗嫌疑、被救助或违约带来的主观反应写 `social_impacts`。source 必须有一条 affected 在同地点亲自可观察的非 hidden 已结算行动；kind 只能使用模板枚举，magnitude 直接给 0.0~1.0 的浮点数（宿主只做范围裁剪），不能附带 policy weight、概率、关系 delta 或持续时间。这只是你替 affected 给出的默认猜测：affected 如果有自己的角色 agent，她本人这一轮如果已经自己报告了对 source 的感受，宿主会直接采用她自己的账本，丢弃你在这里的猜测，不会重复叠加。宿主依据 Sentiment 定义用这个数创建感受、决定衰减和行动效用，并让其中一小部分按固定函数沉淀到长期 Relationship Track。Event response 与 Sentiment 分离：例如"甲道歉"是客观社会行为，"乙感到 relieved 或仍然 angry"才是乙的私有评价。
 
-只有本轮已结算行动确实改变了某个角色的持续压力时才输出 `drive_updates`。使用 direction=`increase/decrease` 和定性 intensity 表示加剧或缓解，不得填写 delta；need 必须已经存在于该角色 DriveState。source 不是 actor 本人时，对应行动必须在 actor 所在地可观察，异地或 hidden 行动不能隔空改变对方压力。对象 affordance 已自动产生的 need_effect 不要在 drive_updates 中重复计算。
+只有本轮已结算行动确实改变了某个角色的持续压力时才输出 `drive_updates`。delta 直接给 -0.4~0.4 之间的浮点数（正数加剧、负数缓解，宿主只做范围裁剪）；need 必须已经存在于该角色 DriveState。source 不是 actor 本人时，对应行动必须在 actor 所在地可观察，异地或 hidden 行动不能隔空改变对方压力。对象 affordance 已自动产生的 need_effect 不要在 drive_updates 中重复计算。
 
 {drive_creation_guidance}
 
-{director_signal_guidance}
-
-{plot_beat_guidance}
-
-只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。`due_pressure_severity`/`breach_pressure_severity` 只能用定性档位（light/moderate/severe），不得填写具体数值；宿主把档位编译为固定压力值，逾期代价永远高于到期代价。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
+只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。`due_pressure_delta`/`breach_pressure_delta` 直接给 0.0~0.3 / 0.0~0.4 之间的浮点数（宿主只做范围裁剪，并强制违约成本不低于到期成本）。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
 
 只输出 JSON，不要输出解释，不要使用 Markdown。
 """
@@ -630,19 +563,13 @@ class SimulationControl(Component):
             item for item in drive_creations if isinstance(item, dict)
         ]
 
-        director_signals = data.get("director_signals", [])
-        if not isinstance(director_signals, list):
-            director_signals = []
-        result["director_signals"] = [
-            item for item in director_signals if isinstance(item, dict)
-        ]
-
-        plot_beat_proposals = data.get("plot_beat_proposals", [])
-        if not isinstance(plot_beat_proposals, list):
-            plot_beat_proposals = []
-        result["plot_beat_proposals"] = [
-            item for item in plot_beat_proposals if isinstance(item, dict)
-        ]
+        # director_signals and plot_beat_proposals are no longer this
+        # component's output -- they are narrative intuition, produced by
+        # NarrativeDirector after this tick's settlement has committed, not
+        # guessed at alongside it. Always empty here so a stray field in an
+        # LLM response can never smuggle either in through this path.
+        result["director_signals"] = []
+        result["plot_beat_proposals"] = []
 
         obligation_updates = data.get("obligation_updates", [])
         if not isinstance(obligation_updates, list):

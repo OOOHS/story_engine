@@ -2,7 +2,7 @@ from copy import deepcopy
 
 from pydantic import Field
 
-from src.story_engine.agents.llm_runtime import LLMCharacterAgent
+from src.story_engine.agents.types import AgentDecision
 from src.story_engine.environment.agreement_offers import AgreementOfferEngine
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.plot_state import PlotState
@@ -218,13 +218,13 @@ def test_new_session_gm_no_longer_owns_contract_state_component():
         ],
     )
 
+    class _WaitingRuntime:
+        def decide(self, _entity, _perception):
+            return AgentDecision(action="安静等待。")
+
     session = create_session(
         scenario,
-        agent_runtime_factories={
-            "llm": lambda entity, cfg: LLMCharacterAgent(
-                llm_config=cfg.get("llm_config", {})
-            )
-        },
+        agent_runtime_factories={"llm": lambda entity, cfg: _WaitingRuntime()},
     )
     gm = session.entities["GameMaster"]
 

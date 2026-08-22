@@ -30,6 +30,7 @@ from .route_communications import (
     RouteCommunicationResolution,
     RouteCommunicationResolver,
 )
+from .communications import CommunicationResolution, CommunicationResolver
 
 __all__ = [
     "CheckModifier",
@@ -57,4 +58,6 @@ __all__ = [
     "AgreementActionResolver",
     "RouteCommunicationResolution",
     "RouteCommunicationResolver",
+    "CommunicationResolution",
+    "CommunicationResolver",
 ]

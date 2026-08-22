@@ -118,24 +118,9 @@ class EpisodeSweepReport:
             ("跨步因果弧比例", metrics.get("causal_arc_episode_rate")),
             ("已闭合因果弧比例", metrics.get("resolved_causal_arc_episode_rate")),
             ("不同动作轨迹", metrics.get("unique_action_trace_count")),
-            (
-                "平均 runtime 候选数",
-                metrics.get("mean_runtime_candidates_per_decision"),
-            ),
-            ("选择 runtime 候选比例", metrics.get("selected_runtime_candidate_rate")),
-            (
-                "连续性支持选择比例",
-                metrics.get("continuity_supported_selection_rate"),
-            ),
-            ("结构化动机支持比例", metrics.get("motivated_selection_rate")),
-            (
-                "事件动机引用比例",
-                metrics.get("event_motive_reference_rate"),
-            ),
-            (
-                "事件动机入选比例",
-                metrics.get("event_motive_selection_rate"),
-            ),
+            ("角色自陈动机比例", metrics.get("stated_motive_decision_rate")),
+            ("动机被驳回数", metrics.get("rejected_motive_ref_count")),
+            ("有动机可查的剧集比例", metrics.get("motivated_episode_rate")),
             ("Agent 目标采用数", metrics.get("agent_goal_adoption_count")),
             ("开放目标细化数", metrics.get("agent_goal_refinement_count")),
             ("结尾开放目标数", metrics.get("active_open_agent_goal_count")),
@@ -411,15 +396,15 @@ class EpisodeSweepRunner:
             for report in reports
             if report.steps
         }
-        sampled_reports = [
+        deciding_reports = [
             report
             for report in reports
-            if float(report.metrics.get("sampled_policy_steps", 0) or 0) > 0
+            if float(report.metrics.get("decision_steps", 0) or 0) > 0
         ]
         motivated_reports = [
             report
-            for report in sampled_reports
-            if int(report.metrics.get("policy_motivated_action_count", 0) or 0) > 0
+            for report in deciding_reports
+            if int(report.metrics.get("motivated_action_count", 0) or 0) > 0
         ]
         verifiable_goals = sum(
             int(report.metrics.get("verifiable_goal_count", 0) or 0)
@@ -441,60 +426,16 @@ class EpisodeSweepRunner:
             int(report.metrics.get("active_open_agent_goal_count", 0) or 0)
             for report in reports
         )
-        sampled_policy_decisions = sum(
-            int(report.metrics.get("sampled_policy_decision_count", 0) or 0)
+        decisions = sum(
+            int(report.metrics.get("decision_count", 0) or 0)
             for report in reports
         )
-        runtime_candidates = sum(
-            int(report.metrics.get("runtime_candidate_count", 0) or 0)
+        stated_motives = sum(
+            int(report.metrics.get("stated_motive_count", 0) or 0)
             for report in reports
         )
-        selected_runtime_candidates = sum(
-            int(report.metrics.get("selected_runtime_candidate_count", 0) or 0)
-            for report in reports
-        )
-        attention_motive_available_decisions = sum(
-            int(
-                report.metrics.get(
-                    "attention_motive_available_decision_count", 0
-                )
-                or 0
-            )
-            for report in reports
-        )
-        urgent_attention_motive_available_decisions = sum(
-            int(
-                report.metrics.get(
-                    "urgent_attention_motive_available_decision_count", 0
-                )
-                or 0
-            )
-            for report in reports
-        )
-        event_motive_reference_decisions = sum(
-            int(
-                report.metrics.get("event_motive_reference_decision_count", 0)
-                or 0
-            )
-            for report in reports
-        )
-        event_motive_selected_decisions = sum(
-            int(
-                report.metrics.get("event_motive_selected_decision_count", 0)
-                or 0
-            )
-            for report in reports
-        )
-        continuity_supported_selections = sum(
-            int(
-                report.metrics.get(
-                    "continuity_supported_selection_count", 0
-                ) or 0
-            )
-            for report in reports
-        )
-        motivated_selections = sum(
-            int(report.metrics.get("motivated_selection_count", 0) or 0)
+        rejected_motive_refs = sum(
+            int(report.metrics.get("rejected_motive_ref_count", 0) or 0)
             for report in reports
         )
         closed_reports = [report for report in reports if report.closure_reached]
@@ -529,123 +470,24 @@ class EpisodeSweepRunner:
             "metric_summary": metric_summary,
             "unique_action_trace_count": len(action_signatures),
             "unique_final_world_state_count": len(final_world_hashes),
-            "sampled_policy_episode_count": len(sampled_reports),
-            "sampled_policy_decision_count": sampled_policy_decisions,
-            "runtime_candidate_count": runtime_candidates,
-            "mean_runtime_candidates_per_decision": (
-                round(runtime_candidates / sampled_policy_decisions, 6)
-                if sampled_policy_decisions
+            "decision_count": decisions,
+            "stated_motive_count": stated_motives,
+            "rejected_motive_ref_count": rejected_motive_refs,
+            "stated_motive_decision_rate": (
+                round(stated_motives / decisions, 6) if decisions else None
+            ),
+            "motivated_episode_count": len(motivated_reports),
+            "motivated_episode_rate": (
+                round(len(motivated_reports) / len(deciding_reports), 6)
+                if deciding_reports
                 else None
             ),
-            "selected_runtime_candidate_count": selected_runtime_candidates,
-            "selected_runtime_candidate_rate": (
-                round(
-                    selected_runtime_candidates / sampled_policy_decisions,
-                    6,
-                )
-                if sampled_policy_decisions
-                else None
-            ),
-            "attention_motive_available_decision_count": (
-                attention_motive_available_decisions
-            ),
-            "urgent_attention_motive_available_decision_count": (
-                urgent_attention_motive_available_decisions
-            ),
-            "validated_candidate_motive_ref_count": sum(
-                int(
-                    report.metrics.get(
-                        "validated_candidate_motive_ref_count", 0
-                    )
-                    or 0
-                )
+            "motive_handoff_count": sum(
+                int(report.metrics.get("motive_handoff_count", 0) or 0)
                 for report in reports
             ),
-            "rejected_candidate_motive_ref_count": sum(
-                int(
-                    report.metrics.get(
-                        "rejected_candidate_motive_ref_count", 0
-                    )
-                    or 0
-                )
-                for report in reports
-            ),
-            "validated_event_motive_ref_count": sum(
-                int(
-                    report.metrics.get("validated_event_motive_ref_count", 0)
-                    or 0
-                )
-                for report in reports
-            ),
-            "selected_candidate_motive_ref_count": sum(
-                int(
-                    report.metrics.get(
-                        "selected_candidate_motive_ref_count", 0
-                    )
-                    or 0
-                )
-                for report in reports
-            ),
-            "selected_event_motive_ref_count": sum(
-                int(
-                    report.metrics.get("selected_event_motive_ref_count", 0)
-                    or 0
-                )
-                for report in reports
-            ),
-            "event_motive_reference_decision_count": (
-                event_motive_reference_decisions
-            ),
-            "event_motive_selected_decision_count": (
-                event_motive_selected_decisions
-            ),
-            "event_motive_reference_rate": (
-                round(
-                    event_motive_reference_decisions
-                    / attention_motive_available_decisions,
-                    6,
-                )
-                if attention_motive_available_decisions
-                else None
-            ),
-            "event_motive_selection_rate": (
-                round(
-                    event_motive_selected_decisions
-                    / attention_motive_available_decisions,
-                    6,
-                )
-                if attention_motive_available_decisions
-                else None
-            ),
-            "continuity_supported_selection_count": (
-                continuity_supported_selections
-            ),
-            "continuity_supported_selection_rate": (
-                round(
-                    continuity_supported_selections / sampled_policy_decisions,
-                    6,
-                )
-                if sampled_policy_decisions
-                else None
-            ),
-            "motivated_selection_count": motivated_selections,
-            "motivated_selection_rate": (
-                round(motivated_selections / sampled_policy_decisions, 6)
-                if sampled_policy_decisions
-                else None
-            ),
-            "policy_motivated_episode_count": len(motivated_reports),
-            "policy_motivated_episode_rate": (
-                round(len(motivated_reports) / len(sampled_reports), 6)
-                if sampled_reports
-                else None
-            ),
-            "policy_motive_handoff_count": sum(
-                int(report.metrics.get("policy_motive_handoff_count", 0) or 0)
-                for report in reports
-            ),
-            "policy_motivated_action_count": sum(
-                int(report.metrics.get("policy_motivated_action_count", 0) or 0)
+            "motivated_action_count": sum(
+                int(report.metrics.get("motivated_action_count", 0) or 0)
                 for report in reports
             ),
             "verifiable_goal_count": verifiable_goals,
@@ -711,28 +553,28 @@ class EpisodeSweepRunner:
         if rates.get("repetitive_actions", 0.0) >= 0.5:
             flags.append("frequent_repetitive_actions")
         if (
-            len(sampled_reports) >= 3
+            len(deciding_reports) >= 3
             and len(
                 {
                     self._action_trace_signature(report)
-                    for report in sampled_reports
+                    for report in deciding_reports
                 }
             )
             <= 1
         ):
             flags.append("seed_insensitive_policy")
-        if sampled_reports and not motivated_reports:
+        if deciding_reports and not motivated_reports:
             flags.append("no_policy_motive_chain")
         elif (
-            len(sampled_reports) >= 3
-            and len(motivated_reports) / len(sampled_reports) < 0.5
+            len(deciding_reports) >= 3
+            and len(motivated_reports) / len(deciding_reports) < 0.5
         ):
             flags.append("low_policy_motive_coverage")
-        if (
-            urgent_attention_motive_available_decisions >= 3
-            and event_motive_reference_decisions == 0
-        ):
-            flags.append("no_urgent_event_motive_link")
+        # A character citing goals she does not hold is worse than staying
+        # silent about her reasons, so it gets its own flag rather than
+        # inflating the motive coverage above.
+        if decisions and rejected_motive_refs >= max(1, decisions // 2):
+            flags.append("unbacked_motive_claims")
         if verifiable_goals and goal_resolutions == 0:
             flags.append("no_verifiable_goal_resolution")
         long_horizon_reports = [
@@ -756,7 +598,7 @@ class EpisodeSweepRunner:
     @staticmethod
     def _action_trace_signature(report: EpisodeReport) -> tuple[Any, ...]:
         return tuple(
-            (trace.actor_actions, trace.policy_selections)
+            (trace.actor_actions, trace.stated_motives)
             for trace in report.steps
         )
 
@@ -771,10 +613,8 @@ class EpisodeSweepRunner:
                     "world_hash_after": step.world_hash_after,
                     "character_hash_after": step.character_hash_after,
                     "actor_actions": step.actor_actions,
-                    "policy_selections": step.policy_selections,
-                    "policy_audits": [
-                        asdict(audit) for audit in step.policy_audits
-                    ],
+                    "stated_motives": step.stated_motives,
+                    "rejected_motive_refs": step.rejected_motive_refs,
                     "material_change_kinds": step.material_change_kinds,
                     "irreversible_changes": step.irreversible_changes,
                     "causal_handoffs": step.causal_handoffs,

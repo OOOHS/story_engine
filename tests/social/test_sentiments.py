@@ -1,7 +1,6 @@
 import pytest
 
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import CharacterPolicy
 from src.story_engine.agents.types import AgentDecision, AgentPerception
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.sentiment_state import SentimentState
@@ -83,7 +82,7 @@ def test_committed_observable_help_creates_private_sentiment_and_small_track_cha
     assert sentiment.intensity == 0.5
     assert sentiment.toward == "乙"
     assert sentiment.source_event == "resolved_action:step:2:actor:乙"
-    assert "policy_weights" not in str(
+    assert "decay_per_step" not in str(
         entities["甲"].get_component("SentimentState").get_private_snapshot()
     )
     relationships = registry.to_relationship_book()
@@ -193,7 +192,6 @@ def test_repeated_sentiment_saturates_and_then_decays():
         reason="乙再次挑衅",
         duration_steps=8,
         decay_per_step=0.1,
-        policy_weights={"confront": 1.0},
     )
     state.upsert(current_step=1, **kwargs)
     state.upsert(current_step=2, **kwargs)
@@ -215,7 +213,6 @@ def test_agent_perception_receives_only_its_private_sentiment_view():
         current_step=1,
         duration_steps=10,
         decay_per_step=0.04,
-        policy_weights={"information": 0.8},
     )
     scene = SceneState(
         world_objects={"大厅": {}},
@@ -225,60 +222,83 @@ def test_agent_perception_receives_only_its_private_sentiment_view():
     perception = InputSystem().build_agent_perception(agent, scene, [], {})
 
     assert perception.private_sentiments["active"][0]["kind"] == "suspicious"
-    assert "policy_weights" not in str(perception.private_sentiments)
+    assert "decay_per_step" not in str(perception.private_sentiments)
     assert "sentiments" not in perception.world_view
+def test_self_reported_sentiment_wins_over_gm_guess_for_the_same_actor():
+    entities = _entities()
+    registry = SocialRelationRegistry()
+    context = _context(
+        registry,
+        [
+            {
+                "source": "乙",
+                "affected": "甲",
+                "kind": "grateful",
+                "magnitude": 0.9,
+                "reason": "GM 的默认猜测，理应被丢弃",
+            }
+        ],
+    )
+    context["agent_sentiment_updates"] = [
+        {
+            "actor": "甲",
+            "toward": "乙",
+            "kind": "suspicious",
+            "magnitude": 0.4,
+            "reason": "甲自己觉得乙的帮助别有目的",
+        }
+    ]
+
+    SentimentSystem().update(entities, context)
+
+    sentiments = entities["甲"].get_component("SentimentState").sentiments
+    assert "乙:suspicious" in sentiments
+    assert "乙:grateful" not in sentiments
+    assert any(item.get("self_reported") for item in context["sentiment_updates"])
+    assert context["sentiment_errors"] == []
 
 
-def test_private_sentiment_changes_host_action_distribution():
-    neutral = create_agent("甲", "访客", "平静", [], agent_runtime="llm")
-    angry = create_agent("甲", "访客", "平静", [], agent_runtime="llm")
-    angry.get_component("SentimentState").upsert(
-        toward="乙",
-        kind="angry",
-        magnitude=0.9,
-        valence=-1.0,
-        reason="乙刚刚公开挑衅",
-        current_step=1,
-        duration_steps=8,
-        decay_per_step=0.08,
-        policy_weights={"confront": 0.85, "aid": -0.65},
-    )
-    candidates = (
-        AgentAction("communicate", "当面质问乙为何这样做。", "乙"),
-        AgentAction("interact", "帮助乙整理散落的物品。", "乙"),
-    )
-    decision = AgentDecision(
-        action=candidates[0].detail,
-        action_spec=candidates[0],
-        candidates=candidates,
-    )
-    perception = AgentPerception(actor_name="甲", step=1)
-    policy = CharacterPolicy()
-    neutral_trace = policy.select(
-        entity=neutral,
-        perception=perception,
-        decision=decision,
-        random_streams=DeterministicRandomStreams(4),
-        world_version=1,
-    ).trace
-    angry_trace = policy.select(
-        entity=angry,
-        perception=perception,
-        decision=decision,
-        random_streams=DeterministicRandomStreams(4),
-        world_version=1,
-    ).trace
-    neutral_confront = next(
-        item for item in neutral_trace["candidates"]
-        if item["candidate_id"] == "runtime:0"
-    )
-    angry_confront = next(
-        item for item in angry_trace["candidates"]
-        if item["candidate_id"] == "runtime:0"
-    )
+def test_self_reported_sentiment_alone_is_committed_without_any_gm_impact():
+    entities = _entities()
+    registry = SocialRelationRegistry()
+    context = _context(registry, [])
+    context["agent_sentiment_updates"] = [
+        {
+            "actor": "甲",
+            "toward": "乙",
+            "kind": "hurt",
+            "magnitude": 0.3,
+            "reason": "甲觉得被乙的言辞刺伤",
+        }
+    ]
 
-    assert angry_confront["probability"] > neutral_confront["probability"]
-    assert angry_confront["sentiment_contribution"] > 0
+    SentimentSystem().update(entities, context)
+
+    sentiment = entities["甲"].get_component("SentimentState").sentiments["乙:hurt"]
+    assert sentiment.intensity == pytest.approx(0.3)
+    assert context["sentiment_errors"] == []
+
+
+def test_self_reported_sentiment_still_rejects_unknown_kind_and_actors():
+    entities = _entities()
+    registry = SocialRelationRegistry()
+    context = _context(registry, [])
+    context["agent_sentiment_updates"] = [
+        {
+            "actor": "甲",
+            "toward": "不存在的人",
+            "kind": "made_up_feeling",
+            "magnitude": 0.3,
+            "reason": "非法条目",
+        }
+    ]
+
+    SentimentSystem().update(entities, context)
+
+    assert entities["甲"].get_component("SentimentState").sentiments == {}
+    assert context["sentiment_updates"] == []
+    assert any("unknown sentiment kind" in error for error in context["sentiment_errors"])
+    assert any("existing characters" in error for error in context["sentiment_errors"])
 
 
 def test_authoritative_agreement_breach_creates_participant_local_betrayal():

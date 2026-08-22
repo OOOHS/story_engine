@@ -231,8 +231,8 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 NeedConfig(name="疲惫", pressure=0.35, drift_per_turn=0.05, description="守了一整天旅馆后需要休息或提神"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="superstitious_caution", intensity=0.85, policy_weights={"risk": -0.9, "retreat": 0.55, "information": -0.15}),
-                TraitConfig(trait_id="hospitable", intensity=0.45, policy_weights={"social": 0.45, "aid": 0.25}),
+                TraitConfig(trait_id="superstitious_caution", intensity=0.85),
+                TraitConfig(trait_id="hospitable", intensity=0.45),
             ],
             risk_tolerance=0.2,
             initial_obligations=[
@@ -277,8 +277,8 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 NeedConfig(name="疲惫", pressure=0.25, drift_per_turn=0.08, description="长时间调查会削弱耐心与判断"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="curious", intensity=0.9, policy_weights={"information": 1.1, "risk": 0.25}),
-                TraitConfig(trait_id="brave", intensity=0.6, policy_weights={"risk": 0.65, "confront": 0.35, "retreat": -0.4}),
+                TraitConfig(trait_id="curious", intensity=0.9),
+                TraitConfig(trait_id="brave", intensity=0.6),
             ],
             risk_tolerance=0.62,
             initial_obligations=[
@@ -321,8 +321,8 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 NeedConfig(name="理解禁忌", pressure=0.48, drift_per_turn=0.02, description="恐惧之外仍无法放弃对禁书的求知欲"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="scholarly", intensity=0.9, policy_weights={"information": 0.85, "patient": 0.25}),
-                TraitConfig(trait_id="fearful_of_forbidden", intensity=0.65, policy_weights={"risk": -0.65, "retreat": 0.3}),
+                TraitConfig(trait_id="scholarly", intensity=0.9),
+                TraitConfig(trait_id="fearful_of_forbidden", intensity=0.65),
             ],
             risk_tolerance=0.38,
             initial_obligations=[

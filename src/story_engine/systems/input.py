@@ -8,9 +8,12 @@ from src.story_engine.agents import (
     runtime_owns_subjective_state,
 )
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import CharacterPolicy
+from src.story_engine.agents.commitment import (
+    commit_runtime_action,
+    repetition_signature,
+    repetition_target,
+)
 from src.story_engine.agents.memory_context import AgentMemoryContextBuilder
-from src.story_engine.simulation.randomness import DeterministicRandomStreams
 from src.story_engine.motivation import NeedDynamics, ObligationConflictAnalyzer
 from src.story_engine.narrative import TimelineEngine
 from src.story_engine.environment.physical_affordances import (
@@ -33,7 +36,6 @@ class InputSystem(System):
         self.physical_affordances = PhysicalAffordanceEngine()
         self.agreement_offers = AgreementOfferEngine()
         self.obligation_conflicts = ObligationConflictAnalyzer()
-        self.policy = CharacterPolicy()
         self.memory_context = AgentMemoryContextBuilder()
         self.timeline = TimelineEngine()
 
@@ -195,31 +197,13 @@ class InputSystem(System):
                     controller.record_decision(current_step)
                 self._acknowledge_perception_attention(entity, perception)
                 thought = result.thought
-                world_version = (
-                    int(scene_state.get_scene_flag("world_version", 0) or 0)
-                    if scene_state
-                    else 0
-                )
-                random_streams = context.get("random_streams") or DeterministicRandomStreams(
-                    context.get("random_seed", 0)
-                )
-                selection = self.policy.select(
-                    entity=entity,
-                    perception=perception,
-                    decision=result,
-                    random_streams=random_streams,
-                    world_version=world_version,
-                    relationship_book=relationship_book,
-                    host_action_features=(
-                        context.get("_host_action_features", {}).get(name, {})
-                    ),
-                )
-                action_spec = selection.action
+                commitment = commit_runtime_action(result)
+                action_spec = commitment.action
                 intent = action_spec.detail
                 if controller is not None:
                     controller.record_policy_action(
-                        CharacterPolicy.repetition_signature(action_spec),
-                        CharacterPolicy.repetition_target(action_spec),
+                        repetition_signature(action_spec),
+                        repetition_target(action_spec),
                     )
                 if activation.reason.startswith("agent_goal:"):
                     controller = entity.get_component("AgentController")
@@ -242,14 +226,10 @@ class InputSystem(System):
                         controller.last_goal_action_signature = signature
                         controller.last_goal_wakeup_step = int(current_step)
                         controller.last_goal_wakeup_id = goal_id
-                context.setdefault("policy_traces", {})[name] = selection.trace
-                selected_private_updates = self._selected_private_updates(
-                    result,
-                    selection.trace,
-                )
+                context.setdefault("policy_traces", {})[name] = commitment.trace
                 self._apply_agent_private_updates(
                     entity,
-                    selected_private_updates,
+                    dict(result.metadata or {}),
                     current_step,
                 )
                 self._collect_agent_goal_request(
@@ -257,6 +237,17 @@ class InputSystem(System):
                     result.metadata,
                     context,
                     perception,
+                )
+                self._collect_agent_sentiment_updates(
+                    name,
+                    result.metadata,
+                    context,
+                )
+                self._collect_agent_motive_refs(
+                    name,
+                    entity,
+                    result.metadata,
+                    context,
                 )
                 print(" " * 50 + "\r", end="", flush=True)
                 # Registered agents own their policy. The engine may normalize
@@ -1126,49 +1117,84 @@ class InputSystem(System):
                 planning.set_plan(plan[:500])
 
     @staticmethod
-    def _selected_private_updates(
-        decision: AgentDecision,
-        policy_trace: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        metadata = dict(decision.metadata or {})
-        candidate_updates = metadata.pop("candidate_updates", [])
-        if not decision.candidates:
-            return metadata
+    def _collect_agent_sentiment_updates(
+        actor: str,
+        metadata: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> None:
+        """Forward a subject's own account of how she feels toward someone.
 
-        for key in (
-            "plan",
-            "clear_plan",
-            "focus",
-            "clear_focus",
-            "commitments",
-        ):
-            metadata.pop(key, None)
+        This is deliberately thin: unlike ``goal_requests`` it carries no
+        world-state claim to cross-check, only her private interior state.
+        ``SentimentSystem``/``SentimentDynamics.apply_self_reported`` still
+        validate the actors, vocabulary and magnitude bounds before anything
+        touches authoritative SentimentState/RelationshipBook.
+        """
+        if not isinstance(metadata, dict):
+            return
+        updates = metadata.get("sentiment_updates", [])
+        if not isinstance(updates, list):
+            return
+        for raw in updates[:4]:
+            if not isinstance(raw, dict):
+                continue
+            context.setdefault("agent_sentiment_updates", []).append(
+                {**dict(raw), "actor": str(actor)}
+            )
 
-        selected_id = str(policy_trace.get("selected_candidate_id", ""))
-        if not selected_id.startswith("runtime:"):
-            return metadata
-        try:
-            selected_index = int(selected_id.removeprefix("runtime:"))
-        except ValueError:
-            return metadata
-        if (
-            not isinstance(candidate_updates, list)
-            or selected_index < 0
-            or selected_index >= len(candidate_updates)
-            or not isinstance(candidate_updates[selected_index], dict)
-        ):
-            return metadata
-        selected_update = candidate_updates[selected_index]
-        for key in (
-            "plan",
-            "clear_plan",
-            "focus",
-            "clear_focus",
-            "commitments",
-        ):
-            if key in selected_update:
-                metadata[key] = selected_update[key]
-        return metadata
+    # The audit vocabulary for "why did she do that". Each entry names the
+    # component that owns the referenced record and how to enumerate it, so a
+    # motive can only cite something the character demonstrably has.
+    _MOTIVE_SOURCES = {
+        "goal": ("GoalState", "goals"),
+        "obligation": ("ObligationState", "obligations"),
+        "sentiment": ("SentimentState", "sentiments"),
+        "drive_need": ("DriveState", "needs"),
+    }
+
+    @classmethod
+    def _collect_agent_motive_refs(
+        cls,
+        actor: str,
+        entity: Entity,
+        metadata: Dict[str, Any],
+        context: Dict[str, Any],
+    ) -> None:
+        """Record the character's own account of why she acted.
+
+        The Host cannot derive this: it no longer chooses her action, so it has
+        no view of what she was weighing. She is the only one who can say, and
+        the claim is still falsifiable -- she may only cite a goal, obligation,
+        sentiment or need she actually holds. An unresolvable reference is
+        dropped and logged rather than trusted, so the audit trail stays a
+        record of checkable facts instead of self-flattery.
+        """
+        if not isinstance(metadata, dict):
+            return
+        refs = metadata.get("motive_refs", [])
+        if not isinstance(refs, list):
+            return
+        for raw in refs[:4]:
+            if not isinstance(raw, dict):
+                continue
+            kind = " ".join(str(raw.get("kind", "") or "").split()).strip()[:40]
+            ref = " ".join(str(raw.get("ref", "") or "").split()).strip()[:120]
+            source = cls._MOTIVE_SOURCES.get(kind)
+            if not kind or not ref or source is None:
+                context.setdefault("agent_motive_ref_rejections", []).append(
+                    {"actor": str(actor), "kind": kind, "ref": ref}
+                )
+                continue
+            component = entity.get_component(source[0])
+            held = getattr(component, source[1], None) if component else None
+            if not isinstance(held, dict) or ref not in held:
+                context.setdefault("agent_motive_ref_rejections", []).append(
+                    {"actor": str(actor), "kind": kind, "ref": ref}
+                )
+                continue
+            context.setdefault("agent_motive_refs", {}).setdefault(
+                str(actor), []
+            ).append({"kind": kind, "ref": ref})
 
     @staticmethod
     def _collect_agent_goal_request(

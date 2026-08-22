@@ -1,9 +1,4 @@
-from .episode import (
-    EpisodeReport,
-    EpisodeRunner,
-    EpisodeStepTrace,
-    PolicyDecisionAudit,
-)
+from .episode import EpisodeReport, EpisodeRunner, EpisodeStepTrace
 from .sweep import EpisodeSweepFailure, EpisodeSweepReport, EpisodeSweepRunner
 from .closure import (
     EpisodeClosureEvaluator,
@@ -17,7 +12,6 @@ __all__ = [
     "EpisodeReport",
     "EpisodeRunner",
     "EpisodeStepTrace",
-    "PolicyDecisionAudit",
     "EpisodeSweepFailure",
     "EpisodeSweepReport",
     "EpisodeSweepRunner",

@@ -1,5 +1,3 @@
-from src.story_engine.agents.llm_runtime import LLMCharacterAgent
-from src.story_engine.agents.policy import CharacterPolicy
 from src.story_engine.agents.scheduler import AgentScheduler
 from src.story_engine.agents.types import AgentPerception
 from src.story_engine.components.scene_state import SceneState
@@ -66,42 +64,6 @@ def test_private_schedule_is_visible_only_to_named_participant():
     assert invited["active"][0]["commitment_id"] == "ceremony"
     assert invited["active"][0]["steps_until_due"] == 2
     assert uninvited == {"active": [], "due": [], "upcoming": []}
-
-
-def test_host_policy_offers_schedule_move_but_keeps_other_choices():
-    perception = AgentPerception(
-        actor_name="甲",
-        step=1,
-        world_view={"location": "住处", "visible_actors": []},
-        private_schedule=TimelineEngine().private_schedule(_scene(), "甲", 1),
-    )
-
-    candidates = CharacterPolicy()._environment_candidates(perception)
-
-    schedule = [item for item in candidates if item.source == "schedule"]
-    assert len(schedule) == 1
-    assert schedule[0].action.kind == "move"
-    assert schedule[0].action.target == "礼堂"
-    assert any(item.action.kind == "observe" for item in candidates)
-    assert any(item.action.kind == "wait" for item in candidates)
-
-
-def test_llm_fallback_respects_schedule_without_declaring_attendance_success():
-    perception = AgentPerception(
-        actor_name="甲",
-        step=1,
-        world_view={"location": "住处"},
-        private_schedule=TimelineEngine().private_schedule(_scene(), "甲", 1),
-    )
-
-    decision = LLMCharacterAgent(llm_config={})._fallback_decision(perception)
-
-    assert decision.candidates[0].kind == "move"
-    assert decision.candidates[0].target == "礼堂"
-    assert "前往" in decision.candidates[0].detail
-    assert any(item.kind == "wait" for item in decision.candidates)
-
-
 def test_timeline_settles_attendance_from_real_locations_without_teleporting():
     scene = _scene()
     engine = TimelineEngine()

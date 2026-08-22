@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import CharacterPolicy
 from src.story_engine.agents.registry import AgentRegistry
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.components.goal_state import GoalState
@@ -262,35 +261,6 @@ def test_agents_receive_goal_lifecycle_without_exact_host_locks():
 
     assert snapshot["active"][0]["has_completion_evidence_rule"] is True
     assert "completion_conditions" not in snapshot["active"][0]
-
-
-def test_host_policy_stops_scoring_a_resolved_goal():
-    entity = Entity("甲")
-    entity.add_component(
-        Identity(
-            name="甲",
-            role="访客",
-            personality="专注",
-            goals=["寻找钥匙"],
-        )
-    )
-    state = GoalState.from_initial(["寻找钥匙"])
-    entity.add_component(state)
-    policy = CharacterPolicy()
-    candidate = policy._candidate(
-        "test",
-        AgentAction("observe", "仔细寻找钥匙。", "钥匙"),
-        "runtime",
-        base_utility=0.0,
-    )
-
-    assert policy._goal_score(entity, candidate) > 0
-
-    state.goals["goal-1"].status = "achieved"
-
-    assert policy._goal_score(entity, candidate) == 0
-
-
 def test_every_created_character_gets_goal_state_even_without_structured_rules():
     entity = create_agent(
         name="甲",

@@ -30,12 +30,13 @@ class SentimentSystem(System):
         transaction = context.get("state_transaction", {})
         result = context.get("simulation_result", {})
         agreement_transitions = context.get("agreement_transitions", [])
+        self_reports = context.get("agent_sentiment_updates", [])
         committed_social_impacts = (
             result.get("social_impacts", [])
             if transaction.get("committed")
             else []
         )
-        if not committed_social_impacts and not agreement_transitions:
+        if not committed_social_impacts and not agreement_transitions and not self_reports:
             context["sentiment_updates"] = []
             context["sentiment_errors"] = []
             context["sentiment_transitions"] = decay_transitions
@@ -48,17 +49,38 @@ class SentimentSystem(System):
             name: SentimentState(**deepcopy(state.model_dump()))
             for name, state in live_states.items()
         }
+        # The listener speaks for herself first. Once she has, the GM's guess
+        # about how she feels for the same actor this tick is redundant and
+        # gets dropped rather than double-applied on top of her own account.
+        self_applied, self_errors = self.dynamics.apply_self_reported(
+            sentiment_states=staged_states,
+            scene_state=scene_state,
+            relationship_book=relationship_book,
+            updates=self_reports,
+            current_step=step,
+        )
+        self_resolved = {item["affected"] for item in self_applied}
+        gm_impacts = [
+            impact
+            for impact in committed_social_impacts
+            if not (
+                isinstance(impact, dict)
+                and str(impact.get("affected", "")).strip() in self_resolved
+            )
+        ]
         applied, errors = self.dynamics.apply(
             sentiment_states=staged_states,
             scene_state=scene_state,
             relationship_book=relationship_book,
             result={
                 "resolved_actions": result.get("resolved_actions", []),
-                "social_impacts": committed_social_impacts,
+                "social_impacts": gm_impacts,
             },
             current_step=step,
             observation_windows=context.get("actor_observation_windows", {}),
         )
+        applied = self_applied + applied
+        errors = self_errors + errors
         agreement_registry = context.get("agreement_registry")
         if not errors and agreement_transitions and agreement_registry is not None:
             applied.extend(

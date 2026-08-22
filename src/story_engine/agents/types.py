@@ -5,26 +5,6 @@ from src.story_engine.agents.actions import AgentAction
 
 
 @dataclass(frozen=True)
-class AgentMotiveReference:
-    """A semantic link from one candidate to private structured motivation."""
-
-    kind: str
-    ref: str
-
-    @classmethod
-    def from_value(cls, value: Any) -> "AgentMotiveReference | None":
-        if isinstance(value, cls):
-            return value
-        if not isinstance(value, dict):
-            return None
-        kind = " ".join(str(value.get("kind", "") or "").split()).strip()[:40]
-        ref = " ".join(str(value.get("ref", "") or "").split()).strip()[:120]
-        if not kind or not ref:
-            return None
-        return cls(kind=kind, ref=ref)
-
-
-@dataclass(frozen=True)
 class AgentActivation:
     """Why and at what fidelity a character agent runs this turn."""
 
@@ -143,14 +123,17 @@ class AgentPerception:
 
 @dataclass(frozen=True)
 class AgentDecision:
-    """A character proposal. It is not an authoritative world outcome."""
+    """A character proposal. It is not an authoritative world outcome.
+
+    A runtime submits exactly one action. It deliberates internally and the
+    Host does not re-rank the result, so there is no candidate distribution
+    on this boundary -- whatever weighing happened stays inside the agent.
+    """
 
     action: str
     thought: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
     action_spec: AgentAction | None = None
-    candidates: tuple[AgentAction, ...] = ()
-    candidate_motive_refs: tuple[tuple[AgentMotiveReference, ...], ...] = ()
 
     def normalized_action(self) -> AgentAction:
         return self.action_spec or AgentAction.from_value(self.action)

@@ -517,7 +517,6 @@ def test_runner_factory_connects_container_protocol_to_character_agent():
         "走到窗边查看街道",
         "留在原地继续听外面的动静",
     }
-    assert decision.candidates == ()
     assert decision.metadata == {"subject_runtime": True}
     assert requests[0]["enabled_toolsets"] == ["file"]
     subject_packet = requests[0]["subject_packet"]
@@ -620,7 +619,6 @@ def test_hermes_runtime_allows_a_direct_subject_owned_action():
     )
 
     assert decision.action_spec.kind == "wait"
-    assert decision.candidates == ()
 
 
 def test_hermes_runtime_rejects_paraphrases_as_fake_choice_diversity():

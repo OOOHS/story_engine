@@ -158,7 +158,6 @@ class HermesCharacterAgent:
             return AgentDecision(
                 action=action.detail,
                 action_spec=action,
-                candidates=(),
                 thought="",
                 metadata=self._subject_metadata(data),
             )
@@ -176,14 +175,23 @@ class HermesCharacterAgent:
         return AgentDecision(
             action=action.detail,
             action_spec=action,
-            candidates=(),
             thought="",
             metadata=self._subject_metadata(data),
         )
 
     @staticmethod
     def _subject_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
-        """Expose registrations, never Hermes-owned mental state, to the Host."""
+        """Expose registrations, never Hermes-owned mental state, to the Host.
+
+        Two entries are her own account of her interior rather than a
+        registration, offered because nobody else -- least of all the GM -- is
+        positioned to invent them on her behalf: ``sentiment_updates`` (how she
+        now feels toward someone) and ``motive_refs`` (which of her own goals,
+        obligations, sentiments or needs this action was for). The Host
+        validates and bounds both before they can touch authoritative state or
+        the causal audit; a motive citing something she does not hold is
+        dropped rather than believed.
+        """
 
         requests = data.get("goal_requests", [])
         if not isinstance(requests, list):
@@ -193,7 +201,27 @@ class HermesCharacterAgent:
             for item in requests[:1]
             if isinstance(item, dict)
         ]
+        sentiment_updates = data.get("sentiment_updates", [])
+        if not isinstance(sentiment_updates, list):
+            sentiment_updates = []
+        bounded_sentiments = [
+            dict(item)
+            for item in sentiment_updates[:4]
+            if isinstance(item, dict)
+        ]
+        motive_refs = data.get("motive_refs", [])
+        if not isinstance(motive_refs, list):
+            motive_refs = []
+        bounded_motives = [
+            dict(item)
+            for item in motive_refs[:4]
+            if isinstance(item, dict)
+        ]
         metadata: Dict[str, Any] = {"subject_runtime": True}
         if bounded:
             metadata["goal_requests"] = bounded
+        if bounded_sentiments:
+            metadata["sentiment_updates"] = bounded_sentiments
+        if bounded_motives:
+            metadata["motive_refs"] = bounded_motives
         return metadata

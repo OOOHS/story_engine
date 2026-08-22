@@ -12,7 +12,6 @@ class RelationshipTrack(BaseModel):
     decay_per_step: float = 0.0
     updated_step: int = 0
     provenance: Dict[str, Any] = Field(default_factory=dict)
-    policy_weights: Dict[str, float] = Field(default_factory=dict)
 
 
 class RelationshipTracks(Component):

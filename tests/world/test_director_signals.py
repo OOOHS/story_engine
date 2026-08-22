@@ -51,7 +51,14 @@ def test_scene_state_expired_director_signal_is_dropped_silently():
     assert scene.pop_director_signals("守卫甲", current_step=10) == []
 
 
-def test_world_transaction_commit_queues_director_signals_for_known_actors():
+def test_world_transaction_commit_no_longer_queues_director_signals():
+    """director_signals are narrative intuition now, produced by
+    NarrativeDirector strictly after a commit has already succeeded (see
+    SimulationSystem._run_narrative_director), never staged inside the
+    atomic settlement transaction itself. A ``director_signals`` entry on
+    the pre-commit result is accepted for call-site compatibility and
+    silently ignored here.
+    """
     scene = _scene_with_actor()
     plots = PlotState.from_configs([])
     result = {
@@ -63,7 +70,6 @@ def test_world_transaction_commit_queues_director_signals_for_known_actors():
                 "source_plot_id": "southern_drought",
                 "tags": ["hint"],
             },
-            {"actor": "不存在的人", "suggestion": "应被忽略"},
         ],
     }
 
@@ -72,26 +78,4 @@ def test_world_transaction_commit_queues_director_signals_for_known_actors():
     )
 
     assert outcome.committed is True
-    popped = scene.pop_director_signals("守卫甲", current_step=8)
-    assert len(popped) == 1
-    assert popped[0]["suggestion"] == "你注意到锁有些松动"
-    # Unknown-actor entries are dropped, not fatal to the batch.
-    assert scene.pop_director_signals("不存在的人", current_step=8) == []
-
-
-def test_world_transaction_commit_rolls_back_director_signals_on_failure():
-    scene = _scene_with_actor()
-    plots = PlotState.from_configs([])
-    result = {
-        "state_updates": {},
-        "director_signals": [{"actor": "守卫甲", "suggestion": "不该生效"}],
-        # An invalid plot_updates entry (unknown plot) forces batch rejection.
-        "plot_updates": [{"plot_id": "no_such_plot", "advance": 1}],
-    }
-
-    outcome = WorldStateTransaction().commit(
-        scene, plots, None, result, current_step=7
-    )
-
-    assert outcome.committed is False
     assert scene.pop_director_signals("守卫甲", current_step=8) == []

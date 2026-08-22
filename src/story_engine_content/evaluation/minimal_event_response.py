@@ -141,7 +141,7 @@ class SimulationControl(Component):
                         "source": MESSENGER,
                         "affected": RECIPIENT,
                         "kind": "relieved",
-                        "intensity": "minor",
+                        "magnitude": 0.25,
                         "reason": "缺席者主动说明了已经发生的真实情况",
                         "source_event": EVENT_ID,
                     }

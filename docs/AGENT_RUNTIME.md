@@ -43,9 +43,9 @@ ScenarioConfig                     # 故事种子：人物、地点、初态、�
 - `AgentScheduler`：决定角色本轮是前台、后台还是休眠，不负责修改世界。
 - `Cognition`：角色私有的主观信念、秘密、承诺和关注点。
 
-`LLMCharacterAgent` 是进程内实现，但**不是默认 runtime**：`Runner` 不会自动注册它，也没有任何角色/场景字段会隐式指向它。它是一个显式的逃生通道——手工拼一次性 prompt、单轮无状态 LLM 调用，没有跨轮记忆和多候选权衡——只有调用方显式传入 `agent_runtime_factories={"llm": ...}` 才会被用到，适合临时本地跑通或不关心角色认知质量的单测。`CharacterConfig.agent_runtime`、`AgentController.runtime` 均为必填字段，没有默认值；找不到匹配 factory 会在 `register_agent()` 直接报错，不会静默退化到任何 runtime。
+引擎不再自带任何进程内 LLM runtime。角色的思考完全属于角色自己的 agent，宿主没有第二条“自己替角色选行动”的路径，因此也没有内建的兼容 runtime 可以退化到。`CharacterConfig.agent_runtime`、`AgentController.runtime` 均为必填字段，没有默认值；找不到匹配 factory 会在 `register_agent()` 直接报错。测试和本地跑通需要一个哑 runtime 时，调用方显式传入自己的 factory（例如恒定 `wait`），这样"角色为什么这么做"永远有明确归属。
 
-Hermes 采用更强的 subject-owned 边界：`CharacterEntity` 是世界中的身体和法律/资产锚点，长程 `HermesCharacterAgent` 是被指派给该角色的决策过程。Host 只投递 POV-safe 身体视图、可执行能力、被动刺激与主动任务结果；Hermes 按人设、私有知识和本轮证据选择这个人物的下一步，持有跨轮 conversation、JSON memory、注意、评价、动机和计划，并只向 Host 提交一个最终行动 proposal。提示词把 Hermes 写成“负责这个人物的行动”，而不是“你就是这个人”；自治性仍由“只有该角色的 agent 能提交其 proposal”保证。普通 LLM runtime 暂时保留旧的 Host candidate policy 作为兼容路径，不能据此把 Hermes 重新降级为候选生成器。
+Hermes 采用更强的 subject-owned 边界：`CharacterEntity` 是世界中的身体和法律/资产锚点，长程 `HermesCharacterAgent` 是被指派给该角色的决策过程。Host 只投递 POV-safe 身体视图、可执行能力、被动刺激与主动任务结果；Hermes 按人设、私有知识和本轮证据选择这个人物的下一步，持有跨轮 conversation、JSON memory、注意、评价、动机和计划，并只向 Host 提交一个最终行动 proposal。提示词把 Hermes 写成“负责这个人物的行动”，而不是“你就是这个人”；自治性仍由“只有该角色的 agent 能提交其 proposal”保证。宿主不再对任何 runtime 做候选打分，因此没有把 agent 降级为候选生成器的路径。
 
 Hermes subject 目前已有 `SubjectInbox` 基础层：被动观察、主动观察结果和世界信号以稳定 message id 去重，只有形成合法决策后才确认；失败调用保留消息供重试。消息按 Host 可验证的基础优先级排序，但“人格/目标相关的注意竞争、异步运行中抢占和自然衰退”仍是待实现的 Global Workspace 层，当前不能宣称已经完成。
 
@@ -300,19 +300,17 @@ WorldEventSystem 使用同一窗口派生对象状态、物品操作、交换和
 
 Agent 可以为已知事件提出 `resolution_kind=communicate_event` 的普通告知目标，或使用 `respond_to_event + resolution_response` 表达 explain、apologize、accuse、request、forgive、acknowledge。`resolution_target` 都必须是当前可见接收者。GoalSystem 在 Event Entity 上编译隐藏的 communication/response 证据锁；CognitionSystem 只在真实 committed communicate、同场、发送者确知事件且目标一致时写入 `WorldEventResponses`。因此 Agent/GM 不能用普通互动、伪造 statement 或一段回顾性叙述让目标完成。response 只是客观行为类别，不会把“道歉”自动写成“对方原谅”，也不会把“指控”自动写成 Claim 真值；接收者的 Sentiment、判断与后续行动仍保持私有。首次 response 会生成稳定 attention id 并进入接收者的 `pending_event_responses`；即使接收者早已知道原 event，离屏 Agent 仍会以 `event_response:<id>` 获得一次决策。perception 成功交付后宿主确认消费，重复的同类同向回应不会无限唤醒。
 
-普通 `LLMCharacterAgent` 暂时保留旧兼容策略：runtime 可返回多个候选，由宿主 `CharacterPolicy` 按 Trait、Drive、Goal、Relationship、Obligation 与 `policy` 随机流选择。Hermes 不走这条路径。Hermes 可以在明显只有一个合理意图时直接返回 action；需要权衡时返回内部 candidates，每项必须带不同 `motive_lens`、结构化 `intent_signature`、有限 utility 与 executable action。`HermesCharacterAgent` 先用角色私有随机源在 motive lens 间做 Gumbel-Max，再在选中 lens 的动作间做第二次 Gumbel-Max；向 `InputSystem` 返回的 `AgentDecision.candidates` 永远为空，因此 Host 将其视为 `runtime_committed` proposal，不再二次抽样。配置 `character_seed` 时可复现评测；未配置时生成随机 subject seed，私有 ledger 只记录 fingerprint、draw、lens、option 与选择，不向世界或其他角色公开候选。
+权衡属于角色自己。Hermes 可以在明显只有一个合理意图时直接返回 action；需要权衡时在 runtime 内部返回 candidates，每项必须带不同 `motive_lens`、结构化 `intent_signature`、有限 utility 与 executable action。`HermesCharacterAgent` 先用角色私有随机源在 motive lens 间做 Gumbel-Max，再在选中 lens 的动作间做第二次 Gumbel-Max，然后只把一个 action 交给 Host。宿主永远看不到这个候选分布，也不再对任何 runtime 做二次抽样：`commit_runtime_action` 只是把角色已经决定的行动记成 `runtime_committed` 收据。配置 `character_seed` 时可复现评测；未配置时生成随机 subject seed，私有 ledger 只记录 fingerprint、draw、lens、option 与选择，不向世界或其他角色公开候选。
 
-下文关于 `motive_refs`、Host candidate contributions、selected candidate continuity 和 repetition contribution 的描述，只适用于仍返回 `AgentDecision.candidates` 的兼容 runtime。Hermes 的相应主观连续性属于其长程 conversation 和原生 memory；Host 仍会验证最终 action 中的世界引用、能力、目标、位置和结算权限，但不再解释或重排 Hermes 的私人动机。
+宿主既然不选择角色的行动，也就无法重建“她为什么这么做”。因此动机只能由角色自己陈述：decision 可以附带最多四个 `motive_refs`，接受 `{"kind":"goal","ref":"<goal_id>"}` 以及 `obligation` / `sentiment` / `drive_need` 引用。`InputSystem` 对照她当前实际持有的 `GoalState`、Obligation snapshot、`SentimentState` 和 Drive need 校验每一条：引用她并不持有的东西会被丢弃并进入 `agent_motive_ref_rejections` 审计，而不是被采信。这些引用只表示她认为自己为什么这么做，不能创建动机、提供概率、证明行动成功或完成 Goal/Obligation。不陈述动机是合法的，代价只是这一步在因果图里没有动机父边。
 
-Runtime candidate 可以附带最多八个 `motive_refs`，当前接受 `{"kind":"goal","ref":"<goal_id>"}`、`{"kind":"obligation","ref":"<obligation_id>"}`，以及本轮实际投递到角色注意队列的 `world_event` / `event_response` 引用。事件引用把“刚刚发生的世界变化”接到下一步 Agent 计划上，但不会把全局或异地事件强行广播成动机。它解决“行动换了一种说法后，宿主靠文本重叠识别不到真实目标或刚发生后果”的问题。Host 只认可该角色当前 active `GoalState`、本轮私有 Obligation snapshot 和 `pending_world_events / pending_event_responses` 中真实存在的 id；未知类型、别人的记录、已终结/已处理事件和伪造 id 不参与效用，并分别进入候选的 `validated_motive_refs / rejected_motive_refs` 审计。事件的 urgency 由 HostAttentionPolicy 的显著性目录决定，Agent 看不到也不能填写优先级。引用只表示角色认为这个候选响应了某项动机，不能创建动机、改变优先级、提供概率、证明行动成功或完成 Goal/Obligation。没有引用的旧 runtime 仍可使用保守的自然语言相关性回退。
+角色自己的 `Planning.current_plan`、`Cognition.current_focus` 与私有 commitments 是她维护的主观连续性，通过顶层 `next_plan/next_focus/clear_plan/clear_focus/commitments` 更新。它们不再折算成任何宿主效用——既然没有采样，也就没有需要被“连续性加权”对抗的随机性。这些后续状态必须在行动失败时仍成立，不能预支结算结果；`resolved_commitments` 只允许作为下一轮基于已可见结果的反思更新。
 
-角色自己的 `Planning.current_plan`、`Cognition.current_focus` 与私有 commitments 还会提供总计不超过 `0.6` 的弱连续性效用，使跨轮计划不至于被每轮随机采样完全忽略。它低于单个正式 Goal 的最高贡献，也不能压过临期 Obligation、Drive、关系或新证据；所有候选仍保留非零概率。每个 runtime candidate 分别携带 `next_plan/next_focus/clear_plan/clear_focus/commitments`，只有 Host 实际选中的 `runtime:<index>` 才应用其选择后连续性；未选候选和被环境候选替代的方案不能留下“角色实际没有执行的后续计划”。候选后续状态必须在行动失败时仍成立，不能预支结算结果；`resolved_commitments` 只允许作为下一轮基于已可见结果的顶层反思更新。单动作确定性 runtime 仍可使用顶层兼容字段。由于这些内容是 Agent 自己维护的主观文本而非 Host ID，Policy Trace 会单独记录 `continuity_contributions` 供诊断，但 Episode 不把它伪装成权威 Goal/Obligation 因果边。
+`AgentController` 仍分开记录 Host 语义行为家族（动作类型、有限行为特征和正式引用）与明确 target，但这个 ledger 现在只服务停滞审计：它区分“同一个方案换了措辞再来一次”和“同类里换了一个真正不同的对象”，前者累计计数，后者重置。它不影响任何行动能否执行，只让 `max_repeated_policy_action_count` 和 `repetitive_policy_choices` 能识别真正的原地打转。ledger 属于可序列化 ECS 状态，权威步骤失败时随 checkpoint 回滚。
 
-连续性不是无限惯性。`AgentController` 分开记录 Host 语义行为家族（动作类型、有限行为特征和正式引用）与明确 target；同一方案第二次起获得软性的负 `repetition_contribution`，普通行动每次 `-0.15`、封顶 `-0.9`，等待每次仅 `-0.05`、封顶 `-0.2`。同一行为家族下两个明确且不同的对象会重置连续计数；省略 target 被保守视为延续上一个对象，不能借字段缺失逃避惩罚。换社会策略或换正式操作同样会重置，措辞改写不会。这个值只降低概率、不禁止重试；临期义务、强 Goal、Drive 或新证据仍可证明继续尝试合理。ledger 属于可序列化 ECS 状态，权威步骤失败时随 checkpoint 回滚。
+Episode 只为实际提交、且角色自己给出了通过校验的动机的行动建立 `ResolvedAction <- motive`。评估器不从行动文案反猜动机，也不把宿主的合法性检查伪装成行动原因。
 
-宿主 Policy Trace 会为每个候选保留 actor-qualified Goal、Sentiment、目标方向 Relationship Track、Obligation、Claim knowledge、Agreement、Modifier、Drive need 与 Timeline commitment 的逐项贡献。Episode 只为实际选中、真实提交且获得正向贡献的行动建立 `ResolvedAction <- motive`；负向项是约束而不是行动原因，不进入这条因果边。这样可以区分“角色说自己因为愤怒或责任才行动”和“宿主概率策略确实受该状态推动”。
-
-动作持续时间可能跨越多个离散 step，因此完成轮当前的 Policy Trace 不能代表该动作当初的选择依据。Action queue 会把选中时的私有 Host trace 保存在不公开的 event metadata 中；公开 queue snapshot、ongoing action、其他 Agent perception 和 Simulation/GM intents 都看不到它。动作完成后 metadata 从语义输入中剥离，只交给 Episode 因果审计，从而避免把后来的新决策错误嫁接到旧动作上。
+动作持续时间可能跨越多个离散 step，因此完成轮的动机自述不能代表该动作当初的理由。Action queue 会把提交时的 `motive_refs` 保存在不公开的 event metadata 中；公开 queue snapshot、ongoing action、其他 Agent perception 和 Simulation/GM intents 都看不到它。动作完成后 metadata 从语义输入中剥离，只交给 Episode 因果审计，从而避免把后来的新决策错误嫁接到旧动作上。
 
 概率结果也不由 runtime 或语义 GM 掷骰。宿主提供固定 `trivial/easy/normal/hard/extreme/impossible` 映射的 `HostCheckResolver`，并将物理结果与观察噪声分别路由到 `world`、`observation` 随机流。修正必须有宿主可验证的 id、有限 delta 和原因；Agent 声称“我必定成功”不会成为修正。
 
@@ -360,7 +358,7 @@ CharacterConfig(
         TraitConfig(
             trait_id="brave_but_cautious",
             intensity=0.6,
-            policy_weights={"risk": 0.3, "aid": 0.5, "retreat": -0.2},
+            description="愿意为守住城门冒险，但不会主动送命",
         )
     ],
     activation_policy="background",
@@ -444,11 +442,11 @@ performance 的 fulfilled/breached/cancelled 不是 Agreement 自己凭空改变
 
 Agent-grown goal 可以通过 `goal_requests refine` 把先前开放的追求具体化。只允许 `origin=agent`、仍 active 且尚无任何结算条件的目标；Agent 提交真实 goal id 和当前 POV 支持的 resolution 模板，Host 重新验证地点、对象、人物、能力或关系并编译隐藏条件。已有条件锁、作者目标和终态目标都不能重写，因此 refine 是“后来找到可执行办法”，不是借模型修改胜利条件。角色也可以主动 `abandon` 自己创建且仍 active 的目标，并提供自然语言理由；Host 保留 abandoned 历史和 resolution step。这样目标既能从事件开放生长，又能在新机会出现后转成可完成链路，或在角色判断代价、风险与意义改变时自然收束。
 
-Authored object affordance 可以携带有限目录中的 `policy_tags`，例如 `aid/risk/information/cooperate`。WorldStateTransaction 拒绝未知、重复、过量或非字符串标签；Input 在构造 `AgentPerception` 前把标签剥离，只把 object、affordance id、label、能力要求和 need opportunity 交给 runtime。Agent 选择 exact `affordance_id` 后，Host 才把对应标签并入 CharacterPolicy。这样“保护欲提高使用救生绳的概率”依赖结构化能力引用而不是模型是否恰好写出“帮助”二字，同时 Agent 不能自报标签操纵效用。`engine:take/drop/open` 分别具有保守的 `acquire/release/access` Host 特征，但仍不会自动加入候选；普通 authored affordance 也只有产生真实 need relief 时才成为环境候选。Capability 本身不制造 motivation。
+Authored object affordance 可以携带有限目录中的 `policy_tags`，例如 `aid/risk/information/cooperate`。WorldStateTransaction 拒绝未知、重复、过量或非字符串标签；Input 在构造 `AgentPerception` 前把标签剥离，只把 object、affordance id、label、能力要求和 need opportunity 交给 runtime。Agent 选择 exact `affordance_id` 后，Host 才用对应标签为停滞审计判定行为家族。这样“换了说法的同一个方案”依赖结构化能力引用而不是模型是否恰好写出“帮助”二字，同时 Agent 不能自报标签影响审计。`engine:take/drop/open` 分别具有保守的 `acquire/release/access` Host 特征。Capability 本身不制造 motivation。
 
 普通社会语言同样由 Host 映射到独立的有限特征。除 `social/confront/deception/information` 外，社会回应目录与 WorldEvent response 共用 `explain/apologize/accuse/request/forgive/acknowledge` 六类。它们只对 `communicate` 推导，不属于 authored object affordance 的 `policy_tags` 白名单；内容对象不能给普通 interact 偷挂“道歉”或“请求”动机。它们让同一对象上的“道歉”和“请求”保持为实质不同候选，并允许 Trait、Sentiment 与 Relationship Track 通过确定性函数影响概率；runtime 仍只提交自然语言 communicate action，不能提交这些标签或权重。概率层与 Cognition/WorldEvent 结算调用同一个 Host 分类器：行动文本明确时覆盖 GM 的冲突建议，文本无法确定时才接受有限目录内的 GM 建议，无效建议退化为普通 `report`。因此“Host 按道歉计算概率、GM 却把后果记成指控”的语义分叉不能发生。
 
-`AgentPerception.private_modifiers` 提供角色当前的临时非社交影响。Agent 能看到 kind、描述、强度、层数和到期 step，但看不到 `policy_weights`；持续时间和叠加规则也不由运行时决定。隐藏行动造成的 Modifier 会隐藏 source 与具体归因，避免借私有状态绕过 POMDP 观察边界。
+`AgentPerception.private_modifiers` 提供角色当前的临时非社交影响。Agent 能看到 kind、描述、强度、层数和到期 step，但持续时间和叠加规则不由运行时决定。它是一项角色可见的临时处境，不是宿主替角色打的分。隐藏行动造成的 Modifier 会隐藏 source 与具体归因，避免借私有状态绕过 POMDP 观察边界。
 
 Modifier 另有不进入 AgentPerception 的宿主 provenance。可见来源的 `source_event` 和隐藏来源的内部 provenance 都由已验证 `resolved_action` 生成，模型填写的任意事件 id 会被覆盖。Episode 因而可以审计 `ResolvedAction -> Modifier -> later ResolvedAction`，同时目标角色仍然可能不知道是谁造成了该状态。
 
@@ -500,8 +498,8 @@ An `asset_offer` opportunity is generated without authored story content. Its
 `give_options` and `request_options` are the complete allowed reference sets for
 that POV and step. A runtime proposes with `agreement_give_refs` and/or
 `agreement_request_refs`; it does not invent quantities, ownership, IDs or
-transfers. Capability still does not imply motivation, so these offers are not
-automatically injected into the Host utility candidate pool.
+transfers. Capability still does not imply motivation: an offer being legal says nothing
+about whether this character wants it.
 
 A `delivery_service_offer` lets the runtime request delivery of one object in
 `service_object_options` from the visible provider. It selects a qualitative
@@ -542,21 +540,17 @@ reroute, observe, ask, report delay, negotiate, wait, or accept breach. The Host
 never reveals secret topology through this record, and leaving the discovery
 location resolves the immediate local problem.
 
-Each candidate may reference the active `problem_id` with
-`{"kind":"navigation_problem","ref":"..."}`. Host validates that the ID is
-still active in this character's POV and gives a bounded urgency contribution
-based only on the problem's own remaining time; it never chooses the alternate
-route or rewards a claimed destination. The selected action then records
-`resolved_action <- navigation_problem` provenance, so a real reroute, inquiry,
-or negotiation can be distinguished from an unrelated move.
+A `NavigationProblem` is evidence, not a motive the Host can score. The runtime
+sees the failed edge and its options and decides for itself what to do; the Host
+does not reward a reroute over an inquiry. Stated motives are limited to what a
+character demonstrably holds (`goal`, `obligation`, `sentiment`, `drive_need`),
+so a reroute is explained by the goal or delivery obligation it serves rather
+than by citing the obstacle.
 
-Non-navigation failures use the same principle without creating a permanent
-world entity: a committed `fail` or `blocked` action is retained as a bounded
-private recent experience with its Host action event id. A later candidate may
-reference it as `{"kind":"action_failure","ref":"action:<id>"}` to explain a
-method change. Host accepts only that actor's recent failure records, applies a
-small age-decayed contribution, and records `resolved_action <- action_failure`;
-successful actions, missing ids, and another actor's failures cannot be used.
+Non-navigation failures work the same way without creating a permanent world
+entity: a committed `fail` or `blocked` action is retained as a bounded private
+recent experience with its Host action event id, so the runtime can see what it
+already tried. Whether that changes its method is its own call.
 
 An Agent may explicitly adopt a new Goal with
 `source_kind=navigation_problem` and the active `problem_id`. In particular,

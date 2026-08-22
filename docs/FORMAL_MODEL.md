@@ -7,12 +7,11 @@ Story Engine 采用事件驱动的部分可观察多角色博弈（POSG）作为
 - `S`：Scene、Object、Plot、Relationship、Drive、Obligation、Contract 等权威状态。
 - `O_i`：角色 `i` 的 POV、被动观察和主动观察结果；尚未交付给策略的新世界事件与社会回应分别保存在宿主拥有的有限 pending 队列中。
 - `L_i`：Host 可验证的私人账本，包括 POV 事件收据、Claim 来源、身体压力、义务、协议、日程、地图和已登记目标；它不是公共知识，也不等于角色的完整心智。
-- `M_i`：持久 subject 自己的回忆、注意、评价、情绪、信念解释、计划、笔记、动机和选择。Hermes 的 `M_i` 位于其 conversation/JSON memory/tool 上下文；兼容 LLM runtime 暂时由 Host Cognition/Memory/Planning/Sentiment 镜像。
+- `M_i`：持久 subject 自己的回忆、注意、评价、情绪、信念解释、计划、笔记、动机和选择。Hermes 的 `M_i` 位于其 conversation/JSON memory/tool 上下文。宿主不保留 `M_i` 的镜像。
 - `G_i`：Host 登记的目标 watch。它保存来源、调度与权威完成锁；对 Hermes 而言不直接等于欲望或注意优先级，只有权威状态条件能令其 achieved/failed。
 - `K`：客观 Claim Entity 集合及其 truth conditions / evidence links；`K_i` 是角色私有 KnowledgeState，只保存该角色对 Claim 的立场和证据来源。
-- `C_i^H`：Hermes 主体内部生成的私人候选集合；不会暴露给宿主或其他角色。
-- `C_i^L`：兼容 runtime 暴露给宿主 `CharacterPolicy` 的候选集合，可以包含环境生成的 affordance 候选。
-- `A_i`：策略所有者从对应候选集合中选出的单个原子大动作 proposal。Hermes 自己选择 `A_i`；兼容 runtime 由宿主选择。
+- `C_i^H`：角色 runtime 内部生成的私人候选集合；不会暴露给宿主或其他角色。宿主一侧不存在对应的候选集合。
+- `A_i`：角色自己从 `C_i^H` 中选出并提交的单个原子大动作 proposal。宿主只接收 `A_i`，不重排。
 - `T`：确定性环境规则、宿主 world/observation 随机流、语义 GM 和 WorldStateTransaction 共同构成的状态转移。
 - `R_i`：角色自己的 active `G_i`、needs、relationships、obligations 与风险偏好；不同角色不共享统一奖励。
 
@@ -22,9 +21,9 @@ Session 不成立；运行中任一绑定脱落时，下一步在时间推进和
 Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为主体，
 不参与这条映射，也不会获得角色行动回合。
 
-这里选择 POSG 而不是 Dec-POMDP，是因为故事角色通常具有冲突或不一致的目标。Hermes 是被指派给该角色的长程决策过程：它保存自己的 conversation、原生 JSON memory/tool 上下文，接收环境投递的私人刺激，并按人设与当前证据选择该人物的下一步。宿主不读取或重排这些私人候选，只接收一个 `A_i` 并负责合法性、时间、资源、概率结果和权威结算。普通 `LLMCharacterAgent` 暂时保留宿主 Utility Policy 作为兼容路径；引擎不运行 Bellman 求解。
+这里选择 POSG 而不是 Dec-POMDP，是因为故事角色通常具有冲突或不一致的目标。Hermes 是被指派给该角色的长程决策过程：它保存自己的 conversation、原生 JSON memory/tool 上下文，接收环境投递的私人刺激，并按人设与当前证据选择该人物的下一步。宿主不读取或重排这些私人候选，只接收一个 `A_i` 并负责合法性、时间、资源、概率结果和权威结算。宿主一侧没有 Utility Policy，也不运行 Bellman 求解。
 
-对兼容 runtime 实际选中的 `A_i`，宿主保留逐候选效用分解。语义运行时可以为候选声明它所响应的 active Goal/Obligation/NavigationProblem、近期失败的 action event，或本轮已投递的 POV-safe WorldEvent/EventResponse；宿主先在角色私有 snapshot 和 pending attention 队列中核验，再将其编入效用与 provenance。Hermes 不走这条宿主解释路径：其 motive lens、候选效用和抽样 trace 属于主体私人账本，Episode 只能记录 Hermes 最终提交了什么，以及世界如何结算，不能把宿主事后推断伪装成角色的真实动机。
+因为宿主不选择 `A_i`，它也无法重建角色的动机。角色可以随 `A_i` 附带 `motive_refs`，声明这一步响应的是自己哪个 active Goal、Obligation、Sentiment 或 Drive need；宿主在角色私有 snapshot 中核验后才编入 provenance，引用她并不持有的记录会被驳回。Episode 只记录角色提交了什么、她给出的理由、以及世界如何结算，不把宿主事后推断伪装成角色的真实动机。
 
 临界 `DriveNeed_i` 会唤醒 auto/background 策略，但不自动等于未完成剧情。自然闭合只检查 `actionable_critical_need(i,n)`：need 已达到自己的 critical threshold，且当前受限观察中至少存在一个 Host 验证为 available、对同一 need 有负 delta 的 affordance。普通漂移、无已知解法的压力与 dormant 角色压力只保留诊断。这样既不会在角色眼前有食物却仍严重饥饿时提前结束，也不会因世界暂时没有水源而让 Episode 永远无法形成章节边界。
 
@@ -48,21 +47,20 @@ Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但�
 
 这仍是性格机制的第一层实现：当前 Trait 以结构化 bootstrap 进入长程主体，但人格/目标条件化的注意竞争、评价理论 appraisal、刺激衰减与真正异步抢占尚未完成，不能把候选 utility 当成已经客观校准的心理模型。
 
-兼容 `LLMCharacterAgent` 仍使用旧策略：结构化 Trait 的 `policy_weights`、关系 Track、临期义务、需求缓解和 risk tolerance 修改宿主可见候选的效用，再由宿主 `policy` 流采样。两条策略不能串联；Hermes 返回的最终 action 不再经过 `CharacterPolicy` 二次选择。任何 runtime 都不能提供世界结果的概率、随机数或最终成功声明。
+宿主一侧不存在第二套策略：结构化 Trait、关系 Track、临期义务、需求和风险偏好都只作为证据进入角色的输入包，由角色自己权衡，宿主不用它们给候选打分或采样。任何 runtime 都不能提供世界结果的概率、随机数或最终成功声明。
 
-Session 从一个公开可记录的 seed 派生三个互不干扰的宿主随机流：
+Session 从一个公开可记录的 seed 派生两个互不干扰的宿主随机流：
 
-- `policy`：仅供仍返回候选的兼容 runtime 选择行动；
 - `world`：行动在世界中的概率检查；
 - `observation`：带噪声的主动或被动感知检查。
 
-宿主随机值由 `(seed, stream, stable key)` 的哈希生成，不依赖调用顺序。兼容策略 trace 记录候选、效用、概率、roll 与选中项；世界检查记录固定难度、宿主修正、概率、roll 与结果。同一 seed、step、world version 和输入可重放。Hermes 的主体采样使用独立 per-character seed：评测必须同时固定 Session seed 与 character seed 才能重放角色选择；生产只记录 subject seed fingerprint 和被选 lens/option，不把私人思考公开到世界审计。
+没有第三个“角色选择”流：角色在自己的 runtime 内部采样自己的决定，宿主只掷客观结果和"这个角色看清了多少"。宿主随机值由 `(seed, stream, stable key)` 的哈希生成，不依赖调用顺序；世界检查记录固定难度、宿主修正、概率、roll 与结果。同一 seed、step、world version 和输入可重放。Hermes 的主体采样使用独立 per-character seed：评测必须同时固定 Session seed 与 character seed 才能重放角色选择；生产只记录 subject seed fingerprint 和被选 lens/option，不把私人思考公开到世界审计。
 
 语义 GM 不能为不确定行动直接写最终成功或失败。它必须输出一个 `uncertain_outcome`：固定难度、可选的权威 capability 名称，以及 success/failure 两个完整候选补丁。宿主先对两边执行相同的 authority projection：位置分量只能属于当前 move actor，并落在 `{原位置, LegalityEngine 授权目的地}`；其余坐标从两个候选同时删除并审计。随后宿主从 SceneState 的 capabilities/skills 生成有限修正，使用对应随机流选择一个分支，再把唯一被选中的补丁合并进 WorldStateTransaction。模型提供的 probability、roll 或数值 modifier 属于非法字段；未选分支不会进入 Cognition、Memory 或 Rendering。
 
-短期社会评价不直接等于长期奖励或关系真相。已提交、对角色可观察的社会行动可以形成受限 `social_impact`；宿主将其映射为该角色私有 Sentiment，并由 Sentiment 的强度、衰减和 Policy tag 权重影响后续 `R_i`。少量、确定性的 Track effect 用来沉淀长期关系，避免一次事件把永久 trust/favor 粗暴改满。不可观察事件不进入该角色的 Sentiment。来源始终由宿主绑定到已验证 action 或 Agreement performance resolution，关系轨道再指回该 Sentiment；模型提供的自由文本理由只用于角色理解，不作为因果权限。
+短期社会评价不直接等于长期奖励或关系真相。已提交、对角色可观察的社会行动可以形成受限 `social_impact`；宿主将其映射为该角色私有 Sentiment，并由 Sentiment 的强度与衰减构成后续 `R_i` 的一部分——它作为证据进入角色的输入包，由角色自己决定要不要照它行动，宿主不用它给选项打分。少量、确定性的 Track effect 用来沉淀长期关系，避免一次事件把永久 trust/favor 粗暴改满。不可观察事件不进入该角色的 Sentiment。来源始终由宿主绑定到已验证 action 或 Agreement performance resolution，关系轨道再指回该 Sentiment；模型提供的自由文本理由只用于角色理解，不作为因果权限。
 
-非社会临时条件通过 `ModifierState` 进入 `R_i`。语义 GM 只能从宿主 catalog 选择 kind，并提供已提交行动支持的 target、source、定性 intensity 和 reason；duration、stacking、精确 magnitude 与 policy weights 属于宿主定义。Modifier 不修改随机数，只修改候选行动效用，因此概率仍由宿主 Softmax 与 `policy` 随机流产生。其角色可见归因服从 `O_i`，但宿主另存 `Modifier <- ResolvedAction` provenance；隐藏来源可以对角色未知，同时仍对权威审计可知。
+非社会临时条件通过 `ModifierState` 进入 `R_i`。语义 GM 只能从宿主 catalog 选择 kind，并提供已提交行动支持的 target、source、定性 intensity 和 reason；duration、stacking 与精确 magnitude 属于宿主定义。Modifier 既不修改随机数也不给行动打分：它是角色能看到的一项临时处境，由角色自己权衡。其角色可见归因服从 `O_i`，但宿主另存 `Modifier <- ResolvedAction` provenance；隐藏来源可以对角色未知，同时仍对权威审计可知。
 
 持续需求 `DriveNeed_i` 保存有界的宿主因果 ledger。对象 affordance/语义压力产生 `DriveNeed <- ResolvedAction`，义务期限产生 `DriveNeed <- Obligation`，确定性漂移产生 `DriveNeed <- Clock`。ledger 不属于 `O_i`，但与 DriveState 一起事务化，使后续 `ResolvedAction <- DriveNeed <- cause` 可以重放。
 

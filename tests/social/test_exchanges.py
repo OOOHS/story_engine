@@ -620,7 +620,7 @@ def test_exchange_result_is_independent_of_exchange_and_transfer_order():
     assert snapshots[0] == snapshots[1]
 
 
-def test_exchange_ownership_participates_in_same_turn_causal_plot():
+def test_exchange_ownership_participates_in_post_commit_causal_plot():
     scene = _scene()
     plots = PlotState.from_configs(
         [
@@ -666,17 +666,18 @@ def test_exchange_ownership_participates_in_same_turn_causal_plot():
         ]
     )
 
-    enriched = CausalPlotEngine().enrich_result(
-        scene,
-        plots,
-        scenario,
-        result,
-        proposal_actors={"甲", "乙"},
-    )
-    outcome = _commit(scene, enriched, plot_state=plots)
-
+    outcome = _commit(scene, result, plot_state=plots)
     assert outcome.committed is True
-    assert enriched["causal_plot_rules"] == ["alice_gets_key"]
+    # The exchange settled for real first; only now, against the actual
+    # committed ownership, does the causal rule get to evaluate -- no
+    # pre-commit rehearsal of what the exchange would have produced.
+    assert scene.get_object_state("乙的钥匙")["owner"] == "甲"
+
+    settled = CausalPlotEngine().settle(
+        scene_state=scene, plot_state=plots, scenario=scenario, result=result
+    )
+
+    assert settled["causal_plot_rules"] == ["alice_gets_key"]
     assert plots.plots["key_trade"]["clock"] == 1
 
 

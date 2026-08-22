@@ -18,7 +18,6 @@ class SentimentRecord(BaseModel):
     expires_step: int | None = None
     decay_per_step: float = Field(default=0.0, ge=0.0, le=1.0)
     source_event: str = ""
-    policy_weights: Dict[str, float] = Field(default_factory=dict)
 
 
 class SentimentState(Component):
@@ -44,7 +43,6 @@ class SentimentState(Component):
         current_step: int,
         duration_steps: int,
         decay_per_step: float,
-        policy_weights: Dict[str, float],
         source_event: str = "",
     ) -> SentimentRecord:
         sentiment_id = f"{toward}:{kind}"
@@ -69,7 +67,6 @@ class SentimentState(Component):
                 expires_step=int(current_step) + max(1, int(duration_steps)),
                 decay_per_step=decay_per_step,
                 source_event=source_event,
-                policy_weights=deepcopy(policy_weights),
             )
             self.sentiments[sentiment_id] = record
             return record
@@ -85,7 +82,6 @@ class SentimentState(Component):
         record.expires_step = int(current_step) + max(1, int(duration_steps))
         record.decay_per_step = decay_per_step
         record.source_event = source_event
-        record.policy_weights = deepcopy(policy_weights)
         return record
 
     def advance_to(self, step: int) -> list[Dict[str, Any]]:
@@ -122,22 +118,6 @@ class SentimentState(Component):
                     }
                 )
         return transitions
-
-    def score_tags(
-        self, toward: str, tags: set[str]
-    ) -> tuple[float, Dict[str, float]]:
-        total = 0.0
-        contributions: Dict[str, float] = {}
-        for sentiment_id, record in self.sentiments.items():
-            if record.toward != toward:
-                continue
-            contribution = record.intensity * sum(
-                record.policy_weights.get(tag, 0.0) for tag in tags
-            )
-            if contribution:
-                contributions[sentiment_id] = round(contribution, 6)
-                total += contribution
-        return total, contributions
 
     def get_private_snapshot(self) -> Dict[str, Any]:
         ordered = sorted(

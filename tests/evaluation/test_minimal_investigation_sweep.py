@@ -38,8 +38,9 @@ def test_real_multi_seed_investigation_sweep_meets_emergence_floor():
     assert sweep.metrics["unique_action_trace_count"] >= 2
     assert sweep.metrics["goal_resolution_rate"] == 1.0
     assert sweep.metrics["violation_count"] == 0
-    assert sweep.metrics["policy_motivated_episode_rate"] == 1.0
-    assert sweep.metrics["policy_motivated_action_count"] >= 3
+    assert sweep.metrics["motivated_episode_rate"] == 1.0
+    assert sweep.metrics["motivated_action_count"] >= 3
+    assert sweep.metrics["rejected_motive_ref_count"] == 0
     summary = sweep.metrics["metric_summary"]
     assert summary["active_goal_count"]["max"] == 0
     assert summary["relationship_count"]["min"] == 1

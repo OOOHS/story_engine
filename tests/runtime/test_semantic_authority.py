@@ -53,8 +53,7 @@ def test_authority_filter_strips_exact_social_plot_and_settlement_writes():
     assert filtered.result["contract_authorizations"] == {}
     assert filtered.result["storylet_hits"] == []
     assert filtered.result["social_impacts"][0]["kind"] == "grateful"
-    assert filtered.result["social_impacts"][0]["intensity"] == "moderate"
-    assert filtered.result["social_impacts"][0]["magnitude"] == 0.5
+    assert filtered.result["social_impacts"][0]["magnitude"] == 0.9
     assert filtered.result["uncertain_outcomes"][0]["success"]["plot_updates"] == []
     assert (
         filtered.result["uncertain_outcomes"][0]["success"][
@@ -68,51 +67,57 @@ def test_authority_filter_strips_exact_social_plot_and_settlement_writes():
         "result.contract_settlements",
         "result.contract_authorizations",
         "result.storylet_hits",
-        "result.social_impacts[0].magnitude",
         "uncertain_outcomes[0].success.plot_updates",
         "uncertain_outcomes[0].success.relationship_updates",
     }
     assert candidate["plot_updates"][0]["advance"] == 99
 
 
-def test_authority_filter_compiles_qualitative_effects_to_fixed_host_values():
+def test_authority_filter_bounds_raw_numeric_effects_without_remapping():
+    """The resolver now gives magnitudes/deltas directly; the host only
+    clamps them into a sane range instead of re-mapping a qualitative tier
+    to a fixed number.
+    """
     filtered = SemanticAuthorityFilter().sanitize(
         {
-            "conflict_level": "high",
             "tension_delta": 0.99,
-            "social_impacts": [{"kind": "hurt", "intensity": "major"}],
-            "modifier_updates": [{"kind": "shaken", "intensity": "minor"}],
+            "social_impacts": [{"kind": "hurt", "magnitude": 0.6}],
+            "modifier_updates": [{"kind": "shaken", "magnitude": 1.5}],
             "drive_updates": [
                 {
                     "actor": "甲",
                     "need": "safety",
-                    "direction": "decrease",
-                    "intensity": "extreme",
+                    "delta": -0.9,
                 }
             ],
         }
     )
 
-    assert filtered.result["social_impacts"][0]["magnitude"] == 0.75
-    assert filtered.result["modifier_updates"][0]["magnitude"] == 0.25
+    # In-range values pass through untouched.
+    assert filtered.result["social_impacts"][0]["magnitude"] == 0.6
+    # Out-of-range values are clamped, not remapped to a tier, and flagged.
+    assert filtered.result["modifier_updates"][0]["magnitude"] == 1.0
     assert filtered.result["drive_updates"][0]["delta"] == -0.4
-    assert filtered.result["tension_delta"] == 0.12
-    assert filtered.rejected_writes == ["result.tension_delta"]
+    assert filtered.result["drive_updates"][0]["direction"] == "decrease"
+    assert filtered.result["tension_delta"] == 0.15
+    assert set(filtered.rejected_writes) == {
+        "result.modifier_updates[0].magnitude",
+        "result.drive_updates[0].delta",
+        "result.tension_delta",
+    }
 
 
-def test_authority_filter_compiles_drive_creation_tiers_and_strips_raw_numbers():
+def test_authority_filter_bounds_drive_creation_numbers_and_strips_initial_pressure():
     filtered = SemanticAuthorityFilter().sanitize(
         {
             "drive_creations": [
                 {
                     "actor": "甲",
                     "need": "复仇心",
-                    "drift": "urgent",
-                    "threshold": "fragile",
-                    "pressure": 0.9,
-                    "initial_pressure": 1.0,
                     "drift_per_turn": 999,
                     "critical_threshold": 0.01,
+                    "pressure": 0.9,
+                    "initial_pressure": 1.0,
                     "reason": "亲人被害",
                 },
                 {"actor": "乙", "need": "焦虑"},
@@ -122,13 +127,12 @@ def test_authority_filter_compiles_drive_creation_tiers_and_strips_raw_numbers()
 
     creations = filtered.result["drive_creations"]
     assert creations[0]["drift_per_turn"] == 0.08
-    assert creations[0]["critical_threshold"] == 0.6
+    assert creations[0]["critical_threshold"] == 0.5
     assert "pressure" not in creations[0]
     assert "initial_pressure" not in creations[0]
-    # No drift/threshold given: falls back to the neutral default tier.
-    assert creations[1]["drift"] == "steady"
+    # No drift/threshold given: falls back to the neutral default.
     assert creations[1]["drift_per_turn"] == 0.03
-    assert creations[1]["threshold"] == "normal"
+    assert creations[1]["critical_threshold"] == 0.8
     assert set(filtered.rejected_writes) == {
         "result.drive_creations[0].pressure",
         "result.drive_creations[0].initial_pressure",

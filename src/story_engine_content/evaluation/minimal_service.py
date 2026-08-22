@@ -1,5 +1,7 @@
 """Evaluation content for agreement, service, escrow, breach and repair."""
 
+import hashlib
+
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.core.component import Component
@@ -35,7 +37,30 @@ def _agreement(perception, agreement_id):
 
 
 class ServicePolicyRuntime:
-    """Content-owned candidates; all selection probability remains host-owned."""
+    """A content-owned runtime that commits to one action per turn.
+
+    Both parties treat the paperwork as settled business: when the option in
+    front of them is a formal move on the agreement -- propose, accept, offer
+    compensation -- they take it, because that is what someone doing business
+    does. Actually performing is not paperwork. The courier is described as
+    wavering between his reputation, his payment and his own convenience, so
+    whether he hands the parcel over now or stalls another round is a real
+    judgement call, and that is where breach, late delivery and repair become
+    reachable instead of scripted.
+    """
+
+    def __init__(self, seed=0):
+        self._seed = seed
+
+    def _choose(self, options, actor, step):
+        digest = hashlib.sha256(
+            f"{self._seed}|{actor}|{step}".encode("utf-8")
+        ).hexdigest()
+        return options[int(digest, 16) % len(options)]
+
+    @staticmethod
+    def _is_formal_move(action):
+        return bool(action.agreement_operation)
 
     def decide(self, entity, perception):
         main = _agreement(perception, SERVICE_ID)
@@ -44,10 +69,31 @@ class ServicePolicyRuntime:
             candidates = self._client_candidates(main, repair)
         else:
             candidates = self._courier_candidates(main, repair)
+        if self._is_formal_move(candidates[0]):
+            action = candidates[0]
+        else:
+            action = self._choose(
+                candidates,
+                entity.name,
+                int(getattr(perception, "step", 0) or 0),
+            )
         return AgentDecision(
-            action=candidates[0].detail,
-            candidates=tuple(candidates),
+            action=action.detail,
+            action_spec=action,
             thought="权衡报酬、期限、关系和违约后果。",
+            metadata={
+                "subject_runtime": True,
+                "motive_refs": [
+                    {
+                        "kind": "goal",
+                        "ref": (
+                            "receive_parcel"
+                            if entity.name == CLIENT
+                            else "earn_payment"
+                        ),
+                    }
+                ],
+            },
         )
 
     @staticmethod
@@ -292,16 +338,10 @@ def build_minimal_service_scenario() -> ScenarioConfig:
                     {
                         "trait_id": "contract_minded",
                         "intensity": 0.9,
-                        "policy_weights": {
-                            "social": 0.35,
-                            "information": 0.2,
-                            "patient": 0.1,
-                        },
                     }
                 ],
                 is_player=True,
                 agent_runtime="service-policy",
-                agent_config={"policy": {"temperature": 1.25}},
             ),
             CharacterConfig(
                 name=COURIER,
@@ -331,17 +371,10 @@ def build_minimal_service_scenario() -> ScenarioConfig:
                     {
                         "trait_id": "mixed_reliability",
                         "intensity": 0.8,
-                        "policy_weights": {
-                            "aid": 0.22,
-                            "interact": 0.2,
-                            "rest": 0.15,
-                            "social": 0.1,
-                        },
                     }
                 ],
                 risk_tolerance=0.5,
                 agent_runtime="service-policy",
-                agent_config={"policy": {"temperature": 1.45}},
             ),
         ],
     )
@@ -353,7 +386,7 @@ def create_minimal_service_session(seed):
         scenario,
         random_seed=seed,
         agent_runtime_factories={
-            "service-policy": lambda entity, config: ServicePolicyRuntime()
+            "service-policy": lambda entity, config: ServicePolicyRuntime(seed)
         },
     )
     gm = session.entities["GameMaster"]

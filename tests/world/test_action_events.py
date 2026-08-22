@@ -1,5 +1,4 @@
 from src.story_engine.agents import AgentAction, AgentDecision, AgentRegistry
-from src.story_engine.agents.llm_runtime import LLMCharacterAgent
 from src.story_engine.clocks.game_clock import GameClock
 from src.story_engine.components.agent_controller import AgentController
 from src.story_engine.components.cognition import Cognition
@@ -165,19 +164,10 @@ def test_action_scheduling_system_exposes_only_next_completion_to_simulation():
     assert queue.pending_for("甲")["completes_at"] == 2
 
 
-def test_policy_evidence_follows_long_action_without_leaking_to_semantic_intent():
+def test_stated_reason_follows_long_action_without_leaking_to_semantic_intent():
     queue = ActionEventQueue()
     clock = GameClock()
-    original_trace = {
-        "mode": "host_sampled",
-        "selected_candidate_id": "runtime:0",
-        "candidates": [
-            {
-                "candidate_id": "runtime:0",
-                "goal_contributions": {"reach-hall": 0.6},
-            }
-        ],
-    }
+    original_refs = [{"kind": "goal", "ref": "reach-hall"}]
     context = {
         "action_queue": queue,
         "clock": clock,
@@ -187,13 +177,9 @@ def test_policy_evidence_follows_long_action_without_leaking_to_semantic_intent(
             ),
             _proposal("乙", {"kind": "communicate", "detail": "提醒甲停下"}),
         ],
-        "policy_traces": {
-            "甲": original_trace,
-            "乙": {
-                "mode": "host_sampled",
-                "selected_candidate_id": "runtime:0",
-                "candidates": [{"candidate_id": "runtime:0"}],
-            },
+        "agent_motive_refs": {
+            "甲": original_refs,
+            "乙": [{"kind": "goal", "ref": "stop-him"}],
         },
     }
 
@@ -203,19 +189,20 @@ def test_policy_evidence_follows_long_action_without_leaking_to_semantic_intent(
     assert all("_host_metadata" not in item for item in context["intents"])
     assert "host_metadata" not in queue.pending_for("甲")
 
+    # By the time the walk finishes she is thinking about something else. The
+    # completion still has to be attributed to why she set out.
     context["intents"] = []
-    context["policy_traces"] = {
-        "甲": {
-            "mode": "host_sampled",
-            "selected_candidate_id": "wrong:new-decision",
-            "candidates": [],
-        }
+    context["agent_motive_refs"] = {
+        "甲": [{"kind": "sentiment", "ref": "乙:annoyed"}]
     }
     ActionSchedulingSystem().update({}, context)
 
     assert [item["actor"] for item in context["intents"]] == ["甲"]
     assert all("_host_metadata" not in item for item in context["intents"])
-    assert context["completed_action_policy_traces"]["甲"]["trace"] == original_trace
+    assert (
+        context["completed_action_motive_refs"]["甲"]["motive_refs"]
+        == original_refs
+    )
 
 
 def test_input_does_not_awaken_agent_while_external_action_is_in_progress():
@@ -461,21 +448,6 @@ def test_moving_actor_observes_origin_and_destination_without_remote_leak():
     assert "远处发生了无人可见的变化。" not in mover_results
     assert "目的地有人出声招呼。" not in origin_results
     assert "出发地的门被推开。" not in destination_results
-
-
-def test_llm_runtime_parses_structured_atomic_action():
-    runtime = LLMCharacterAgent(llm_config={})
-    decision = runtime._parse_decision(
-        '{"thought":"先确认","action":{"kind":"observe",'
-        '"detail":"查看窗外街道","target":"街道"}}'
-    )
-
-    assert decision.action == "查看窗外街道"
-    assert decision.action_spec == AgentAction(
-        kind="observe", detail="查看窗外街道", target="街道"
-    )
-
-
 def test_runner_advances_by_completion_events_instead_of_global_one_action_round():
     class FixedRuntime:
         def __init__(self, action):

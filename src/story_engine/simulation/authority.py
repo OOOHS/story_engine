@@ -31,53 +31,17 @@ class SemanticAuthorityFilter:
     )
     HOST_OWNED_MAP_FIELDS = ("contract_authorizations",)
     BRANCH_NAMES = ("success", "failure")
-    INTENSITY_SCALE = {
-        "minor": 0.25,
-        "moderate": 0.5,
-        "major": 0.75,
-        "extreme": 1.0,
-    }
-    DRIVE_SCALE = {
-        "minor": 0.05,
-        "moderate": 0.12,
-        "major": 0.25,
-        "extreme": 0.4,
-    }
-    # Governs newly-created needs (drive_creations), not existing-need
-    # updates. Same philosophy as DRIVE_SCALE: the resolver names a
-    # qualitative tier, the host owns what number that tier means.
-    DRIFT_SCALE = {
-        "none": 0.0,
-        "slow": 0.01,
-        "steady": 0.03,
-        "urgent": 0.08,
-    }
-    THRESHOLD_SCALE = {
-        "fragile": 0.6,
-        "normal": 0.8,
-        "durable": 0.95,
-    }
-    TENSION_SCALE = {
-        "none": 0.0,
-        "low": 0.025,
-        "medium": 0.06,
-        "high": 0.12,
-    }
-    # Governs how much a missed/breached obligation costs the debtor's
-    # pressure_need. Same philosophy as DRIVE_SCALE: the resolver names a
-    # qualitative severity tier when creating the obligation, the host owns
-    # what number that tier means -- it cannot tune the exact cost of its
-    # own deadline to the decimal.
-    OBLIGATION_DUE_SCALE = {
-        "light": 0.05,
-        "moderate": 0.12,
-        "severe": 0.22,
-    }
-    OBLIGATION_BREACH_SCALE = {
-        "light": 0.1,
-        "moderate": 0.2,
-        "severe": 0.35,
-    }
+    # The resolver names a magnitude directly. The host no longer maps a
+    # qualitative tier to a fixed number -- it only bounds the raw value so
+    # one battle cannot swing every track to its ceiling in a single tick.
+    # ``*_BOUNDS`` are (min, max) clamps, not a lookup of allowed values.
+    MAGNITUDE_BOUNDS = (0.0, 1.0)
+    DRIVE_DELTA_BOUNDS = (-0.4, 0.4)
+    DRIFT_BOUNDS = (0.0, 0.08)
+    THRESHOLD_BOUNDS = (0.5, 0.95)
+    TENSION_BOUNDS = (-0.15, 0.15)
+    OBLIGATION_DUE_BOUNDS = (0.0, 0.3)
+    OBLIGATION_BREACH_BOUNDS = (0.0, 0.4)
     # A hard, small ceiling so the GM cannot turn "one soft nudge" into a
     # directive stream across every actor in a single tick.
     MAX_DIRECTOR_SIGNALS_PER_TICK = 3
@@ -168,13 +132,13 @@ class SemanticAuthorityFilter:
         path: str,
         rejected: List[str],
     ) -> None:
-        self._compile_intensity_list(
+        self._compile_magnitude_list(
             container,
             field_name="social_impacts",
             path=path,
             rejected=rejected,
         )
-        self._compile_intensity_list(
+        self._compile_magnitude_list(
             container,
             field_name="modifier_updates",
             path=path,
@@ -186,12 +150,26 @@ class SemanticAuthorityFilter:
         self._compile_obligation_updates(container, path, rejected)
 
         raw_tension = container.get("tension_delta")
-        if raw_tension not in (None, 0, 0.0):
+        container["tension_delta"] = self._clamp(
+            raw_tension, *self.TENSION_BOUNDS, default=0.0
+        )
+        if raw_tension is not None and container["tension_delta"] != self._as_float(
+            raw_tension, 0.0
+        ):
             rejected.append(f"{path}.tension_delta")
-        conflict_level = str(container.get("conflict_level", "none")).strip().lower()
-        container["tension_delta"] = self.TENSION_SCALE.get(conflict_level, 0.0)
 
-    def _compile_intensity_list(
+    @staticmethod
+    def _as_float(value: Any, default: float) -> float:
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return default
+
+    def _clamp(self, value: Any, low: float, high: float, *, default: float) -> float:
+        magnitude = self._as_float(value, default)
+        return max(low, min(high, magnitude))
+
+    def _compile_magnitude_list(
         self,
         container: Dict[str, Any],
         *,
@@ -205,15 +183,11 @@ class SemanticAuthorityFilter:
         for index, update in enumerate(updates):
             if not isinstance(update, dict):
                 continue
-            raw_magnitude = update.pop("magnitude", None)
-            if raw_magnitude is not None:
+            raw_magnitude = update.get("magnitude")
+            clamped = self._clamp(raw_magnitude, *self.MAGNITUDE_BOUNDS, default=0.5)
+            if raw_magnitude is not None and self._as_float(raw_magnitude, 0.5) != clamped:
                 rejected.append(f"{path}.{field_name}[{index}].magnitude")
-            intensity = str(update.get("intensity", "moderate")).strip().lower()
-            if intensity not in self.INTENSITY_SCALE:
-                rejected.append(f"{path}.{field_name}[{index}].intensity")
-                intensity = "moderate"
-            update["intensity"] = intensity
-            update["magnitude"] = self.INTENSITY_SCALE[intensity]
+            update["magnitude"] = clamped
 
     def _compile_drive_updates(
         self,
@@ -227,26 +201,12 @@ class SemanticAuthorityFilter:
         for index, update in enumerate(updates):
             if not isinstance(update, dict):
                 continue
-            raw_delta = update.pop("delta", None)
-            direction = str(update.get("direction", "")).strip().lower()
-            if raw_delta is not None:
+            raw_delta = update.get("delta")
+            clamped = self._clamp(raw_delta, *self.DRIVE_DELTA_BOUNDS, default=0.0)
+            if raw_delta is not None and self._as_float(raw_delta, 0.0) != clamped:
                 rejected.append(f"{path}.drive_updates[{index}].delta")
-                if direction not in {"increase", "decrease"}:
-                    try:
-                        direction = "decrease" if float(raw_delta) < 0 else "increase"
-                    except (TypeError, ValueError):
-                        direction = "increase"
-            if direction not in {"increase", "decrease"}:
-                rejected.append(f"{path}.drive_updates[{index}].direction")
-                direction = "increase"
-            intensity = str(update.get("intensity", "moderate")).strip().lower()
-            if intensity not in self.DRIVE_SCALE:
-                rejected.append(f"{path}.drive_updates[{index}].intensity")
-                intensity = "moderate"
-            update["direction"] = direction
-            update["intensity"] = intensity
-            magnitude = self.DRIVE_SCALE[intensity]
-            update["delta"] = -magnitude if direction == "decrease" else magnitude
+            update["delta"] = clamped
+            update["direction"] = "decrease" if clamped < 0 else "increase"
 
     def _compile_drive_creations(
         self,
@@ -254,12 +214,12 @@ class SemanticAuthorityFilter:
         path: str,
         rejected: List[str],
     ) -> None:
-        """Shape drive_creations: a resolver may name a brand-new need and a
-        qualitative drift/threshold tier, but never its numbers, and never
-        its starting pressure -- created needs always start at 0.0. Budget
-        enforcement (whether the actor may create at all) happens later,
-        against real DriveState, in NeedDynamics.apply_creations; this pass
-        only owns the qualitative-to-numeric mapping.
+        """Shape drive_creations: a resolver may name a brand-new need and
+        give it a bounded drift/threshold, but never its starting pressure
+        -- created needs always start at 0.0. Budget enforcement (whether
+        the actor may create at all) happens later, against real
+        DriveState, in NeedDynamics.apply_creations; this pass only bounds
+        the numbers the resolver names.
         """
         creations = container.get("drive_creations")
         if not isinstance(creations, list):
@@ -267,26 +227,19 @@ class SemanticAuthorityFilter:
         for index, creation in enumerate(creations):
             if not isinstance(creation, dict):
                 continue
-            for raw_field in (
-                "pressure",
-                "initial_pressure",
-                "drift_per_turn",
-                "critical_threshold",
-            ):
+            for raw_field in ("pressure", "initial_pressure"):
                 if creation.pop(raw_field, None) is not None:
                     rejected.append(f"{path}.drive_creations[{index}].{raw_field}")
-            drift = str(creation.get("drift", "steady")).strip().lower()
-            if drift not in self.DRIFT_SCALE:
-                rejected.append(f"{path}.drive_creations[{index}].drift")
-                drift = "steady"
-            threshold = str(creation.get("threshold", "normal")).strip().lower()
-            if threshold not in self.THRESHOLD_SCALE:
-                rejected.append(f"{path}.drive_creations[{index}].threshold")
-                threshold = "normal"
-            creation["drift"] = drift
-            creation["threshold"] = threshold
-            creation["drift_per_turn"] = self.DRIFT_SCALE[drift]
-            creation["critical_threshold"] = self.THRESHOLD_SCALE[threshold]
+            raw_drift = creation.get("drift_per_turn")
+            drift = self._clamp(raw_drift, *self.DRIFT_BOUNDS, default=0.03)
+            if raw_drift is not None and self._as_float(raw_drift, 0.03) != drift:
+                rejected.append(f"{path}.drive_creations[{index}].drift_per_turn")
+            raw_threshold = creation.get("critical_threshold")
+            threshold = self._clamp(raw_threshold, *self.THRESHOLD_BOUNDS, default=0.8)
+            if raw_threshold is not None and self._as_float(raw_threshold, 0.8) != threshold:
+                rejected.append(f"{path}.drive_creations[{index}].critical_threshold")
+            creation["drift_per_turn"] = drift
+            creation["critical_threshold"] = threshold
 
     def _compile_obligation_updates(
         self,
@@ -294,13 +247,13 @@ class SemanticAuthorityFilter:
         path: str,
         rejected: List[str],
     ) -> None:
-        """Shape obligation_updates.create: a resolver may name a qualitative
-        severity tier for the due/breach pressure cost, but never the raw
-        float. Everything else about the operation (due_step, grace_steps,
+        """Shape obligation_updates.create: a resolver may name the due and
+        breach pressure cost directly, bounded to a sane range. Everything
+        else about the operation (due_step, grace_steps,
         completion_conditions, ...) is a scheduling/eligibility fact the
         resolver already states directly and ObligationDynamics validates
-        against real world state -- only the two cost fields are numeric
-        magnitudes a resolver could otherwise use to fine-tune severity.
+        against real world state. The one invariant this pass still owns:
+        missing a deadline must never cost less than merely having one.
         """
         updates = container.get("obligation_updates")
         if not isinstance(updates, list):
@@ -312,31 +265,23 @@ class SemanticAuthorityFilter:
                 continue
             prefix = f"{path}.obligation_updates[{index}]"
 
-            raw_due = update.pop("due_pressure_delta", None)
-            if raw_due is not None:
+            raw_due = update.get("due_pressure_delta")
+            due_delta = self._clamp(raw_due, *self.OBLIGATION_DUE_BOUNDS, default=0.12)
+            if raw_due is not None and self._as_float(raw_due, 0.12) != due_delta:
                 rejected.append(f"{prefix}.due_pressure_delta")
-            due_severity = str(
-                update.get("due_pressure_severity", "moderate")
-            ).strip().lower()
-            if due_severity not in self.OBLIGATION_DUE_SCALE:
-                rejected.append(f"{prefix}.due_pressure_severity")
-                due_severity = "moderate"
-            update["due_pressure_severity"] = due_severity
-            update["due_pressure_delta"] = self.OBLIGATION_DUE_SCALE[due_severity]
 
-            raw_breach = update.pop("breach_pressure_delta", None)
-            if raw_breach is not None:
+            raw_breach = update.get("breach_pressure_delta")
+            breach_delta = self._clamp(
+                raw_breach, *self.OBLIGATION_BREACH_BOUNDS, default=0.2
+            )
+            if raw_breach is not None and self._as_float(raw_breach, 0.2) != breach_delta:
                 rejected.append(f"{prefix}.breach_pressure_delta")
-            breach_severity = str(
-                update.get("breach_pressure_severity", "moderate")
-            ).strip().lower()
-            if breach_severity not in self.OBLIGATION_BREACH_SCALE:
-                rejected.append(f"{prefix}.breach_pressure_severity")
-                breach_severity = "moderate"
-            update["breach_pressure_severity"] = breach_severity
-            update["breach_pressure_delta"] = self.OBLIGATION_BREACH_SCALE[
-                breach_severity
-            ]
+            if breach_delta < due_delta:
+                rejected.append(f"{prefix}.breach_pressure_delta:below_due_cost")
+                breach_delta = due_delta
+
+            update["due_pressure_delta"] = due_delta
+            update["breach_pressure_delta"] = breach_delta
 
     def _compile_director_signals(
         self,

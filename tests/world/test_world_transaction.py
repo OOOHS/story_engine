@@ -42,7 +42,7 @@ def _state_bundle():
     return scene, plots, drama
 
 
-def test_world_transaction_commits_scene_plot_and_drama_together():
+def test_world_transaction_commits_scene_and_drama_together():
     scene, plots, drama = _state_bundle()
     result = {
         "state_updates": {
@@ -50,7 +50,6 @@ def test_world_transaction_commits_scene_plot_and_drama_together():
             "world_objects": {"大厅": {"lighting": "dark"}},
             "actor_states": {"甲": {"location": "走廊"}},
         },
-        "plot_updates": [{"plot_id": "storm", "advance": 1, "stage_shift": 0}],
         "tension_delta": 0.2,
     }
 
@@ -61,7 +60,6 @@ def test_world_transaction_commits_scene_plot_and_drama_together():
     assert scene.get_actor_state("甲")["location"] == "走廊"
     assert scene.get_actor_state("甲")["sub_location"] == "middle"
     assert scene.get_object_state("大厅")["lighting"] == "dark"
-    assert plots.plots["storm"]["clock"] == 1
     assert drama.tension == pytest.approx(0.6)
 
 
@@ -125,17 +123,15 @@ def test_object_affordance_policy_tags_use_finite_host_catalog():
     ]
 
 
-def test_invalid_actor_update_rolls_back_scene_plot_and_drama():
+def test_invalid_actor_update_rolls_back_scene_and_drama():
     scene, plots, drama = _state_bundle()
     before_scene = deepcopy(scene.get_snapshot())
-    before_plot = deepcopy(plots.get_snapshot())
     result = {
         "state_updates": {
             "scene": {"description": "不应提交"},
             "world_objects": {},
             "actor_states": {"不存在的人": {"location": "走廊"}},
         },
-        "plot_updates": [{"plot_id": "storm", "advance": 2}],
         "tension_delta": 0.4,
     }
 
@@ -144,7 +140,6 @@ def test_invalid_actor_update_rolls_back_scene_plot_and_drama():
     assert outcome.committed is False
     assert any("unknown actor" in error for error in outcome.errors)
     assert scene.get_snapshot() == before_scene
-    assert plots.get_snapshot() == before_plot
     assert drama.tension == 0.4
 
 
@@ -271,7 +266,7 @@ def test_semantic_state_update_cannot_rewrite_scene_visibility_schema():
     assert scene.get_snapshot() == before
 
 
-def test_unknown_update_section_and_unknown_plot_are_rejected():
+def test_unknown_update_section_is_rejected():
     scene, plots, drama = _state_bundle()
     outcome = WorldStateTransaction().commit(
         scene,
@@ -284,14 +279,55 @@ def test_unknown_update_section_and_unknown_plot_are_rejected():
                 "actor_states": {},
                 "invented_section": {"x": 1},
             },
-            "plot_updates": [{"plot_id": "invented_plot", "advance": 1}],
             "tension_delta": 0,
         },
     )
 
     assert outcome.committed is False
     assert any("unknown state_update sections" in error for error in outcome.errors)
-    assert any("unknown plot" in error for error in outcome.errors)
+
+
+def test_plot_updates_are_no_longer_committed_or_validated_here():
+    """Plot clocks are settled after commit, from real state, by
+    ``CausalPlotEngine.settle`` -- ``commit`` no longer stages, validates,
+    or applies ``plot_updates`` at all, so an unknown plot id here is
+    silently inert rather than rejecting the batch."""
+    scene, plots, drama = _state_bundle()
+    outcome = WorldStateTransaction().commit(
+        scene,
+        plots,
+        drama,
+        {
+            "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
+            "plot_updates": [{"plot_id": "invented_plot", "advance": 1}],
+            "tension_delta": 0,
+        },
+    )
+
+    assert outcome.committed is True
+    assert "invented_plot" not in plots.plots
+    assert plots.plots["storm"]["clock"] == 0
+
+
+def test_consumed_plot_rules_flag_is_engine_managed():
+    scene, plots, drama = _state_bundle()
+    outcome = WorldStateTransaction().commit(
+        scene,
+        plots,
+        drama,
+        {
+            "state_updates": {
+                "scene": {"consumed_plot_rules": ["forged_rule"]},
+                "world_objects": {},
+                "actor_states": {},
+            },
+            "tension_delta": 0,
+        },
+    )
+
+    assert outcome.committed is False
+    assert any("engine-managed flags" in error for error in outcome.errors)
+    assert scene.get_scene_flag("consumed_plot_rules") is None
 
 
 def test_rejected_result_is_sanitized_before_rendering_or_followup_updates():
@@ -334,7 +370,6 @@ def test_relationship_changes_commit_with_scene_plot_and_drama():
             "world_objects": {},
             "actor_states": {},
         },
-        "plot_updates": [{"plot_id": "storm", "advance": 1}],
         "relationship_updates": [
             {
                 "source": "甲",
@@ -357,7 +392,6 @@ def test_relationship_changes_commit_with_scene_plot_and_drama():
 
     assert outcome.committed is True
     assert scene.description == "承诺兑现后的大厅"
-    assert plots.plots["storm"]["clock"] == 1
     assert drama.tension == pytest.approx(0.3)
     assert relationships.get_metrics("甲", "乙")["trust"] == 3
     assert "trust_乙" not in scene.get_actor_state("甲")

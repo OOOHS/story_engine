@@ -13,27 +13,6 @@ from src.story_engine.evaluation.closure import (
 
 
 @dataclass(frozen=True)
-class PolicyDecisionAudit:
-    actor: str
-    mode: str
-    selected_source: str = ""
-    selected_action_kind: str = ""
-    runtime_candidate_count: int = 0
-    environment_candidate_count: int = 0
-    runtime_action_kind_count: int = 0
-    runtime_target_count: int = 0
-    attention_motive_available_count: int = 0
-    urgent_attention_motive_available_count: int = 0
-    validated_motive_ref_count: int = 0
-    rejected_motive_ref_count: int = 0
-    validated_event_motive_ref_count: int = 0
-    selected_validated_motive_ref_count: int = 0
-    selected_event_motive_ref_count: int = 0
-    continuity_supported: bool = False
-    motivated: bool = False
-
-
-@dataclass(frozen=True)
 class EpisodeStepTrace:
     index: int
     simulation_time_before: int
@@ -58,11 +37,11 @@ class EpisodeStepTrace:
     causal_handoffs: tuple[str, ...] = ()
     causal_rule_ids: tuple[str, ...] = ()
     goal_engaged_actors: tuple[str, ...] = ()
-    sampled_policy_actors: tuple[str, ...] = ()
+    deciding_actors: tuple[str, ...] = ()
     goal_continuation_actors: tuple[str, ...] = ()
     goal_reactivation_actors: tuple[str, ...] = ()
-    policy_selections: tuple[tuple[str, str], ...] = ()
-    policy_audits: tuple[PolicyDecisionAudit, ...] = ()
+    stated_motives: tuple[tuple[str, str, str], ...] = ()
+    rejected_motive_refs: tuple[tuple[str, str, str], ...] = ()
     actor_actions: tuple[tuple[str, str, str], ...] = ()
     changed_subjects: tuple[str, ...] = ()
     closure_eligible: bool = False
@@ -161,11 +140,15 @@ class EpisodeRunner:
             irreversible_changes = self._irreversible_changes(before, after)
             causal_handoffs = self._causal_handoffs(before, after)
             causal_handoffs.extend(
-                self._policy_causal_handoffs(context, actions)
+                self._motive_causal_handoffs(context, actions)
             )
             causal_handoffs = sorted(dict.fromkeys(causal_handoffs))
             goal_engaged_actors = self._goal_engaged_actors(context)
-            sampled_policy_actors = self._sampled_policy_actors(context)
+            deciding_actors = sorted(
+                str(actor)
+                for actor in (context.get("policy_traces", {}) or {})
+                if str(actor).strip()
+            )
             goal_continuation_actors = sorted(
                 str(actor)
                 for actor, activation in (
@@ -228,22 +211,11 @@ class EpisodeRunner:
                         if str(rule_id).strip()
                     ),
                     goal_engaged_actors=tuple(goal_engaged_actors),
-                    sampled_policy_actors=tuple(sampled_policy_actors),
+                    deciding_actors=tuple(deciding_actors),
                     goal_continuation_actors=tuple(goal_continuation_actors),
                     goal_reactivation_actors=tuple(goal_reactivation_actors),
-                    policy_selections=tuple(
-                        sorted(
-                            (
-                                str(actor),
-                                str(trace.get("selected_candidate_id", "")),
-                            )
-                            for actor, trace in (
-                                context.get("policy_traces", {}) or {}
-                            ).items()
-                            if isinstance(trace, dict)
-                        )
-                    ),
-                    policy_audits=tuple(self._policy_audits(context)),
+                    stated_motives=tuple(self._stated_motives(context)),
+                    rejected_motive_refs=tuple(self._rejected_motive_refs(context)),
                     actor_actions=tuple(
                         (
                             str(item.get("actor", "")),
@@ -528,37 +500,11 @@ class EpisodeRunner:
             for item in causal_handoffs
         ) < len(world_event_creations):
             flags.append("unattributed_world_event")
-        sampled_policy_steps = sum(
-            bool(trace.sampled_policy_actors) for trace in traces
-        )
-        policy_audits = [
-            audit for trace in traces for audit in trace.policy_audits
-        ]
-        sampled_policy_audits = [
-            audit for audit in policy_audits if audit.mode == "host_sampled"
-        ]
-        runtime_candidate_counts = [
-            audit.runtime_candidate_count for audit in sampled_policy_audits
-        ]
-        attention_motive_opportunity_audits = [
-            audit
-            for audit in sampled_policy_audits
-            if audit.attention_motive_available_count > 0
-        ]
-        urgent_attention_motive_opportunity_audits = [
-            audit
-            for audit in sampled_policy_audits
-            if audit.urgent_attention_motive_available_count > 0
-        ]
-        event_motive_reference_audits = [
-            audit
-            for audit in sampled_policy_audits
-            if audit.validated_event_motive_ref_count > 0
-        ]
-        selected_event_motive_audits = [
-            audit
-            for audit in sampled_policy_audits
-            if audit.selected_event_motive_ref_count > 0
+        decision_steps = sum(bool(trace.deciding_actors) for trace in traces)
+        decision_count = sum(len(trace.deciding_actors) for trace in traces)
+        stated_motives = [item for trace in traces for item in trace.stated_motives]
+        rejected_motive_refs = [
+            item for trace in traces for item in trace.rejected_motive_refs
         ]
         return EpisodeReport(
             random_seed=session.random_seed,
@@ -617,8 +563,8 @@ class EpisodeRunner:
                 "causal_transition_steps": causal_transition_steps,
                 "causal_handoff_steps": causal_handoff_steps,
                 "causal_handoff_count": len(causal_handoffs),
-                "policy_motive_handoff_count": len(policy_motive_handoffs),
-                "policy_motivated_action_count": len({
+                "motive_handoff_count": len(policy_motive_handoffs),
+                "motivated_action_count": len({
                     item.split("<-", 1)[0]
                     for item in policy_motive_handoffs
                 }),
@@ -667,93 +613,22 @@ class EpisodeRunner:
                     "max_repeated_policy_action_count"
                 ],
                 "goal_reactivation_count": final["goal_reactivation_count"],
-                "sampled_policy_steps": sampled_policy_steps,
-                "policy_decision_count": len(policy_audits),
-                "sampled_policy_decision_count": len(sampled_policy_audits),
-                "runtime_candidate_count": sum(runtime_candidate_counts),
-                "minimum_runtime_candidate_count": (
-                    min(runtime_candidate_counts)
-                    if runtime_candidate_counts
-                    else None
-                ),
-                "maximum_runtime_candidate_count": (
-                    max(runtime_candidate_counts)
-                    if runtime_candidate_counts
-                    else None
-                ),
-                "mean_runtime_candidate_count": (
-                    round(
-                        sum(runtime_candidate_counts)
-                        / len(runtime_candidate_counts),
-                        6,
-                    )
-                    if runtime_candidate_counts
-                    else None
-                ),
-                "selected_runtime_candidate_count": sum(
-                    audit.selected_source == "runtime"
-                    for audit in sampled_policy_audits
-                ),
-                "continuity_supported_selection_count": sum(
-                    audit.continuity_supported for audit in sampled_policy_audits
-                ),
-                "motivated_selection_count": sum(
-                    audit.motivated for audit in sampled_policy_audits
-                ),
-                "attention_motive_available_decision_count": len(
-                    attention_motive_opportunity_audits
-                ),
-                "urgent_attention_motive_available_decision_count": len(
-                    urgent_attention_motive_opportunity_audits
-                ),
-                "validated_candidate_motive_ref_count": sum(
-                    audit.validated_motive_ref_count
-                    for audit in sampled_policy_audits
-                ),
-                "rejected_candidate_motive_ref_count": sum(
-                    audit.rejected_motive_ref_count
-                    for audit in sampled_policy_audits
-                ),
-                "validated_event_motive_ref_count": sum(
-                    audit.validated_event_motive_ref_count
-                    for audit in sampled_policy_audits
-                ),
-                "selected_candidate_motive_ref_count": sum(
-                    audit.selected_validated_motive_ref_count
-                    for audit in sampled_policy_audits
-                ),
-                "selected_event_motive_ref_count": sum(
-                    audit.selected_event_motive_ref_count
-                    for audit in sampled_policy_audits
-                ),
-                "event_motive_reference_decision_count": len(
-                    event_motive_reference_audits
-                ),
-                "event_motive_selected_decision_count": len(
-                    selected_event_motive_audits
-                ),
-                "event_motive_reference_rate": (
-                    round(
-                        len(event_motive_reference_audits)
-                        / len(attention_motive_opportunity_audits),
-                        6,
-                    )
-                    if attention_motive_opportunity_audits
-                    else None
-                ),
-                "event_motive_selection_rate": (
-                    round(
-                        len(selected_event_motive_audits)
-                        / len(attention_motive_opportunity_audits),
-                        6,
-                    )
-                    if attention_motive_opportunity_audits
+                "decision_steps": decision_steps,
+                "decision_count": decision_count,
+                "stated_motive_count": len(stated_motives),
+                # A character citing a goal, obligation, sentiment or need she
+                # does not hold. Nonzero means an agent is narrating reasons it
+                # cannot back, which is a credibility signal, not a crash.
+                "rejected_motive_ref_count": len(rejected_motive_refs),
+                "stated_motive_decision_rate": (
+                    round(len(stated_motives) / decision_count, 6)
+                    if decision_count
                     else None
                 ),
                 "goal_engagement_rate": round(
-                    goal_engagement_steps / sampled_policy_steps, 6
+                    goal_engagement_steps / decision_steps, 6
                 )
-                if sampled_policy_steps
+                if decision_steps
                 else None,
                 "actor_differentiation": round(actor_differentiation, 6),
                 "commitment_resolution_count": commitment_resolutions,
@@ -1912,14 +1787,16 @@ class EpisodeRunner:
         }
 
     @staticmethod
-    def _policy_causal_handoffs(
+    def _motive_causal_handoffs(
         context: Dict[str, Any], actions: List[Dict[str, Any]]
     ) -> List[str]:
-        """Connect committed selected actions to Host-scored private motives.
+        """Connect a committed action to the reason its character gave for it.
 
-        These edges use the selected candidate's actual policy trace. They do
-        not infer motives from action prose and do not claim that a negative
-        utility term caused an action to be selected.
+        The Host does not choose her action, so it cannot reconstruct why she
+        acted; only she can say. These edges therefore come from her own stated
+        ``motive_refs``, already checked by InputSystem against the goals,
+        obligations, sentiments and needs she actually holds -- an unheld
+        reference never reaches here. Nothing is inferred from action prose.
         """
 
         transaction = context.get("state_transaction", {})
@@ -1934,321 +1811,65 @@ class EpisodeRunner:
             and str(action.get("actor", "")).strip()
             and str(action.get("actor", "")).strip() != "World"
         }
+        completed = context.get("completed_action_motive_refs", {}) or {}
+        if completed:
+            stated = {
+                actor: payload.get("motive_refs")
+                for actor, payload in completed.items()
+                if isinstance(payload, dict)
+            }
+        else:
+            stated = dict(context.get("agent_motive_refs", {}) or {})
         edges: List[str] = []
-        completed_traces = context.get("completed_action_policy_traces", {}) or {}
-        trace_items = (
-            (
-                actor,
-                payload.get("trace") if isinstance(payload, dict) else None,
-            )
-            for actor, payload in completed_traces.items()
-        ) if completed_traces else (
-            (actor, trace)
-            for actor, trace in (context.get("policy_traces", {}) or {}).items()
-        )
-        for actor, trace in trace_items:
+        for actor, refs in stated.items():
             actor = str(actor).strip()
-            if (
-                not actor
-                or actor not in resolved_actors
-                or not isinstance(trace, dict)
-                or trace.get("mode") != "host_sampled"
-            ):
-                continue
-            selected_id = str(trace.get("selected_candidate_id", "")).strip()
-            selected = next(
-                (
-                    item
-                    for item in trace.get("candidates", [])
-                    if isinstance(item, dict)
-                    and str(item.get("candidate_id", "")).strip() == selected_id
-                ),
-                None,
-            )
-            if selected is None:
+            if not actor or actor not in resolved_actors or not isinstance(refs, list):
                 continue
             action_node = f"resolved_action:step:{current_step}:actor:{actor}"
-            for goal_id, contribution in (
-                selected.get("goal_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(goal_id).strip():
-                    edges.append(
-                        f"{action_node}<-goal:{actor}:{str(goal_id).strip()}"
-                    )
-            for sentiment_id, contribution in (
-                selected.get("sentiment_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(sentiment_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-sentiment:{actor}:{str(sentiment_id).strip()}"
-                    )
-            for obligation_id, contribution in (
-                selected.get("obligation_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(obligation_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-obligation:{actor}:{str(obligation_id).strip()}"
-                    )
-            for problem_id, contribution in (
-                selected.get("navigation_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(problem_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-navigation_problem:{actor}:"
-                        f"{str(problem_id).strip()}"
-                    )
-            for event_id, contribution in (
-                selected.get("action_failure_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(event_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-action_failure:{actor}:{str(event_id).strip()}"
-                    )
-            for claim_id, contribution in (
-                selected.get("knowledge_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(claim_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-claim_knowledge:{actor}:{str(claim_id).strip()}"
-                    )
-            for agreement_id, contribution in (
-                selected.get("agreement_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(agreement_id).strip():
-                    edges.append(
-                        f"{action_node}<-agreement:{str(agreement_id).strip()}"
-                    )
-            for event_id, contribution in (
-                selected.get("world_event_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(event_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-world_event:{actor}:{str(event_id).strip()}"
-                    )
-            for response_id, contribution in (
-                selected.get("event_response_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(response_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-event_response:{actor}:{str(response_id).strip()}"
-                    )
-            for modifier_id, contribution in (
-                selected.get("modifier_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(modifier_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-modifier:{actor}:{str(modifier_id).strip()}"
-                    )
-            for need_id, contribution in (
-                selected.get("relief_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(need_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-drive_need:{actor}:{str(need_id).strip()}"
-                    )
-            for commitment_id, contribution in (
-                selected.get("schedule_contributions", {}) or {}
-            ).items():
-                if float(contribution or 0.0) > 0 and str(commitment_id).strip():
-                    edges.append(
-                        f"{action_node}"
-                        f"<-timeline_commitment:{str(commitment_id).strip()}"
-                    )
-            target = str(
-                (selected.get("action", {}) or {}).get("target", "")
-            ).strip()
-            if target:
-                for track_id, contribution in (
-                    selected.get("relationship_contributions", {}) or {}
-                ).items():
-                    if float(contribution or 0.0) > 0 and str(track_id).strip():
-                        edges.append(
-                            f"{action_node}"
-                            f"<-relationship_track:{actor}->{target}:"
-                            f"{str(track_id).strip()}"
-                        )
+            for item in refs:
+                if not isinstance(item, dict):
+                    continue
+                kind = str(item.get("kind", "")).strip()
+                ref = str(item.get("ref", "")).strip()
+                if kind and ref:
+                    edges.append(f"{action_node}<-{kind}:{actor}:{ref}")
         return sorted(dict.fromkeys(edges))
 
     @staticmethod
     def _goal_engaged_actors(context: Dict[str, Any]) -> List[str]:
-        actors = []
-        for actor, trace in (context.get("policy_traces", {}) or {}).items():
-            if not isinstance(trace, dict) or trace.get("mode") != "host_sampled":
-                continue
-            selected = str(trace.get("selected_candidate_id", ""))
-            candidate = next(
-                (
-                    item
-                    for item in trace.get("candidates", [])
-                    if isinstance(item, dict)
-                    and str(item.get("candidate_id", "")) == selected
-                ),
-                None,
-            )
-            if candidate and float(candidate.get("goal_contribution", 0.0) or 0.0) > 0:
-                actors.append(str(actor))
-        return sorted(set(actors))
-
-    @staticmethod
-    def _sampled_policy_actors(context: Dict[str, Any]) -> List[str]:
-        return sorted(
+        """Characters who said this turn's action was for one of their goals."""
+        return sorted({
             str(actor)
-            for actor, trace in (context.get("policy_traces", {}) or {}).items()
-            if isinstance(trace, dict) and trace.get("mode") == "host_sampled"
-        )
+            for actor, refs in (context.get("agent_motive_refs", {}) or {}).items()
+            if isinstance(refs, list)
+            and any(
+                isinstance(item, dict) and str(item.get("kind", "")).strip() == "goal"
+                for item in refs
+            )
+            and str(actor).strip()
+        })
 
     @staticmethod
-    def _policy_audits(context: Dict[str, Any]) -> List[PolicyDecisionAudit]:
-        audits = []
-        scalar_motives = (
-            "trait_contribution",
-            "risk_contribution",
-            "relief_contribution",
-            "relationship_contribution",
-            "obligation_contribution",
-            "navigation_contribution",
-            "action_failure_contribution",
-            "goal_contribution",
-            "sentiment_contribution",
-            "modifier_contribution",
-            "knowledge_contribution",
-            "agreement_contribution",
-            "world_event_contribution",
-            "event_response_contribution",
-            "schedule_contribution",
-        )
-        mapped_motives = (
-            "trait_contributions",
-            "relief_contributions",
-            "relationship_contributions",
-            "obligation_contributions",
-            "navigation_contributions",
-            "action_failure_contributions",
-            "goal_contributions",
-            "sentiment_contributions",
-            "modifier_contributions",
-            "knowledge_contributions",
-            "agreement_contributions",
-            "world_event_contributions",
-            "event_response_contributions",
-            "schedule_contributions",
-        )
-        for actor, trace in sorted(
-            (context.get("policy_traces", {}) or {}).items(),
-            key=lambda item: str(item[0]),
-        ):
-            if not isinstance(trace, dict):
-                continue
-            candidates = [
-                item
-                for item in trace.get("candidates", []) or []
-                if isinstance(item, dict)
-            ]
-            runtime_candidates = [
-                item for item in candidates if item.get("source") == "runtime"
-            ]
-            environment_candidates = [
-                item for item in candidates if item.get("source") == "environment"
-            ]
-            selected_id = str(trace.get("selected_candidate_id", ""))
-            selected = next(
-                (
-                    item
-                    for item in candidates
-                    if str(item.get("candidate_id", "")) == selected_id
-                ),
-                {},
+    def _stated_motives(context: Dict[str, Any]) -> List[tuple[str, str, str]]:
+        return sorted({
+            (str(actor), str(item.get("kind", "")), str(item.get("ref", "")))
+            for actor, refs in (context.get("agent_motive_refs", {}) or {}).items()
+            for item in (refs if isinstance(refs, list) else [])
+            if isinstance(item, dict) and str(actor).strip()
+        })
+
+    @staticmethod
+    def _rejected_motive_refs(context: Dict[str, Any]) -> List[tuple[str, str, str]]:
+        """Reasons a character gave that she could not actually back."""
+        return sorted({
+            (
+                str(item.get("actor", "")),
+                str(item.get("kind", "")),
+                str(item.get("ref", "")),
             )
-            selected_action = selected.get("action", {}) or {}
-            validated_refs = [
-                ref
-                for candidate in candidates
-                for ref in candidate.get("validated_motive_refs", []) or []
-                if isinstance(ref, dict)
-            ]
-            rejected_refs = [
-                ref
-                for candidate in candidates
-                for ref in candidate.get("rejected_motive_refs", []) or []
-                if isinstance(ref, dict)
-            ]
-            selected_validated_refs = [
-                ref
-                for ref in selected.get("validated_motive_refs", []) or []
-                if isinstance(ref, dict)
-            ]
-            motivated = any(
-                float(selected.get(key, 0.0) or 0.0) > 0
-                for key in scalar_motives
-            ) or any(
-                any(float(value or 0.0) > 0 for value in values.values())
-                for key in mapped_motives
-                if isinstance((values := selected.get(key, {})), dict)
-            )
-            runtime_actions = [
-                item.get("action", {}) or {} for item in runtime_candidates
-            ]
-            audits.append(PolicyDecisionAudit(
-                actor=str(actor),
-                mode=str(trace.get("mode", "")),
-                selected_source=str(selected.get("source", "")),
-                selected_action_kind=str(selected_action.get("kind", "")),
-                runtime_candidate_count=len(runtime_candidates),
-                environment_candidate_count=len(environment_candidates),
-                runtime_action_kind_count=len({
-                    str(action.get("kind", "")).casefold()
-                    for action in runtime_actions
-                    if str(action.get("kind", "")).strip()
-                }),
-                runtime_target_count=len({
-                    str(action.get("target", "")).strip().casefold()
-                    for action in runtime_actions
-                    if str(action.get("target", "")).strip()
-                }),
-                attention_motive_available_count=max(
-                    0,
-                    int(
-                        trace.get("attention_motive_available_count", 0)
-                        or 0
-                    ),
-                ),
-                urgent_attention_motive_available_count=max(
-                    0,
-                    int(
-                        trace.get(
-                            "urgent_attention_motive_available_count", 0
-                        ) or 0
-                    ),
-                ),
-                validated_motive_ref_count=len(validated_refs),
-                rejected_motive_ref_count=len(rejected_refs),
-                validated_event_motive_ref_count=sum(
-                    ref.get("kind") in {"world_event", "event_response"}
-                    for ref in validated_refs
-                ),
-                selected_validated_motive_ref_count=len(
-                    selected_validated_refs
-                ),
-                selected_event_motive_ref_count=sum(
-                    ref.get("kind") in {"world_event", "event_response"}
-                    for ref in selected_validated_refs
-                ),
-                continuity_supported=(
-                    float(selected.get("continuity_contribution", 0.0) or 0.0)
-                    > 0
-                ),
-                motivated=motivated,
-            ))
-        return audits
+            for item in (context.get("agent_motive_ref_rejections", []) or [])
+            if isinstance(item, dict)
+        })
 
     @staticmethod
     def _changed_subjects(context: Dict[str, Any]) -> List[str]:

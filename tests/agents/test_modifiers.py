@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 from src.story_engine.agents.actions import AgentAction
-from src.story_engine.agents.policy import CharacterPolicy
 from src.story_engine.components.modifier_state import ModifierState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
@@ -77,7 +76,6 @@ def test_modifier_state_uses_host_stacking_and_deterministic_expiry():
         duration_steps=definition.duration_steps,
         stacking=definition.stacking,
         max_stacks=definition.max_stacks,
-        policy_weights=definition.policy_weights,
         reason="第一次透支",
     )
     second = state.apply(
@@ -88,7 +86,6 @@ def test_modifier_state_uses_host_stacking_and_deterministic_expiry():
         duration_steps=definition.duration_steps,
         stacking=definition.stacking,
         max_stacks=definition.max_stacks,
-        policy_weights=definition.policy_weights,
         reason="再次透支",
     )
 
@@ -101,7 +98,7 @@ def test_modifier_state_uses_host_stacking_and_deterministic_expiry():
     assert state.modifiers == {}
 
 
-def test_agent_snapshot_exposes_condition_but_not_policy_weights():
+def test_agent_snapshot_exposes_condition_without_host_bookkeeping():
     state = ModifierState()
     definition = MODIFIER_DEFINITIONS["focused"]
     state.apply(
@@ -112,7 +109,6 @@ def test_agent_snapshot_exposes_condition_but_not_policy_weights():
         duration_steps=definition.duration_steps,
         stacking=definition.stacking,
         max_stacks=definition.max_stacks,
-        policy_weights=definition.policy_weights,
         reason="主动排除干扰",
         source="甲",
     )
@@ -121,7 +117,7 @@ def test_agent_snapshot_exposes_condition_but_not_policy_weights():
 
     assert record["kind"] == "focused"
     assert record["intensity"] == 0.6
-    assert "policy_weights" not in record
+    assert "provenance" not in record
 
 
 def test_modifier_updates_require_committed_action_evidence_and_known_kind():
@@ -151,7 +147,7 @@ def test_modifier_updates_require_committed_action_evidence_and_known_kind():
     assert any("lacks a committed source action" in error for error in errors)
 
 
-def test_gm_cannot_choose_duration_stacks_or_policy_weights():
+def test_gm_cannot_choose_duration_or_stacks():
     entities = _entities()
     dynamics = ModifierDynamics()
     states = {
@@ -165,11 +161,7 @@ def test_gm_cannot_choose_duration_stacks_or_policy_weights():
         result={
             "resolved_actions": [_action("甲")],
             "modifier_updates": [
-                _update(
-                    duration_steps=999,
-                    stacks=8,
-                    policy_weights={"risk": 99},
-                )
+                _update(duration_steps=999, stacks=8)
             ],
         },
         current_step=1,
@@ -178,7 +170,7 @@ def test_gm_cannot_choose_duration_stacks_or_policy_weights():
     assert applied == []
     assert errors == [
         "modifier_updates[0] contains host-owned fields: "
-        "duration_steps, policy_weights, stacks"
+        "duration_steps, stacks"
     ]
 
 
@@ -292,51 +284,6 @@ def test_visible_modifier_ignores_model_source_event_and_uses_committed_action()
     record = entities["乙"].get_component("ModifierState").modifiers["inspired"]
     assert record.source_event == "resolved_action:step:3:actor:甲"
     assert record.provenance["source_ref"] == "step:3:actor:甲"
-
-
-def test_modifier_contribution_is_host_owned_and_enters_policy_utility():
-    entity = create_agent(
-        name="甲",
-        role="旅人",
-        personality="谨慎",
-        goals=[],
-        agent_runtime="llm",
-    )
-    state = entity.get_component("ModifierState")
-    definition = MODIFIER_DEFINITIONS["exhausted"]
-    state.apply(
-        kind=definition.kind,
-        description=definition.description,
-        magnitude=1.0,
-        current_step=0,
-        duration_steps=definition.duration_steps,
-        stacking=definition.stacking,
-        max_stacks=definition.max_stacks,
-        policy_weights=definition.policy_weights,
-        reason="长时间奔跑",
-    )
-    policy = CharacterPolicy()
-    rest = policy._candidate(
-        "rest",
-        AgentAction("wait", "停下来休息。"),
-        "runtime",
-        base_utility=0,
-    )
-    risk = policy._candidate(
-        "risk",
-        AgentAction("interact", "冒险强行闯过去。"),
-        "runtime",
-        base_utility=0,
-    )
-
-    rest_score, rest_parts = policy._modifier_score(entity, rest)
-    risk_score, _ = policy._modifier_score(entity, risk)
-
-    assert rest_score > 0
-    assert rest_parts["exhausted"] == rest_score
-    assert risk_score < 0
-
-
 def test_modifier_updates_are_private_and_removed_from_render_payload():
     visible = RenderingSystem()._build_visible_simulation(
         {

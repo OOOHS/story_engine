@@ -850,8 +850,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="尊严与归属", pressure=0.68, drift_per_turn=0.04, description="持续被当作外人会推动她争取位置或退出羞辱场面"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="observant", intensity=0.8, policy_weights={"information": 1.0, "cautious": 0.35}),
-                TraitConfig(trait_id="proud", intensity=0.75, policy_weights={"confront": 0.45, "retreat": -0.35}),
+                TraitConfig(trait_id="observant", intensity=0.8),
+                TraitConfig(trait_id="proud", intensity=0.75),
             ],
             risk_tolerance=0.5,
             initial_obligations=[
@@ -898,8 +898,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="位置安全", pressure=0.78, drift_per_turn=0.05, critical_threshold=0.85, description="林见微被接纳得越多，她越迫切地维护自己的家庭中心位置"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="calculating", intensity=0.9, policy_weights={"deception": 1.0, "information": 0.35, "confront": -0.25}),
-                TraitConfig(trait_id="status_anxious", intensity=0.8, policy_weights={"social": 0.35, "retreat": -0.3}),
+                TraitConfig(trait_id="calculating", intensity=0.9),
+                TraitConfig(trait_id="status_anxious", intensity=0.8),
             ],
             risk_tolerance=0.66,
             is_player=False,
@@ -925,8 +925,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="秩序控制", pressure=0.65, drift_per_turn=0.03, description="公开争执和不服从会推动他迅速定调和压制场面"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="authoritarian", intensity=0.8, policy_weights={"confront": 0.8, "social": -0.1}),
-                TraitConfig(trait_id="orderly", intensity=0.8, policy_weights={"patient": 0.2, "risk": -0.35}),
+                TraitConfig(trait_id="authoritarian", intensity=0.8),
+                TraitConfig(trait_id="orderly", intensity=0.8),
             ],
             risk_tolerance=0.45,
             is_player=False,
@@ -953,8 +953,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="家庭体面", pressure=0.6, drift_per_turn=0.025, description="冲突越公开，她越想用礼数和委婉要求恢复表面平静"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="decorous", intensity=0.85, policy_weights={"social": 0.55, "confront": -0.45, "deception": 0.2}),
-                TraitConfig(trait_id="risk_averse", intensity=0.8, policy_weights={"risk": -0.8, "retreat": 0.35}),
+                TraitConfig(trait_id="decorous", intensity=0.85),
+                TraitConfig(trait_id="risk_averse", intensity=0.8),
             ],
             risk_tolerance=0.25,
             is_player=False,
@@ -980,8 +980,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="局面控制", pressure=0.62, drift_per_turn=0.04, description="他无法容忍家宴失控，压力会推动他打断和收场"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="protective", intensity=0.85, policy_weights={"aid": 0.9, "confront": 0.45}),
-                TraitConfig(trait_id="controlled", intensity=0.75, policy_weights={"social": 0.25, "risk": -0.2}),
+                TraitConfig(trait_id="protective", intensity=0.85),
+                TraitConfig(trait_id="controlled", intensity=0.75),
             ],
             risk_tolerance=0.55,
             is_player=False,
@@ -1007,8 +1007,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="关系稳定", pressure=0.56, drift_per_turn=0.03, description="婚约与旧情受到挑战时，他会更主动维护熟悉关系"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="loyal", intensity=0.8, policy_weights={"aid": 0.75, "social": 0.25}),
-                TraitConfig(trait_id="cautious", intensity=0.7, policy_weights={"risk": -0.55, "confront": -0.25}),
+                TraitConfig(trait_id="loyal", intensity=0.8),
+                TraitConfig(trait_id="cautious", intensity=0.7),
             ],
             risk_tolerance=0.35,
             is_player=False,
@@ -1034,8 +1034,8 @@ false_heiress_scenario = ScenarioConfig(
                 NeedConfig(name="生计安全", pressure=0.45, drift_per_turn=0.02, description="旧事越逼近台面，她越需要在良心与饭碗之间权衡"),
             ],
             initial_traits=[
-                TraitConfig(trait_id="cautious", intensity=0.9, policy_weights={"risk": -1.0, "information": 0.35, "retreat": 0.45}),
-                TraitConfig(trait_id="compassionate", intensity=0.55, policy_weights={"aid": 0.65}),
+                TraitConfig(trait_id="cautious", intensity=0.9),
+                TraitConfig(trait_id="compassionate", intensity=0.55),
             ],
             risk_tolerance=0.15,
             initial_obligations=[

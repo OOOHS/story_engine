@@ -8,7 +8,6 @@ from src.story_engine.evaluation import (
     EpisodeStepTrace,
     EpisodeSweepReport,
     EpisodeSweepRunner,
-    PolicyDecisionAudit,
 )
 
 
@@ -42,8 +41,8 @@ def _step(
         causal_handoffs=(
             f"goal:甲:follow-up<-world_event:event-{world_suffix}",
         ),
-        sampled_policy_actors=("甲",),
-        policy_selections=(("甲", f"runtime:{action_kind}"),),
+        deciding_actors=("甲",),
+        stated_motives=(("甲", "goal", f"want-{action_kind}"),),
         narrative_text=f"甲在第{index}轮选择了{action_kind}。",
     )
 
@@ -75,19 +74,17 @@ def _report(
         metrics={
             "step_count": 1,
             "committed_steps": 1,
-            "sampled_policy_steps": 1,
-            "sampled_policy_decision_count": 1,
-            "runtime_candidate_count": 2,
-            "selected_runtime_candidate_count": 1,
-            "continuity_supported_selection_count": 1,
-            "motivated_selection_count": 1,
+            "decision_steps": 1,
+            "decision_count": 1,
+            "stated_motive_count": 1,
+            "rejected_motive_ref_count": 0,
             "actor_differentiation": 0.5,
             "verifiable_goal_count": verifiable_goals,
             "goal_resolution_count": goal_resolutions,
             "agent_goal_refinement_count": goal_refinements,
             "active_open_agent_goal_count": active_open_goals,
-            "policy_motive_handoff_count": motivated_actions,
-            "policy_motivated_action_count": motivated_actions,
+            "motive_handoff_count": motivated_actions,
+            "motivated_action_count": motivated_actions,
             "causal_arc_present": True,
             "resolved_causal_arc": True,
             "cross_step_causal_handoff_count": 2,
@@ -121,9 +118,9 @@ def test_sweep_aggregates_seed_diversity_and_goal_resolution():
     assert sweep.metrics["agent_goal_adoption_count"] == 0
     assert sweep.metrics["agent_goal_refinement_count"] == 3
     assert sweep.metrics["active_open_agent_goal_count"] == 0
-    assert sweep.metrics["policy_motivated_episode_count"] == 3
-    assert sweep.metrics["policy_motivated_episode_rate"] == 1.0
-    assert sweep.metrics["policy_motivated_action_count"] == 3
+    assert sweep.metrics["motivated_episode_count"] == 3
+    assert sweep.metrics["motivated_episode_rate"] == 1.0
+    assert sweep.metrics["motivated_action_count"] == 3
     assert sweep.metrics["causal_arc_episode_count"] == 3
     assert sweep.metrics["causal_arc_episode_rate"] == 1.0
     assert sweep.metrics["resolved_causal_arc_episode_count"] == 3
@@ -156,7 +153,7 @@ def test_long_horizon_open_goal_backlog_is_reported_without_guessing_quality():
     assert "open_goal_backlog" in flags
 
 
-def test_sweep_flags_missing_links_from_urgent_event_opportunities():
+def test_sweep_flags_characters_citing_reasons_they_cannot_back():
     reports = []
     for seed in (1, 2, 3):
         report = _report(seed)
@@ -166,10 +163,8 @@ def test_sweep_flags_missing_links_from_urgent_event_opportunities():
                     **report.__dict__,
                     "metrics": {
                         **report.metrics,
-                        "urgent_attention_motive_available_decision_count": 1,
-                        "attention_motive_available_decision_count": 1,
-                        "event_motive_reference_decision_count": 0,
-                        "event_motive_selected_decision_count": 0,
+                        "stated_motive_count": 0,
+                        "rejected_motive_ref_count": 2,
                     },
                 }
             )
@@ -182,10 +177,11 @@ def test_sweep_flags_missing_links_from_urgent_event_opportunities():
         replay_mismatches=[],
     )
 
-    assert metrics["urgent_attention_motive_available_decision_count"] == 3
-    assert metrics["event_motive_reference_rate"] == 0.0
-    assert metrics["event_motive_selection_rate"] == 0.0
-    assert "no_urgent_event_motive_link" in flags
+    assert metrics["decision_count"] == 3
+    assert metrics["stated_motive_count"] == 0
+    assert metrics["rejected_motive_ref_count"] == 6
+    assert metrics["stated_motive_decision_rate"] == 0.0
+    assert "unbacked_motive_claims" in flags
 
 
 class ClosureFakeRunner:
@@ -248,13 +244,13 @@ def test_sweep_writes_summary_and_individual_episode_artifacts(tmp_path):
     assert "# Episode 7" in transcript
     assert "## Narrative" in transcript
     assert "甲在第0轮选择了observe。" in transcript
-    assert "policy_selections" not in transcript
+    assert "stated_motives" not in transcript
     assert "# Episode Sweep Review" in review
     assert "[Transcript](transcripts/" in review
     assert "[JSON](episodes/" in review
     assert "故事是否真正有趣" in review
     assert "甲在第0轮选择了observe" not in review
-    assert "policy_selections" not in review
+    assert "stated_motives" not in review
 
 
 def test_sweep_transcript_marks_missing_player_visible_narrative(tmp_path):
@@ -328,34 +324,18 @@ def test_replay_signature_includes_explicit_causal_provenance():
     assert EpisodeSweepRunner._signature(left) != EpisodeSweepRunner._signature(right)
 
 
-def test_replay_signature_includes_safe_policy_candidate_audit():
+def test_replay_signature_includes_the_reason_each_character_gave():
     left = _report("same")
     left_step = EpisodeStepTrace(
         **{
             **left.steps[0].__dict__,
-            "policy_audits": (
-                PolicyDecisionAudit(
-                    actor="甲",
-                    mode="host_sampled",
-                    selected_source="runtime",
-                    selected_action_kind="observe",
-                    runtime_candidate_count=2,
-                ),
-            ),
+            "stated_motives": (("甲", "goal", "find-exit"),),
         }
     )
     right_step = EpisodeStepTrace(
         **{
             **left_step.__dict__,
-            "policy_audits": (
-                PolicyDecisionAudit(
-                    actor="甲",
-                    mode="host_sampled",
-                    selected_source="runtime",
-                    selected_action_kind="communicate",
-                    runtime_candidate_count=2,
-                ),
-            ),
+            "stated_motives": (("甲", "obligation", "escort-guest"),),
         }
     )
     left_report = EpisodeReport(
@@ -448,22 +428,19 @@ class UnmotivatedFakeRunner:
         return _report(session.random_seed, motivated_actions=0)
 
 
-def test_sweep_flags_sampled_policy_that_never_connects_state_to_action():
+def test_sweep_flags_characters_who_never_connect_a_reason_to_an_action():
     sweep = EpisodeSweepRunner(lambda: UnmotivatedFakeRunner()).run(
         lambda seed: SimpleNamespace(random_seed=seed),
         seeds=[1, 2, 3],
         steps=4,
     )
 
-    assert sweep.metrics["sampled_policy_episode_count"] == 3
-    assert sweep.metrics["sampled_policy_decision_count"] == 3
-    assert sweep.metrics["runtime_candidate_count"] == 6
-    assert sweep.metrics["mean_runtime_candidates_per_decision"] == 2.0
-    assert sweep.metrics["selected_runtime_candidate_rate"] == 1.0
-    assert sweep.metrics["continuity_supported_selection_rate"] == 1.0
-    assert sweep.metrics["motivated_selection_rate"] == 1.0
-    assert sweep.metrics["policy_motivated_episode_count"] == 0
-    assert sweep.metrics["policy_motivated_episode_rate"] == 0.0
+    assert sweep.metrics["decision_count"] == 3
+    assert sweep.metrics["stated_motive_count"] == 3
+    assert sweep.metrics["rejected_motive_ref_count"] == 0
+    assert sweep.metrics["stated_motive_decision_rate"] == 1.0
+    assert sweep.metrics["motivated_episode_count"] == 0
+    assert sweep.metrics["motivated_episode_rate"] == 0.0
     assert "no_policy_motive_chain" in sweep.quality_flags
 
 

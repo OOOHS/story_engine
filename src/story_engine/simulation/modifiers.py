@@ -14,7 +14,6 @@ class ModifierDefinition:
     duration_steps: int
     stacking: Literal["refresh", "stack", "replace"]
     max_stacks: int
-    policy_weights: Dict[str, float]
 
 
 MODIFIER_DEFINITIONS = {
@@ -24,7 +23,6 @@ MODIFIER_DEFINITIONS = {
         4,
         "stack",
         3,
-        {"rest": 0.7, "patient": 0.25, "risk": -0.4, "confront": -0.2},
     ),
     "injured": ModifierDefinition(
         "injured",
@@ -32,7 +30,6 @@ MODIFIER_DEFINITIONS = {
         8,
         "refresh",
         1,
-        {"retreat": 0.5, "cautious": 0.45, "rest": 0.35, "risk": -0.65},
     ),
     "focused": ModifierDefinition(
         "focused",
@@ -40,7 +37,6 @@ MODIFIER_DEFINITIONS = {
         4,
         "refresh",
         1,
-        {"information": 0.65, "cautious": 0.25, "patient": 0.15},
     ),
     "inspired": ModifierDefinition(
         "inspired",
@@ -48,7 +44,6 @@ MODIFIER_DEFINITIONS = {
         5,
         "stack",
         2,
-        {"aid": 0.4, "social": 0.3, "risk": 0.2, "patient": 0.1},
     ),
     "shaken": ModifierDefinition(
         "shaken",
@@ -56,7 +51,6 @@ MODIFIER_DEFINITIONS = {
         3,
         "refresh",
         1,
-        {"retreat": 0.45, "cautious": 0.4, "risk": -0.35, "confront": -0.2},
     ),
 }
 
@@ -68,7 +62,6 @@ class ModifierDynamics:
     FORBIDDEN_FIELDS = {
         "duration_steps",
         "expires_step",
-        "policy_weights",
         "stacking",
         "max_stacks",
         "stacks",
@@ -86,10 +79,6 @@ class ModifierDynamics:
                     duration_steps=max(1, int(raw.get("duration_steps", 1))),
                     stacking=str(raw.get("stacking", "refresh")),
                     max_stacks=max(1, min(8, int(raw.get("max_stacks", 1)))),
-                    policy_weights={
-                        str(tag): float(weight)
-                        for tag, weight in dict(raw.get("policy_weights", {})).items()
-                    },
                 )
             else:
                 continue
@@ -201,7 +190,6 @@ class ModifierDynamics:
                 duration_steps=definition.duration_steps,
                 stacking=definition.stacking,
                 max_stacks=definition.max_stacks,
-                policy_weights=definition.policy_weights,
                 reason=disclosed_reason,
                 source=disclosed_source,
                 source_event=(

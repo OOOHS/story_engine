@@ -52,14 +52,18 @@ Ledger message 是证据或约束，不是心理命令。`goal_registration` 不
 
 Hermes 对 Host 只输出：
 
-1. 一个最终 action，或供 Hermes adapter 私下采样的内部 candidates；
-2. 可选的一个 `goal_requests` 登记请求，用于让 Host 编译完成证据、安排 wakeup 或审计进度。
+1. 一个最终 action。内部 candidates 只由 Hermes adapter 私下采样，宿主看不到也不重排；
+2. 可选的一个 `goal_requests` 登记请求，用于让 Host 编译完成证据、安排 wakeup 或审计进度；
+3. 可选的 `sentiment_updates`：她现在对某人的感受。这是她自己的账目，不是登记请求——GM 最没有资格代她决定这件事；
+4. 可选的 `motive_refs`：这一步是为了她自己的哪个目标、义务、感受或需求。宿主既然不替她选行动，就无法重建理由，只能由她说。
+
+第 3、4 项都会被 Host 校验并限量后才能触碰权威状态或因果审计：引用她并不持有的东西会被丢弃而不是采信。
 
 Hermes 不向 Host 输出或同步 `plan`、`focus`、`belief_updates`、私人 commitments、emotion、reflection 或 memory state。即使响应中包含这些字段，`HermesCharacterAgent` 也不会把它们写入 ECS。
 
-## 兼容路径
+## 没有兼容路径
 
-普通 `LLMCharacterAgent` 继续使用 Host `Planning/Cognition/SentimentState/Memory/CharacterPolicy`。这是迁移兼容路径，不是 Hermes 心智的第二份副本。`AgentController.config.subjective_state_owner=runtime` 可以让未来非 Hermes 的持久 runtime 使用相同边界。
+引擎不再提供任何“宿主替角色思考”的 runtime。`CharacterPolicy` 和 `LLMCharacterAgent` 已删除，宿主不保留角色心智的第二份副本，也没有可以静默退化到的候选打分路径。`AgentController.config.subjective_state_owner=runtime` 让未来非 Hermes 的持久 runtime 使用同一边界。
 
 ## 尚未完成
 

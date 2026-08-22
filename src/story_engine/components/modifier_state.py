@@ -19,7 +19,6 @@ class ModifierRecord(BaseModel):
     source: str = ""
     source_event: str = ""
     provenance: Dict[str, Any] = Field(default_factory=dict)
-    policy_weights: Dict[str, float] = Field(default_factory=dict)
 
 
 class ModifierState(Component):
@@ -38,7 +37,6 @@ class ModifierState(Component):
         duration_steps: int,
         stacking: Literal["refresh", "stack", "replace"],
         max_stacks: int,
-        policy_weights: Dict[str, float],
         reason: str,
         source: str = "",
         source_event: str = "",
@@ -68,7 +66,6 @@ class ModifierState(Component):
                 source=source,
                 source_event=source_event,
                 provenance=deepcopy(provenance or {}),
-                policy_weights=deepcopy(policy_weights),
             )
             self.modifiers[modifier_id] = record
             return record
@@ -91,7 +88,6 @@ class ModifierState(Component):
         record.source = source
         record.source_event = source_event
         record.provenance = deepcopy(provenance or {})
-        record.policy_weights = deepcopy(policy_weights)
         return record
 
     def remove(self, kind: str) -> Optional[ModifierRecord]:
@@ -114,20 +110,6 @@ class ModifierState(Component):
                 }
             )
         return transitions
-
-    def score_tags(self, tags: set[str]) -> tuple[float, Dict[str, float]]:
-        total = 0.0
-        contributions: Dict[str, float] = {}
-        for modifier_id, record in self.modifiers.items():
-            stack_scale = 1.0 + 0.25 * max(0, record.stacks - 1)
-            contribution = record.intensity * stack_scale * sum(
-                float(record.policy_weights.get(tag, 0.0) or 0.0)
-                for tag in tags
-            )
-            if contribution:
-                contributions[modifier_id] = round(contribution, 6)
-                total += contribution
-        return total, contributions
 
     def get_private_snapshot(self) -> Dict[str, Any]:
         ordered = sorted(
