@@ -4,10 +4,14 @@ from .hermes_runtime import HermesCharacterAgent, HermesConversation
 from .hermes_container import (
     HermesContainerConfig,
     HermesContainerConversation,
+    HermesLocalProcessConfig,
+    HermesLocalProcessConversation,
     HermesInvocationBudget,
     HermesInvocationBudgetExceeded,
     default_hermes_runtime_factories,
+    default_local_hermes_runtime_factories,
     make_hermes_container_runtime_factory,
+    make_local_hermes_runtime_factory,
 )
 from .commitment import (
     RuntimeCommitment,
@@ -48,10 +52,13 @@ __all__ = [
     "HermesCharacterAgent",
     "HermesContainerConfig",
     "HermesContainerConversation",
+    "HermesLocalProcessConfig",
+    "HermesLocalProcessConversation",
     "HermesInvocationBudget",
     "HermesInvocationBudgetExceeded",
     "HermesConversation",
     "default_hermes_runtime_factories",
+    "default_local_hermes_runtime_factories",
     "ObservationMode",
     "RegisteredAgent",
     "RuntimeCommitment",
@@ -66,4 +73,5 @@ __all__ = [
     "SubjectLedgerProjector",
     "SubjectMessage",
     "make_hermes_container_runtime_factory",
+    "make_local_hermes_runtime_factory",
 ]

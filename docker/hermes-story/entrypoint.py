@@ -10,7 +10,7 @@ from pathlib import Path
 
 BEGIN_MARKER = "===STORY_AGENT_JSON_BEGIN==="
 END_MARKER = "===STORY_AGENT_JSON_END==="
-VENDOR_ROOT = Path("/opt/hermes-agent")
+VENDOR_ROOT = Path(os.getenv("HERMES_VENDOR_ROOT", "/opt/hermes-agent")).expanduser()
 
 
 MAX_REQUEST_CHARS = 4_000_000

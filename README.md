@@ -8,6 +8,20 @@
 
 ## 当前引擎原则
 
+Hermes 角色默认通过 Docker 传输运行；本地开发也可以使用等价的多进程传输，
+不需要 Docker daemon。每个角色仍然启动一个独立的长期 `subject-server` 子进程，
+而不是在 Story Engine 进程内共享多个 Hermes 实例：
+
+```bash
+python main.py --scenario thirteenth-floor \
+  --hermes-transport local \
+  --hermes-python /path/to/hermes-venv/bin/python \
+  --hermes-vendor-root /path/to/hermes-agent
+```
+
+本地传输与 Docker 传输复用同一 subject JSON 协议、超时和生命周期；Docker 只是
+依赖打包与部署隔离方式。
+
 - 世界真相由 ECS 状态决定，不由渲染文本决定。
 - 主循环遵循 `Input -> Action Scheduling -> Simulation -> Rendering` 的权威顺序。
 - `Simulation` 阶段只产出结构化结果，不直接向玩家讲话。

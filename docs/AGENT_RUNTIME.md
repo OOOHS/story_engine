@@ -74,6 +74,13 @@ Agent 不能填写权威结果或动作耗时。环境将同一逻辑时间的 p
 
 ## Hermes 接入方式
 
+Hermes transport 有两种等价的进程边界实现：生产环境可使用
+`HermesContainerConversation`，由 Docker 打包 vendor runtime；本地开发或单机试玩
+可使用 `HermesLocalProcessConversation`，直接启动宿主机上的 Hermes entrypoint。
+两者都为每个角色维护一个长期 `--subject-server` 子进程，复用同一套 marker JSON
+协议、subject memory、超时和关闭语义。Docker 是依赖/资源封装，不是角色主体协议的
+必要条件；本地模式仍然不是把多个角色 import 到 Story Engine 同一进程里共享线程。
+
 Story Engine 不应 import 或修改 vendor Hermes。Hermes 仍然遵守“项目薄壳 / vendor runtime / host launcher”的边界。项目薄壳只需提供一个 conversation factory：
 
 ```python

@@ -1,9 +1,16 @@
 """Explicit bundled-content console entry point."""
 import argparse
+import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 
-from src.story_engine.agents import default_hermes_runtime_factories
+from src.story_engine.agents import (
+    HermesContainerConfig,
+    HermesLocalProcessConfig,
+    default_hermes_runtime_factories,
+    default_local_hermes_runtime_factories,
+)
 from src.story_engine.session import (
     ConsoleDriver,
     create_session,
@@ -28,6 +35,16 @@ def parse_args(argv=None):
         help="External ScenarioConfig object/factory as module.path:attribute.",
     )
     parser.add_argument("--title", default="Story Engine · Console")
+    parser.add_argument(
+        "--hermes-transport",
+        choices=("docker", "local"),
+        default="docker",
+        help="Hermes process transport; local still starts one child process per character.",
+    )
+    parser.add_argument("--hermes-python", default="python")
+    parser.add_argument("--hermes-entrypoint", default="")
+    parser.add_argument("--hermes-vendor-root", default="")
+    parser.add_argument("--hermes-working-directory", default="")
     return parser.parse_args(argv)
 
 
@@ -39,9 +56,18 @@ def main(argv=None):
         if args.scenario_ref
         else load_bundled_scenario(args.scenario)
     )
-    session = create_session(
-        scenario, agent_runtime_factories=default_hermes_runtime_factories()
-    )
+    if args.hermes_transport == "local":
+        project_entrypoint = Path(__file__).resolve().parent / "docker" / "hermes-story" / "entrypoint.py"
+        local_config = HermesLocalProcessConfig(
+            python_executable=args.hermes_python,
+            entrypoint_path=args.hermes_entrypoint or str(project_entrypoint),
+            vendor_root=args.hermes_vendor_root or os.getenv("HERMES_VENDOR_ROOT", ""),
+            working_directory=args.hermes_working_directory,
+        )
+        factories = default_local_hermes_runtime_factories(local_config)
+    else:
+        factories = default_hermes_runtime_factories(HermesContainerConfig())
+    session = create_session(scenario, agent_runtime_factories=factories)
     driver = ConsoleDriver(session, title=args.title)
     driver.run()
 

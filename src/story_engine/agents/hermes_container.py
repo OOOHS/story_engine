@@ -82,6 +82,180 @@ class HermesContainerConfig:
     persistent_subject: bool = True
 
 
+@dataclass(frozen=True)
+class HermesLocalProcessConfig:
+    """Host policy for running one Hermes subject as a local child process.
+
+    This keeps the same stdin/stdout protocol and one-process-per-subject
+    isolation as the Docker transport, but does not require a Docker daemon.
+    ``python_executable`` should normally point at a Hermes-specific virtual
+    environment so its dependencies do not pollute Story Engine's process.
+    """
+
+    python_executable: str = "python"
+    entrypoint_path: str = ""
+    vendor_root: str = ""
+    working_directory: str = ""
+    timeout_seconds: float = 180.0
+    allowed_toolsets: Tuple[str, ...] = ("memory",)
+    environment_keys: Tuple[str, ...] = (
+        "OPENAI_API_KEY",
+        "IKUN_API_KEY",
+        "HERMES_BASE_URL",
+        "HERMES_MODEL",
+        "HERMES_PROVIDER",
+        "HERMES_TRACE",
+    )
+    invocation_budget: HermesInvocationBudget | None = None
+    persistent_subject: bool = True
+
+
+class _HermesLocalProcessConversationMixin:
+    """Run the project Hermes entrypoint directly in a child process.
+
+    The class intentionally reuses the Docker conversation's protocol parser,
+    persistent subject server, timeout and lifecycle code.  The isolation
+    boundary is still a process per character; Docker is only the packaging
+    and sandbox transport used by ``HermesContainerConversation``.
+    """
+
+    def __init__(
+        self,
+        agent_id: str,
+        host_config: HermesLocalProcessConfig,
+        requested_toolsets: Iterable[str] = (),
+    ) -> None:
+        self.local_config = host_config
+        # The shared subject-server implementation reads these transport
+        # neutral attributes from the Docker config object.
+        self.host_config = host_config
+        if float(host_config.timeout_seconds) <= 0:
+            raise ValueError("Hermes timeout_seconds must be positive")
+        self.entrypoint_path = self._required_file(
+            host_config.entrypoint_path,
+            "local Hermes entrypoint",
+        )
+        self.python_executable = str(host_config.python_executable).strip()
+        if not self.python_executable:
+            raise ValueError("python_executable must not be empty")
+        self.vendor_root = str(host_config.vendor_root or "").strip()
+        if self.vendor_root:
+            vendor_path = Path(self.vendor_root).expanduser().resolve()
+            if not vendor_path.exists() or not vendor_path.is_dir():
+                raise ValueError(f"local Hermes vendor root is not a directory: {vendor_path}")
+            self.vendor_root = str(vendor_path)
+        self.working_directory = str(host_config.working_directory or "").strip()
+        if self.working_directory:
+            workdir = Path(self.working_directory).expanduser().resolve()
+            if not workdir.is_dir():
+                raise ValueError(f"local Hermes working directory is not a directory: {workdir}")
+            self.working_directory = str(workdir)
+        self.environment_keys = tuple(
+            str(item).strip()
+            for item in host_config.environment_keys
+            if re.fullmatch(r"[A-Z_][A-Z0-9_]*", str(item).strip())
+        )
+        # Do not call the parent constructor: it validates Docker-only fields.
+        self.agent_id = str(agent_id)
+        if not self.agent_id.strip():
+            raise ValueError("Hermes agent_id must not be empty")
+        self.requested_toolsets = tuple(dict.fromkeys(
+            str(item).strip() for item in requested_toolsets if str(item).strip()
+        ))
+        allowed = set(host_config.allowed_toolsets)
+        self.enabled_toolsets = tuple(
+            item for item in self.requested_toolsets if item in allowed
+        )
+        self._subject_process = None
+        self._subject_lock = threading.Lock()
+        self._process_factory = subprocess.Popen
+
+    @staticmethod
+    def _required_file(value: str, label: str) -> str:
+        path = Path(str(value or "").strip()).expanduser().resolve()
+        if not path.is_file():
+            raise ValueError(f"{label} is not a file: {path}")
+        return str(path)
+
+    def _runtime_env(self) -> Dict[str, str]:
+        import os
+
+        env = dict(os.environ)
+        if self.vendor_root:
+            env["HERMES_VENDOR_ROOT"] = self.vendor_root
+        # Keep the allowlist semantics of Docker's -e KEY: no credentials are
+        # copied into the child by the Story Engine itself.
+        return {
+            key: env[key]
+            for key in self.environment_keys
+            if key in env
+        } | {
+            key: value
+            for key, value in env.items()
+            if key in {"PATH", "PYTHONPATH", "HERMES_VENDOR_ROOT", "HERMES_HOME"}
+        }
+
+    def build_command(self, *, subject_server: bool = False) -> list[str]:
+        command = [self.python_executable, self.entrypoint_path]
+        if subject_server:
+            command.append("--subject-server")
+        return command
+
+    def _run_request(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
+        payload = json.dumps(self._request_object(request_payload), ensure_ascii=False)
+        if self.local_config.invocation_budget is not None:
+            self.local_config.invocation_budget.consume()
+        completed = subprocess.run(
+            self.build_command(),
+            input=payload,
+            text=True,
+            capture_output=True,
+            timeout=float(self.local_config.timeout_seconds),
+            check=False,
+            cwd=self.working_directory or None,
+            env=self._runtime_env(),
+        )
+        if int(completed.returncode) != 0:
+            raise RuntimeError(
+                f"Local Hermes process failed with exit code {completed.returncode}: "
+                f"{str(completed.stderr or '').strip()[-1000:]}"
+            )
+        stdout = str(completed.stdout or "")
+        if len(stdout) > MAX_STDOUT_CHARS:
+            raise ValueError("Hermes output exceeds the Host protocol size limit")
+        return self.parse_output(stdout)
+
+    def _ensure_subject_process(self):
+        process = self._subject_process
+        if process is not None and process.poll() is None:
+            return process
+        process = subprocess.Popen(
+            self.build_command(subject_server=True),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=1,
+            cwd=self.working_directory or None,
+            env=self._runtime_env(),
+        )
+        if process.stdin is None or process.stdout is None:
+            process.terminate()
+            raise RuntimeError("Local Hermes process did not expose stdin/stdout")
+        self._subject_process = process
+        return process
+
+    def _run_persistent_subject_request(
+        self, request_payload: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        # Parent implementation is transport-neutral and uses build_command;
+        # this override only changes the timeout diagnostic command name.
+        return super()._run_persistent_subject_request(request_payload)
+
+    def close(self) -> None:
+        super().close()
+
+
 class HermesContainerConversation:
     """Runs one Hermes turn through a Docker stdin/stdout black-box boundary."""
 
@@ -316,6 +490,13 @@ class HermesContainerConversation:
         return data
 
 
+class HermesLocalProcessConversation(
+    _HermesLocalProcessConversationMixin,
+    HermesContainerConversation,
+):
+    """Local process transport with the shared Hermes protocol boundary."""
+
+
 def default_hermes_runtime_factories(
     config: HermesContainerConfig | None = None,
     command_runner: Callable[..., Any] | None = None,
@@ -341,6 +522,14 @@ def default_hermes_runtime_factories(
     }
 
 
+def default_local_hermes_runtime_factories(
+    config: HermesLocalProcessConfig,
+) -> Dict[str, Callable[..., Any]]:
+    """Register local Hermes for bundled scenarios and explicit local names."""
+    factory = make_local_hermes_runtime_factory(config)
+    return {"hermes": factory, "hermes-local": factory}
+
+
 def make_hermes_container_runtime_factory(
     host_config: HermesContainerConfig,
     command_runner: Callable[..., Any] | None = None,
@@ -364,6 +553,35 @@ def make_hermes_container_runtime_factory(
                 host_config=host_config,
                 requested_toolsets=requested_toolsets,
                 command_runner=command_runner,
+            )
+
+        return HermesCharacterAgent(
+            conversation_factory=conversation_factory,
+            config=dict(runtime_config),
+        )
+
+    return factory
+
+
+def make_local_hermes_runtime_factory(
+    host_config: HermesLocalProcessConfig,
+):
+    """Build a Runner factory using one local Hermes process per subject."""
+
+    def factory(entity, runtime_config):
+        requested_toolsets = runtime_config.get("enabled_toolsets", [])
+        if not isinstance(requested_toolsets, (list, tuple)):
+            requested_toolsets = []
+        requested_toolsets = tuple(
+            dict.fromkeys(["memory", *[str(item) for item in requested_toolsets]])
+        )
+
+        def conversation_factory(character_entity, character_config):
+            del character_config
+            return HermesLocalProcessConversation(
+                agent_id=character_entity.id,
+                host_config=host_config,
+                requested_toolsets=requested_toolsets,
             )
 
         return HermesCharacterAgent(

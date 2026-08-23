@@ -28,6 +28,12 @@ reads one marker-delimited response per turn from stdout. Conversation, native
 JSON memory and tool context therefore survive across turns. The injected test
 transport may still execute one request per process.
 
+For local development, the same process boundary can be used without Docker:
+configure `HermesLocalProcessConfig` with a Hermes virtualenv Python, the
+project-owned `entrypoint.py`, and the vendor source directory. Story Engine
+starts one local `--subject-server` child process per character and reuses the
+same protocol; Docker remains the packaging and deployment option.
+
 The response envelope is strict and actor-bound:
 
 ```json
