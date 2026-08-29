@@ -171,8 +171,6 @@ class GoalSystem(System):
             "reach_location",
             "possess_object",
             "deliver_object",
-            "fulfill_obligation",
-            "settle_agreement",
             "verify_claim",
             "obtain_evidence",
             "become_acquainted",
@@ -373,32 +371,6 @@ class GoalSystem(System):
                     "value": None,
                 }
             ], ""
-        if kind == "fulfill_obligation":
-            obligations = entity.get_component("ObligationState")
-            record = obligations.obligations.get(target) if obligations else None
-            if not record or str(request.get("source_kind", "")) != "obligation" or str(
-                request.get("source_ref", "")
-            ) != target:
-                return [], [], "fulfill_obligation must reference the actor's own obligation"
-            if record.status in {"fulfilled", "breached", "cancelled", "delegated"}:
-                return [], [], "fulfill_obligation target is already terminal"
-            return [
-                {
-                    "scope": "obligation",
-                    "target": target,
-                    "path": "status",
-                    "operator": "eq",
-                    "value": "fulfilled",
-                }
-            ], [
-                {
-                    "scope": "obligation",
-                    "target": target,
-                    "path": "status",
-                    "operator": "in",
-                    "value": ["breached", "cancelled", "delegated"],
-                }
-            ], ""
         if kind in {"verify_claim", "obtain_evidence"}:
             claim_registry = context.get("claim_registry")
             claim = claim_registry.get(target) if claim_registry else None
@@ -545,34 +517,7 @@ class GoalSystem(System):
                     "value": desired,
                 }
             ], [], ""
-        registry = context.get("agreement_registry")
-        record = registry.to_book().agreements.get(target) if registry else None
-        if (
-            not record
-            or actor not in record.parties
-            or str(request.get("source_kind", "")) != "agreement"
-            or str(request.get("source_ref", "")) != target
-        ):
-            return [], [], "settle_agreement must reference the actor's own agreement"
-        if record.status != "pending":
-            return [], [], "settle_agreement target is already terminal"
-        return [
-            {
-                "scope": "agreement",
-                "target": target,
-                "path": "status",
-                "operator": "eq",
-                "value": "settled",
-            }
-        ], [
-            {
-                "scope": "agreement",
-                "target": target,
-                "path": "status",
-                "operator": "in",
-                "value": ["rejected", "withdrawn", "expired", "countered"],
-            }
-        ], ""
+        return [], [], "unsupported agent goal resolution kind"
 
     @staticmethod
     def _matches_authoritative_condition(
@@ -592,15 +537,7 @@ class GoalSystem(System):
                 and scene_state.matches_condition(condition, plot_state=plot_state)
             )
         target = str(condition.get("target", ""))
-        if scope == "obligation":
-            state = entity.get_component("ObligationState")
-            record = state.obligations.get(target) if state else None
-        elif scope == "agreement":
-            registry = context.get("agreement_registry")
-            record = registry.to_book().agreements.get(target) if registry else None
-            if record and actor not in record.parties:
-                record = None
-        elif scope == "knowledge":
+        if scope == "knowledge":
             state = entity.get_component("KnowledgeState")
             record = state.claims.get(target) if state else None
         elif scope == "relationship":
@@ -733,8 +670,6 @@ class GoalSystem(System):
             "resolved_goal": 0.65,
             "claim": 0.65,
             "sentiment": 0.6,
-            "obligation": 0.7,
-            "agreement": 0.65,
             "visible_object": 0.5,
             "visible_actor": 0.5,
             "relationship": 0.55,
@@ -754,13 +689,6 @@ class GoalSystem(System):
         elif source_kind == "sentiment":
             sentiments = entity.get_component("SentimentState")
             valid = bool(sentiments and source_ref in sentiments.sentiments)
-        elif source_kind == "obligation":
-            obligations = entity.get_component("ObligationState")
-            valid = bool(obligations and source_ref in obligations.obligations)
-        elif source_kind == "agreement":
-            registry = context.get("agreement_registry")
-            record = registry.to_book().agreements.get(source_ref) if registry else None
-            valid = bool(record and actor in record.parties)
         elif source_kind == "visible_object":
             host_pov = request.get("_host_perception", {})
             if isinstance(host_pov, dict) and host_pov.get("visible_world") is not None:

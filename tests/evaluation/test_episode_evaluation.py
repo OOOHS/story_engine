@@ -123,9 +123,7 @@ class SimulationControl(Component):
             "knowledge_updates": [],
             "object_lifecycle": [],
             "exchanges": [],
-            "agreement_updates": [],
             "drive_updates": [],
-            "obligation_updates": [],
             "tension_delta": 0,
         }
 
@@ -344,21 +342,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
                     "current_stage": 0,
                 }
             },
-            "agreements": {
-                "agreements": {
-                    "deal": {
-                        "status": "settled",
-                        "performance_status": "pending",
-                    }
-                }
-            },
-            "obligations": {
-                "甲": {
-                    "obligations": {
-                        "deliver": {"status": "scheduled"}
-                    }
-                }
-            },
             "goals": {
                 "甲": {
                     "goals": {
@@ -373,17 +356,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     after["material_parts"]["plots"]["escape"].update(
         {"clock": 3, "current_stage": 1}
     )
-    after["material_parts"]["agreements"]["agreements"]["deal"][
-        "performance_status"
-    ] = "fulfilled"
-    after["material_parts"]["obligations"]["甲"]["obligations"]["deliver"][
-        "status"
-    ] = "fulfilled"
-    after["material_parts"]["obligations"]["甲"]["obligations"]["follow_up"] = {
-        "status": "scheduled",
-        "source_kind": "agreement",
-        "source_ref": "deal",
-    }
     after["material_parts"]["goals"]["甲"]["goals"]["escape"][
         "status"
     ] = "achieved"
@@ -398,9 +370,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     assert "object_owner_changed:钥匙" in changes
     assert "plot_stage_changed:escape" in changes
     assert "plot_completed:escape" in changes
-    assert "agreement_performance_resolved:deal:fulfilled" in changes
-    assert "obligation_resolved:甲:deliver:fulfilled" in changes
-    assert "obligation_created:甲:follow_up" in changes
     assert "goal_resolved:甲:escape:achieved" in changes
     assert "goal_adopted:甲:follow_up" in changes
     assert "goal_refined:甲:follow_up:step:4" in changes
@@ -410,8 +379,6 @@ def test_goal_refinement_becomes_explicit_causal_parent_of_resolution():
     before = {
         "material_parts": {
             "world_events": {},
-            "agreements": {"agreements": {}},
-            "obligations": {},
             "goals": {
                 "甲": {
                     "goals": {
@@ -462,8 +429,6 @@ def test_causal_handoff_audit_uses_explicit_provenance_without_semantic_guessing
     before = {
         "material_parts": {
             "world_events": {},
-            "agreements": {"agreements": {}},
-            "obligations": {"甲": {"obligations": {}}},
             "goals": {"甲": {"goals": {"seed": {"status": "achieved"}}}},
         }
     }
@@ -489,23 +454,13 @@ def test_causal_handoff_audit_uses_explicit_provenance_without_semantic_guessing
         "source_kind": "event_response",
         "source_ref": "event-response:door-opened:甲->乙:report",
     }
-    after["material_parts"]["obligations"]["甲"]["obligations"]["deliver"] = {
-        "source_kind": "agreement",
-        "source_ref": "deal",
-    }
-    after["material_parts"]["agreements"]["agreements"]["deal"] = {
-        "source_kind": "resolved_action",
-        "source_ref": "step:2:actor:甲",
-    }
 
     handoffs = EpisodeRunner._causal_handoffs(before, after)
 
     assert handoffs == [
-        "agreement:deal<-resolved_action:step:2:actor:甲",
         "event_response:event-response:door-opened:甲->乙:report<-world_event:door-opened",
         "goal:甲:answer-apology<-event_response:event-response:door-opened:甲->乙:report",
         "goal:甲:follow-up<-goal_resolution:甲:seed:achieved",
-        "obligation:甲:deliver<-agreement:deal",
         "world_event:door-opened<-object_lifecycle:door",
     ]
     assert EpisodeRunner._causal_chain_depth(handoffs) == 3
@@ -513,13 +468,12 @@ def test_causal_handoff_audit_uses_explicit_provenance_without_semantic_guessing
 
 def test_social_commitment_causal_chain_can_reach_a_response_driven_goal():
     handoffs = [
-        "obligation:乙:deliver<-agreement:deal",
-        "world_event:obligation:乙:deliver:breached<-obligation:乙:deliver",
-        "event_response:repair-request<-world_event:obligation:乙:deliver:breached",
+        "world_event:door-opened<-object_lifecycle:door",
+        "event_response:repair-request<-world_event:door-opened",
         "goal:乙:make-amends<-event_response:repair-request",
     ]
 
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 4
+    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
 def test_sentiment_and_relationship_changes_preserve_social_causal_chain():
@@ -535,7 +489,7 @@ def test_sentiment_and_relationship_changes_preserve_social_causal_chain():
         "乙:betrayed"
     ] = {
         "updated_step": 6,
-        "source_event": "agreement_performance_resolution:repair:breached",
+        "source_event": "resolved_action:step:6:actor:乙",
     }
     after["material_parts"]["relationships"]["relationships"][
         "pair:乙<->甲"
@@ -568,9 +522,11 @@ def test_sentiment_and_relationship_changes_preserve_social_causal_chain():
         "goal:甲:seek-redress<-sentiment:甲:乙:betrayed",
         "relationship_track:甲->乙:trust<-sentiment:甲:乙:betrayed",
         "sentiment:甲:乙:betrayed"
-        "<-agreement_performance_resolution:repair:breached",
+        "<-resolved_action:step:6:actor:乙",
     ]
     assert EpisodeRunner._causal_chain_depth(handoffs) == 2
+
+
 def test_modifier_and_drive_motives_retain_their_own_authoritative_causes():
     before = {
         "material_parts": {
@@ -587,8 +543,8 @@ def test_modifier_and_drive_motives_retain_their_own_authoritative_causes():
     }
     after["material_parts"]["drives"]["甲"]["need_provenance"]["hunger"] = [
         {
-            "source_kind": "obligation",
-            "source_ref": "deliver",
+            "source_kind": "resolved_action",
+            "source_ref": "step:2:actor:甲",
             "before": 0.4,
             "after": 0.6,
             "delta": 0.2,
@@ -600,7 +556,7 @@ def test_modifier_and_drive_motives_retain_their_own_authoritative_causes():
 
     assert changes == ["modifier_created:甲:shaken"]
     assert handoffs == [
-        "drive_need:甲:hunger<-obligation:甲:deliver",
+        "drive_need:甲:hunger<-resolved_action:step:2:actor:甲",
         "modifier:甲:shaken<-resolved_action:step:2:actor:乙",
     ]
 
@@ -675,7 +631,6 @@ def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_casca
             committed=True,
             relationship_count=0,
             sentiment_count=0,
-            agreement_count=0,
             modifier_count=0,
             claim_count=0,
             known_claim_count=0,
@@ -695,7 +650,6 @@ def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_casca
             committed=True,
             relationship_count=0,
             sentiment_count=0,
-            agreement_count=0,
             modifier_count=0,
             claim_count=0,
             known_claim_count=0,
@@ -717,7 +671,6 @@ def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_casca
             committed=True,
             relationship_count=0,
             sentiment_count=0,
-            agreement_count=0,
             modifier_count=0,
             claim_count=0,
             known_claim_count=0,
@@ -771,7 +724,6 @@ def test_action_repetition_distinguishes_actor_kind_and_target():
             committed=True,
             relationship_count=0,
             sentiment_count=0,
-            agreement_count=0,
             modifier_count=0,
             claim_count=0,
             known_claim_count=0,

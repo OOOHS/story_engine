@@ -27,7 +27,6 @@ class EpisodeStepTrace:
     committed: bool
     relationship_count: int
     sentiment_count: int
-    agreement_count: int
     modifier_count: int
     claim_count: int
     known_claim_count: int
@@ -195,7 +194,6 @@ class EpisodeRunner:
                     ),
                     relationship_count=after["relationship_count"],
                     sentiment_count=after["sentiment_count"],
-                    agreement_count=after["agreement_count"],
                     modifier_count=after["modifier_count"],
                     claim_count=after["claim_count"],
                     known_claim_count=after["known_claim_count"],
@@ -334,18 +332,6 @@ class EpisodeRunner:
             for change in trace.irreversible_changes
             if change.startswith("goal_refined:")
         ]
-        agreement_creations = [
-            change
-            for trace in traces
-            for change in trace.irreversible_changes
-            if change.startswith("agreement_created:")
-        ]
-        obligation_creations = [
-            change
-            for trace in traces
-            for change in trace.irreversible_changes
-            if change.startswith("obligation_created:")
-        ]
         claim_knowledge_changes = [
             change
             for trace in traces
@@ -382,11 +368,9 @@ class EpisodeRunner:
                     "goal:",
                     "sentiment:",
                     "relationship_track:",
-                    "obligation:",
                     "navigation_problem:",
                     "action_failure:",
                     "claim_knowledge:",
-                    "agreement:",
                     "world_event:",
                     "event_response:",
                     "modifier:",
@@ -475,16 +459,6 @@ class EpisodeRunner:
             for item in causal_handoffs
         ) < len(goal_adoptions):
             flags.append("unattributed_agent_goal")
-        if agreement_creations and sum(
-            "<-" in item and item.startswith("agreement:")
-            for item in causal_handoffs
-        ) < len(agreement_creations):
-            flags.append("unattributed_agreement")
-        if obligation_creations and sum(
-            "<-" in item and item.startswith("obligation:")
-            for item in causal_handoffs
-        ) < len(obligation_creations):
-            flags.append("unattributed_obligation")
         if claim_knowledge_changes and sum(
             "<-" in item and item.startswith("claim_knowledge:")
             for item in causal_handoffs
@@ -616,7 +590,7 @@ class EpisodeRunner:
                 "decision_steps": decision_steps,
                 "decision_count": decision_count,
                 "stated_motive_count": len(stated_motives),
-                # A character citing a goal, obligation, sentiment or need she
+                # A character citing a goal, sentiment or need she
                 # does not hold. Nonzero means an agent is narrating reasons it
                 # cannot back, which is a credibility signal, not a crash.
                 "rejected_motive_ref_count": len(rejected_motive_refs),
@@ -632,8 +606,6 @@ class EpisodeRunner:
                 else None,
                 "actor_differentiation": round(actor_differentiation, 6),
                 "commitment_resolution_count": commitment_resolutions,
-                "agreement_creation_count": len(agreement_creations),
-                "obligation_creation_count": len(obligation_creations),
                 "claim_knowledge_change_count": len(claim_knowledge_changes),
                 "modifier_change_count": len(modifier_changes),
                 "drive_need_cause_count": sum(
@@ -660,7 +632,6 @@ class EpisodeRunner:
                 ],
                 "relationship_count": final["relationship_count"],
                 "sentiment_count": final["sentiment_count"],
-                "agreement_count": final["agreement_count"],
                 "modifier_count": final["modifier_count"],
                 "claim_count": final["claim_count"],
                 "known_claim_count": final["known_claim_count"],
@@ -818,7 +789,6 @@ class EpisodeRunner:
             None,
         )
         relationship_book = runner.relation_registry.to_relationship_book()
-        agreement_book = runner.agreement_registry.to_book()
         characters = {}
         sentiment_count = 0
         active_goal_count = 0
@@ -869,7 +839,6 @@ class EpisodeRunner:
             components = {}
             for component_name in (
                 "DriveState",
-                "ObligationState",
                 "SentimentState",
                 "GoalState",
                 "ModifierState",
@@ -918,14 +887,12 @@ class EpisodeRunner:
             "scene": scene.get_snapshot() if scene else {},
             "plots": plots.get_snapshot() if plots else {},
             "relationships": relationship_book.model_dump(mode="json"),
-            "agreements": agreement_book.model_dump(mode="json"),
             "world_events": world_events,
         }
         scene_snapshot = scene.get_snapshot() if scene else {}
         material_scene = deepcopy_json(scene_snapshot)
         for flag in self._DERIVED_SCENE_FLAGS:
             material_scene.get("scene_flags", {}).pop(flag, None)
-        obligations = {}
         drives = {}
         cognitions = {}
         sentiments = {}
@@ -936,7 +903,6 @@ class EpisodeRunner:
         for name, entity in sorted(runner.entities.items()):
             if entity.get_component("AgentController") is None:
                 continue
-            obligation = entity.get_component("ObligationState")
             drive = entity.get_component("DriveState")
             cognition = entity.get_component("Cognition")
             sentiment = entity.get_component("SentimentState")
@@ -944,9 +910,6 @@ class EpisodeRunner:
             modifier_state = entity.get_component("ModifierState")
             knowledge_state = entity.get_component("KnowledgeState")
             navigation_state = entity.get_component("NavigationState")
-            obligations[name] = (
-                obligation.model_dump(mode="json") if obligation is not None else {}
-            )
             drive_payload = drive.model_dump(mode="json") if drive is not None else {}
             drive_payload.pop("last_advanced_step", None)
             drives[name] = drive_payload
@@ -981,8 +944,6 @@ class EpisodeRunner:
             "scene": material_scene,
             "plots": plots.get_snapshot() if plots else {},
             "relationships": relationship_book.model_dump(mode="json"),
-            "agreements": agreement_book.model_dump(mode="json"),
-            "obligations": obligations,
             "drives": drives,
             "cognitions": cognitions,
             "sentiments": sentiments,
@@ -999,7 +960,6 @@ class EpisodeRunner:
             "character_hash": self._hash(characters),
             "relationship_count": len(relationship_book.relationships),
             "sentiment_count": sentiment_count,
-            "agreement_count": len(agreement_book.agreements),
             "active_goal_count": active_goal_count,
             "verifiable_goal_count": verifiable_goal_count,
             "active_verifiable_goal_count": active_verifiable_goal_count,
@@ -1028,8 +988,6 @@ class EpisodeRunner:
                 "scene",
                 "plots",
                 "relationships",
-                "agreements",
-                "obligations",
                 "drives",
                 "cognitions",
                 "sentiments",
@@ -1088,48 +1046,6 @@ class EpisodeRunner:
             if new_clock >= max_clock > old_clock:
                 changes.append(f"plot_completed:{plot_id}")
 
-        before_agreements = before_parts.get("agreements", {}).get("agreements", {})
-        after_agreements = after_parts.get("agreements", {}).get("agreements", {})
-        terminal_agreements = {
-            "settled",
-            "rejected",
-            "withdrawn",
-            "expired",
-            "countered",
-        }
-        for agreement_id, record in after_agreements.items():
-            if agreement_id not in before_agreements:
-                changes.append(f"agreement_created:{agreement_id}")
-            old_status = str(before_agreements.get(agreement_id, {}).get("status", ""))
-            new_status = str(record.get("status", ""))
-            if new_status in terminal_agreements and old_status != new_status:
-                changes.append(f"agreement_resolved:{agreement_id}:{new_status}")
-            old_performance = str(
-                before_agreements.get(agreement_id, {}).get("performance_status", "")
-            )
-            new_performance = str(record.get("performance_status", ""))
-            if new_performance in {"fulfilled", "breached", "cancelled"} and (
-                old_performance != new_performance
-            ):
-                changes.append(
-                    f"agreement_performance_resolved:{agreement_id}:{new_performance}"
-                )
-
-        before_obligations = before_parts.get("obligations", {})
-        after_obligations = after_parts.get("obligations", {})
-        terminal_obligations = {"fulfilled", "breached", "cancelled", "delegated"}
-        for actor, state in after_obligations.items():
-            records = state.get("obligations", {})
-            old_records = before_obligations.get(actor, {}).get("obligations", {})
-            for obligation_id, record in records.items():
-                if obligation_id not in old_records:
-                    changes.append(f"obligation_created:{actor}:{obligation_id}")
-                old_status = str(old_records.get(obligation_id, {}).get("status", ""))
-                new_status = str(record.get("status", ""))
-                if new_status in terminal_obligations and old_status != new_status:
-                    changes.append(
-                        f"obligation_resolved:{actor}:{obligation_id}:{new_status}"
-                    )
         before_goals = before_parts.get("goals", {})
         after_goals = after_parts.get("goals", {})
         for actor, state in after_goals.items():
@@ -1283,160 +1199,6 @@ class EpisodeRunner:
                                 f"<-actor_absence:{actor}:{location}"
                             )
 
-        before_agreements = before_parts.get("agreements", {}).get(
-            "agreements", {}
-        )
-        after_agreements = after_parts.get("agreements", {}).get(
-            "agreements", {}
-        )
-        for agreement_id, record in after_agreements.items():
-            if agreement_id not in before_agreements:
-                source_kind = str(record.get("source_kind", "")).strip()
-                source_ref = str(record.get("source_ref", "")).strip()
-                if source_kind and source_ref:
-                    edges.append(
-                        f"agreement:{agreement_id}<-{source_kind}:{source_ref}"
-                    )
-            old_status = str(
-                before_agreements.get(agreement_id, {}).get("status", "")
-            ).strip()
-            new_status = str(record.get("status", "")).strip()
-            if new_status in {
-                "settled",
-                "rejected",
-                "withdrawn",
-                "expired",
-                "countered",
-            } and old_status != new_status:
-                resolution_node = (
-                    f"agreement_resolution:{agreement_id}:{new_status}"
-                )
-                edges.append(f"{resolution_node}<-agreement:{agreement_id}")
-                source_kind = str(
-                    record.get("resolution_source_kind", "")
-                ).strip()
-                source_ref = str(
-                    record.get("resolution_source_ref", "")
-                ).strip()
-                if source_kind and source_ref:
-                    edges.append(
-                        f"{resolution_node}<-{source_kind}:{source_ref}"
-                    )
-            old_performance = str(
-                before_agreements.get(agreement_id, {}).get(
-                    "performance_status", ""
-                )
-            ).strip()
-            new_performance = str(
-                record.get("performance_status", "")
-            ).strip()
-            if new_performance in {
-                "fulfilled",
-                "breached",
-                "cancelled",
-            } and old_performance != new_performance:
-                performance_node = (
-                    f"agreement_performance_resolution:{agreement_id}:"
-                    f"{new_performance}"
-                )
-                edges.append(
-                    f"{performance_node}"
-                    f"<-agreement_resolution:{agreement_id}:settled"
-                )
-                for link in record.get("performance_obligations", []) or []:
-                    if not isinstance(link, dict):
-                        continue
-                    if str(link.get("resolved_status", "")).strip() != new_performance:
-                        continue
-                    actor = str(
-                        link.get("current_actor") or link.get("actor") or ""
-                    ).strip()
-                    obligation_id = str(link.get("obligation_id", "")).strip()
-                    if actor and obligation_id:
-                        edges.append(
-                            f"{performance_node}"
-                            f"<-obligation:{actor}:{obligation_id}"
-                        )
-            old_lots = {
-                str(item.get("custody_id", "")): item
-                for item in before_agreements.get(agreement_id, {}).get(
-                    "escrow_lots", []
-                )
-                if isinstance(item, dict) and str(item.get("custody_id", ""))
-            }
-            for lot in record.get("escrow_lots", []) or []:
-                if not isinstance(lot, dict):
-                    continue
-                custody_id = str(lot.get("custody_id", "")).strip()
-                if not custody_id:
-                    continue
-                escrow_node = f"agreement_escrow:{agreement_id}:{custody_id}"
-                if custody_id not in old_lots:
-                    edges.append(
-                        f"{escrow_node}"
-                        f"<-agreement_resolution:{agreement_id}:settled"
-                    )
-                old_status = str(
-                    old_lots.get(custody_id, {}).get("status", "")
-                ).strip()
-                new_status = str(lot.get("status", "")).strip()
-                if (
-                    new_status not in {"released", "refunded"}
-                    or old_status == new_status
-                ):
-                    continue
-                resolution_node = (
-                    f"agreement_escrow_resolution:{agreement_id}:"
-                    f"{custody_id}:{new_status}"
-                )
-                edges.append(f"{resolution_node}<-{escrow_node}")
-                service_id = str(lot.get("release_on_service", "")).strip()
-                service_status = ""
-                for link in record.get("performance_obligations", []) or []:
-                    if (
-                        isinstance(link, dict)
-                        and str(link.get("obligation_id", "")).strip()
-                        == service_id
-                    ):
-                        service_status = str(
-                            link.get("resolved_status", "")
-                        ).strip()
-                        break
-                if service_status in {"fulfilled", "breached", "cancelled"}:
-                    edges.append(
-                        f"{resolution_node}"
-                        f"<-agreement_performance_resolution:"
-                        f"{agreement_id}:{service_status}"
-                    )
-
-        before_obligations = before_parts.get("obligations", {})
-        after_obligations = after_parts.get("obligations", {})
-        for actor, state in after_obligations.items():
-            records = state.get("obligations", {})
-            old_records = before_obligations.get(actor, {}).get("obligations", {})
-            for obligation_id, record in records.items():
-                if obligation_id in old_records:
-                    continue
-                source_kind = str(record.get("source_kind", "")).strip()
-                source_ref = str(record.get("source_ref", "")).strip()
-                if not source_kind or not source_ref:
-                    continue
-                source = f"{source_kind}:{source_ref}"
-                if source_kind == "delegated_obligation":
-                    source = f"obligation:{source_ref}"
-                edges.append(f"obligation:{actor}:{obligation_id}<-{source}")
-                agreement = after_agreements.get(source_ref, {})
-                old_agreement = before_agreements.get(source_ref, {})
-                if (
-                    source_kind == "agreement"
-                    and str(agreement.get("status", "")) == "settled"
-                    and str(old_agreement.get("status", "")) != "settled"
-                ):
-                    edges.append(
-                        f"obligation:{actor}:{obligation_id}"
-                        f"<-agreement_resolution:{source_ref}:settled"
-                    )
-
         for event_id, payload in after_events.items():
             current = payload.get("responses", {}).get("communications", []) or []
             previous = (
@@ -1532,7 +1294,6 @@ class EpisodeRunner:
                 if not source.startswith((
                     "resolved_action:",
                     "world_event:",
-                    "agreement_performance_resolution:",
                 )):
                     continue
                 edges.append(f"sentiment:{actor}:{sentiment_id}<-{source}")
@@ -1583,12 +1344,6 @@ class EpisodeRunner:
                     if not source_kind or not source_ref:
                         continue
                     source = f"{source_kind}:{source_ref}"
-                    if source_kind == "obligation":
-                        source = (
-                            f"obligation:{source_ref}"
-                            if ":" in source_ref
-                            else f"obligation:{actor}:{source_ref}"
-                        )
                     edges.append(f"drive_need:{actor}:{need_id}<-{source}")
 
         before_relationships = before_parts.get("relationships", {}).get(
@@ -1795,7 +1550,7 @@ class EpisodeRunner:
         The Host does not choose her action, so it cannot reconstruct why she
         acted; only she can say. These edges therefore come from her own stated
         ``motive_refs``, already checked by InputSystem against the goals,
-        obligations, sentiments and needs she actually holds -- an unheld
+        sentiments and needs she actually holds -- an unheld
         reference never reaches here. Nothing is inferred from action prose.
         """
 
@@ -1954,14 +1709,7 @@ class EpisodeRunner:
 
     @staticmethod
     def _commitment_resolutions(traces: Iterable[EpisodeStepTrace]) -> int:
-        return sum(
-            1
-            for trace in traces
-            for change in trace.irreversible_changes
-            if change.startswith(
-                ("obligation_resolved:", "agreement_performance_resolved:")
-            )
-        )
+        return 0
 
     @staticmethod
     def _deadlocked(traces: List[EpisodeStepTrace], window: int = 4) -> bool:

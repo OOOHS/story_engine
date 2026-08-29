@@ -20,8 +20,6 @@ def test_authority_filter_strips_exact_social_plot_and_settlement_writes():
         "relationship_updates": [
             {"source": "甲", "target": "乙", "trust_delta": 5}
         ],
-        "contract_settlements": [{"agreement_id": "a1"}],
-        "contract_authorizations": {"a1": ["甲"]},
         "storylet_hits": ["forced_beat"],
         "social_impacts": [
             {
@@ -49,8 +47,6 @@ def test_authority_filter_strips_exact_social_plot_and_settlement_writes():
 
     assert filtered.result["plot_updates"] == []
     assert filtered.result["relationship_updates"] == []
-    assert filtered.result["contract_settlements"] == []
-    assert filtered.result["contract_authorizations"] == {}
     assert filtered.result["storylet_hits"] == []
     assert filtered.result["social_impacts"][0]["kind"] == "grateful"
     assert filtered.result["social_impacts"][0]["magnitude"] == 0.9
@@ -64,8 +60,6 @@ def test_authority_filter_strips_exact_social_plot_and_settlement_writes():
     assert set(filtered.rejected_writes) == {
         "result.plot_updates",
         "result.relationship_updates",
-        "result.contract_settlements",
-        "result.contract_authorizations",
         "result.storylet_hits",
         "uncertain_outcomes[0].success.plot_updates",
         "uncertain_outcomes[0].success.relationship_updates",

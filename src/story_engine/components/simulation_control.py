@@ -80,7 +80,7 @@ class SimulationControl(Component):
 10. **不替宿主掷骰**：规则和当前事实足以确定的行动直接写 resolved_actions；真正存在不确定性的物理或观察行动只能写 uncertain_outcomes，同时给出成功/失败两个候选事实分支。你只能选择固定 difficulty 和所需 capability，不能输出概率、随机数、数值 modifier，不能同时把该 actor 写进 resolved_actions
 11. **临时 Modifier 不是万能状态**：只有本轮已提交行动确实让角色形成疲惫、专注、受伤后的谨慎等临时非社交行为影响时，才可从 `modifier_catalog` 选择 kind。物理事实仍写 SceneState，针对某人的感受仍写 social_impacts；持续时间、叠加、权重和到期由宿主决定
 12. **客观事实与角色知识分离**：`claim_catalog` 是 GM 可用的客观命题目录，但角色只能通过有效主动观察发现已连接且可见的 evidence，或由同场知情角色通过 communicate 传播 Claim。WorldEvent 同样只能由直接或自身见证者使用真实 event_id 转述；宿主从事件实体读取原始 statement，不能借 event_id 改写事件内容。不能把 truth_status、宿主条件、未发现的证据或未获知事件写进角色知识
-13. **结构性写权由宿主管理，数值幅度由你直接给**：不要输出 relationship_updates 或 plot_updates——长期关系轨道由宿主固定映射沉淀；已有 Plot 的钟只能由已提交世界事实触发因果规则，不能直接写 plot_updates 或编造 clock；要不要开新剧情线、登记新剧情点或给某个角色投递提示，不是你的职责，由结算之后的叙事导演决定。但短期社会反应（social_impacts/modifier_updates 的 magnitude）、Drive 变化（drive_updates 的 delta）、新压力条的漂移与临界值（drive_creations 的 drift_per_turn/critical_threshold）、义务成本（obligation_updates 的 due_pressure_delta/breach_pressure_delta）、以及场景张力（tension_delta），都由你按情境给出具体浮点数；宿主只做范围裁剪，不重新定档
+13. **结构性写权由宿主管理，数值幅度由你直接给**：不要输出 relationship_updates 或 plot_updates——长期关系轨道由宿主固定映射沉淀；已有 Plot 的钟只能由已提交世界事实触发因果规则，不能直接写 plot_updates 或编造 clock；要不要开新剧情线、登记新剧情点或给某个角色投递提示，不是你的职责，由结算之后的叙事导演决定。但短期社会反应（social_impacts/modifier_updates 的 magnitude）、Drive 变化（drive_updates 的 delta）、新压力条的漂移与临界值（drive_creations 的 drift_per_turn/critical_threshold）、以及场景张力（tension_delta），都由你按情境给出具体浮点数；宿主只做范围裁剪，不重新定档
 14. **communicate 不需要你裁定成不成功**：说话能不能说出口，不是语义判断——只要合法性没有拦（同地点可达），宿主一律无条件视为送达成功，你在 resolved_actions 里给这类 actor 写的 outcome/result 都会被宿主直接丢弃重写，写了不会生效，不必费力去判断。但这句话说了什么仍然可能有内容后果，那部分依然由你判断：如果它构成对已知 WorldEvent 的转述/回应，照常给 knowledge_updates（event_id + response_kind）；如果内容本身构成值得记录的社会互动，照常给 social_impacts/modifier_updates
 
 ## 剧本设定
@@ -105,9 +105,6 @@ class SimulationControl(Component):
 ## GM 可用的客观 Claim 目录
 {json.dumps(input_payload.get("claim_catalog", []), ensure_ascii=False, indent=2)}
 
-## 当前权威 Agreement 快照
-{json.dumps(input_payload.get("agreement_snapshot", {}), ensure_ascii=False, indent=2)}
-
 ## 本轮宿主签发的角色入口授权
 {json.dumps(input_payload.get("character_entry_authorizations", []), ensure_ascii=False, indent=2)}
 
@@ -124,9 +121,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
 
 ## 行动角色的私有驱动力
 {json.dumps(input_payload.get("drive_context", {}), ensure_ascii=False, indent=2)}
-
-## 行动角色的私有义务与期限
-{json.dumps(input_payload.get("obligation_context", {}), ensure_ascii=False, indent=2)}
 
 ## 合法性裁决
 {json.dumps(input_payload.get("legality", {}), ensure_ascii=False, indent=2)}
@@ -256,56 +250,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
       "reason": "双方哪两条本轮行动明确达成了交换"
     }}
   ],
-  "agreement_updates": [
-    {{
-      "operation": "propose | counter | accept | reject | withdraw",
-      "agreement_id": "propose 的新关系 id；其余操作引用的已有 Agreement Entity id",
-      "new_agreement_id": "counter 时必填的新报价关系 id",
-      "actor": "本轮实际提出、反报价、接受、拒绝或撤回的角色",
-      "parties": ["propose 时填写；counter 时必须与旧报价完全相同"],
-      "title": "propose/counter 时的简短报价标题",
-      "summary": "propose/counter 时的完整替换条款摘要",
-      "expires_step": 8,
-      "transfers": [
-        {{"from": "甲", "to": "乙", "object_id": "已有对象", "quantity": 1}}
-      ],
-      "delegations": [
-        {{"actor": "甲", "delegate": "乙", "obligation_id": "已有义务 id"}}
-      ],
-      "services": [
-        {{
-          "actor": "乙",
-          "creditor": "甲",
-          "obligation_id": "repair_watch",
-          "title": "修好怀表",
-          "summary": "收到报酬后完成修理并交还",
-          "due_after_steps": 4,
-          "grace_steps": 1,
-          "wake_before_steps": 1,
-          "delegation_policy": "creditor_consent",
-          "completion_conditions": [
-            {{
-              "scope": "world_object",
-              "target": "怀表",
-              "path": "owner",
-              "operator": "eq",
-              "value": "甲"
-            }}
-          ]
-        }}
-      ],
-      "escrows": [
-        {{
-          "transfer": {{"from": "甲", "object_id": "甲的铜币", "quantity": 2}},
-          "release_to": "乙",
-          "refund_to": "甲",
-          "release_on_service": "repair_watch",
-          "refund_on": ["breached", "cancelled"]
-        }}
-      ],
-      "reason": "本轮哪条角色行动提出或回应了该报价"
-    }}
-  ],
   "drive_updates": [
     {{
       "actor": "需求受到影响的角色",
@@ -325,38 +269,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
       "reason": "哪条本轮事实催生了这个全新的持续压力"
     }}
   ],
-  "obligation_updates": [
-    {{
-      "operation": "create | fulfill | cancel | delegate",
-      "actor": "承担义务的角色",
-      "source": "本轮产生承诺、完成或解除事实的行动 actor",
-      "obligation_id": "稳定且角色内唯一的 id",
-      "title": "create 时必填的简短责任",
-      "summary": "具体要完成什么",
-      "creditor": "可选，义务面向的已有角色",
-      "due_step": 5,
-      "grace_steps": 0,
-      "wake_before_steps": 1,
-      "pressure_need": "可选，该角色已有的 need 名称",
-      "due_pressure_delta": "0.0~0.3 之间的浮点数，到期成本",
-      "breach_pressure_delta": "0.0~0.4 之间的浮点数，违约成本，必须不小于到期成本",
-      "completion_conditions": [
-        {{
-          "scope": "actor | world_object",
-          "target": "已有角色或当前对 debtor 可见的对象",
-          "path": "location | owner | hidden",
-          "operator": "eq",
-          "value": "已有地点、角色或布尔值"
-        }}
-      ],
-      "delegate": "delegate 操作的新承担者",
-      "accepted_by": "delegate 操作必须与 delegate 相同",
-      "delegate_pressure_need": "可选，新承担者已有的 need",
-      "delegation_policy": "create 可选：forbidden | bilateral | creditor_consent",
-      "approved_by": "creditor_consent 委托时必须等于原 creditor",
-      "reason": "哪条已结算事实创建、完成或解除义务"
-    }}
-  ],
   "spawn_character": null,
   "simulation_notes": ["供渲染阶段参考的事实备注"]
 }}
@@ -365,21 +277,17 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
 
 `state_updates.world_objects` 只能修改已有对象的普通描述属性，不能创建对象，也不能直接写 owner、location、container、sub_location、hidden、portable、kind、is_location、quantity、stack_key、affordances、is_container、container_capacity、container_size、container_open 或 container_opaque。空间拓扑 `connected_to / zones / default_zone / aliases / is_location` 也属于宿主 world-building 权限，即使引用的地点有效也会被普通语义事务拒绝。`spawn` 与 `relocate` 必须且只能填写 owner/location/container 之一；container 必须是内容包预定义、容量足够且当前打开的容器，不能把对象放入自身或形成嵌套循环。动态 spawn 不能自行发明 affordance、stack_key 或容器能力。`set_visibility` 只需要 hidden；`set_container_state` 只用于已有容器并填写 open；关闭且不透明的容器会遮蔽内容，关闭的容器内容即使透明可见也不能直接操作。`use` 必须填写对象状态中真实存在的 affordance_id，其 consumes、exclusive、requires_owner、requires_capabilities 和 need_effects 都由内容包预先定义，不能由本轮输出伪造；缺少能力或所有权时不能声称使用成功；非空容器不能被直接销毁或消耗。`destroy` 不填写放置字段。对象生命周期操作必须引用本轮同一 actor 的已结算行动；角色必须与对象和目标 owner/location/container 的有效地点物理同场。移动外层容器会自然携带全部嵌套内容，不要逐项伪造 relocate。多个角色同轮争夺有限或独占对象时，引擎会按 simultaneous proposal 语义统一仲裁，不要依靠 object_lifecycle 数组顺序暗示赢家。不要通过对象生命周期创建新地点或修改空间图。
 
-`exchanges` 用于双方明确同意的物品、货币或资源交换。每个 exchange 只允许两个已有角色，双方必须同场、本轮都真实提交 proposal，并分别拥有非 hidden 的正向 resolved action；`accepted_by` 必须与 parties 完全一致。每条 transfer 的 from 必须真实拥有 object_id，物品必须 portable 且已向对方公开；同一对象不能同时出现在 object_lifecycle。quantity 缺省为整件/全部堆栈，部分数量转移要求内容预定义不可由模型改写的 stack_key，引擎会确定性拆分或合并堆栈。所有 transfer、对象所有权、数量变化以及同轮 obligation delegation 在一个 WorldStateTransaction 中原子提交；数量不足、双花、异地接受、隐藏物品或任一后续写入非法都会整批回滚。
+`exchanges` 用于双方明确同意的物品、货币或资源交换。每个 exchange 只允许两个已有角色，双方必须同场、本轮都真实提交 proposal，并分别拥有非 hidden 的正向 resolved action；`accepted_by` 必须与 parties 完全一致。每条 transfer 的 from 必须真实拥有 object_id，物品必须 portable 且已向对方公开；同一对象不能同时出现在 object_lifecycle。quantity 缺省为整件/全部堆栈，部分数量转移要求内容预定义不可由模型改写的 stack_key，引擎会确定性拆分或合并堆栈。所有 transfer、对象所有权与数量变化在一个 WorldStateTransaction 中原子提交；数量不足、双花、异地接受、隐藏物品或任一后续写入非法都会整批回滚。
 
-你不能输出 `agreement_updates` 或 `contract_updates`。正式 Agreement 只能来自角色 proposal 中经过 Input 校验的模板、资产报价或 pending Agreement 引用，并由宿主在你的语义结算之后编译。你只需把角色真实的 communicate 结算为正向、失败或受阻；普通试探、含糊答复和未正式接受的讨价还价只属于 communication、Cognition 与 Memory。不要声明协议已经 settled/countered/expired，不要生成托管、授权、履约状态或资产条款。
-
-`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capabilities/skills 的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识、协议提议、Drive 或 Obligation 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates、plot_updates 或 tension_delta；分支内的 social_impacts/drive_updates 遵循与顶层相同的数值规则。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
+`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capability/skill 名称的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识或 Drive 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates、plot_updates 或 tension_delta；分支内的 social_impacts/drive_updates 遵循与顶层相同的数值规则。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
 
 `knowledge_updates.event_id` 的规范 statement 由宿主 Event Entity 决定。可选 `response_kind` 只描述本轮真实 communicate 对该事件采取的社会行为：report、explain、apologize、accuse、request、forgive 或 acknowledge；无效值会退化为普通 report。它只形成可审计的 Event response，不代表接收者相信、接受道歉、承认指控或改变关系。
 
-即时羞辱、帮助、威胁、欺骗嫌疑、被救助或违约带来的主观反应写 `social_impacts`。source 必须有一条 affected 在同地点亲自可观察的非 hidden 已结算行动；kind 只能使用模板枚举，magnitude 直接给 0.0~1.0 的浮点数（宿主只做范围裁剪），不能附带 policy weight、概率、关系 delta 或持续时间。这只是你替 affected 给出的默认猜测：affected 如果有自己的角色 agent，她本人这一轮如果已经自己报告了对 source 的感受，宿主会直接采用她自己的账本，丢弃你在这里的猜测，不会重复叠加。宿主依据 Sentiment 定义用这个数创建感受、决定衰减和行动效用，并让其中一小部分按固定函数沉淀到长期 Relationship Track。Event response 与 Sentiment 分离：例如"甲道歉"是客观社会行为，"乙感到 relieved 或仍然 angry"才是乙的私有评价。
+即时羞辱、帮助、威胁、欺骗嫌疑或被救助带来的主观反应写 `social_impacts`。source 必须有一条 affected 在同地点亲自可观察的非 hidden 已结算行动；kind 只能使用模板枚举，magnitude 直接给 0.0~1.0 的浮点数（宿主只做范围裁剪），不能附带 policy weight、概率、关系 delta 或持续时间。这只是你替 affected 给出的默认猜测：affected 如果有自己的角色 agent，她本人这一轮如果已经自己报告了对 source 的感受，宿主会直接采用她自己的账本，丢弃你在这里的猜测，不会重复叠加。宿主依据 Sentiment 定义用这个数创建感受、决定衰减和行动效用，并让其中一小部分按固定函数沉淀到长期 Relationship Track。Event response 与 Sentiment 分离：例如"甲道歉"是客观社会行为，"乙感到 relieved 或仍然 angry"才是乙的私有评价。
 
 只有本轮已结算行动确实改变了某个角色的持续压力时才输出 `drive_updates`。delta 直接给 -0.4~0.4 之间的浮点数（正数加剧、负数缓解，宿主只做范围裁剪）；need 必须已经存在于该角色 DriveState。source 不是 actor 本人时，对应行动必须在 actor 所在地可观察，异地或 hidden 行动不能隔空改变对方压力。对象 affordance 已自动产生的 need_effect 不要在 drive_updates 中重复计算。
 
 {drive_creation_guidance}
-
-只有本轮真实出现了承诺、任务指派、履行、明确解除或各方同意的责任转交时才输出 `obligation_updates`。模型不能输出 breach，违约由截止时间自动判定；create 的 due_step 必须是当前 step 到未来 200 步内，pressure_need 必须已经存在。`due_pressure_delta`/`breach_pressure_delta` 直接给 0.0~0.3 / 0.0~0.4 之间的浮点数（宿主只做范围裁剪，并强制违约成本不低于到期成本）。动态 completion_conditions 最多四条，只允许 debtor 自己的 actor.location，或 debtor 当前确实可见对象的 location/owner/hidden 与权威值做 eq 比较；不能引用 plot、秘密对象、其他角色的私有状态或任意字段。fulfill/cancel 必须引用已有 obligation，并由 source 的本轮已结算行动支持。create 可用 delegation_policy 声明 forbidden、bilateral 或 creditor_consent，缺省为 creditor_consent。delegate 必须保留原期限和事实条件：当前 debtor 与新 delegate 必须同场并各自有 proposal 和非 hidden 正向 resolved action，accepted_by 必须等于 delegate；若 policy 为 creditor_consent 且 creditor 是第三方，该 creditor 也必须同场、有自己的 proposal/action，且 approved_by 必须等于 creditor。完成条件中的对象必须对新 delegate 可见，Plot/scene/其他角色条件不能借委托泄漏。引擎会原子地把旧记录标为 delegated，并在新承担者处建立带谱系的 active 记录。仅仅在 Agent 私有回复中声称“我完成了、取消了或把任务交给别人”不能改变义务。
 
 只输出 JSON，不要输出解释，不要使用 Markdown。
 """
@@ -531,24 +439,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             item for item in exchanges if isinstance(item, dict)
         ]
 
-        agreement_updates = data.get(
-            "agreement_updates", data.get("contract_updates", [])
-        )
-        if not isinstance(agreement_updates, list):
-            agreement_updates = []
-        normalized_agreements = []
-        for item in agreement_updates:
-            if not isinstance(item, dict):
-                continue
-            normalized = dict(item)
-            if normalized.get("agreement_id") and not normalized.get("contract_id"):
-                normalized["contract_id"] = normalized["agreement_id"]
-            if normalized.get("new_agreement_id") and not normalized.get("new_contract_id"):
-                normalized["new_contract_id"] = normalized["new_agreement_id"]
-            normalized_agreements.append(normalized)
-        result["agreement_updates"] = normalized_agreements
-        result["contract_updates"] = normalized_agreements
-
         drive_updates = data.get("drive_updates", [])
         if not isinstance(drive_updates, list):
             drive_updates = []
@@ -570,13 +460,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
         # LLM response can never smuggle either in through this path.
         result["director_signals"] = []
         result["plot_beat_proposals"] = []
-
-        obligation_updates = data.get("obligation_updates", [])
-        if not isinstance(obligation_updates, list):
-            obligation_updates = []
-        result["obligation_updates"] = [
-            item for item in obligation_updates if isinstance(item, dict)
-        ]
 
         spawn_character = data.get("spawn_character")
         if spawn_character is None and isinstance(data.get("introduce_character"), dict):
@@ -704,13 +587,10 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             "claim_discoveries": [],
             "object_lifecycle": [],
             "exchanges": [],
-            "contract_updates": [],
-            "agreement_updates": [],
             "drive_updates": [],
             "drive_creations": [],
             "director_signals": [],
             "plot_beat_proposals": [],
-            "obligation_updates": [],
             "spawn_character": None,
             "simulation_notes": [],
             "applied_conflict_templates": [],
@@ -801,18 +681,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
                         str(party).strip()
                         for party in exchange.get("parties", [])
                     }
-                ]
-                result["contract_updates"] = [
-                    update
-                    for update in result.get("contract_updates", [])
-                    if not isinstance(update, dict)
-                    or str(update.get("actor", "")).strip() != str(actor)
-                ]
-                result["agreement_updates"] = [
-                    update
-                    for update in result.get("agreement_updates", [])
-                    if not isinstance(update, dict)
-                    or str(update.get("actor", "")).strip() != str(actor)
                 ]
                 result["social_impacts"] = [
                     impact

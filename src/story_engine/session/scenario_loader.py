@@ -209,7 +209,6 @@ def setup_scenario(runner: Runner, scenario: ScenarioConfig) -> None:
             initial_needs=char_config.initial_needs,
             initial_traits=char_config.initial_traits,
             risk_tolerance=char_config.risk_tolerance,
-            initial_obligations=char_config.initial_obligations,
             goal_specs=char_config.goal_specs,
             initial_claim_knowledge=char_config.initial_claim_knowledge,
             memory_namespace=runner.memory_namespace,

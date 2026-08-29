@@ -187,7 +187,7 @@ class HermesCharacterAgent:
         registration, offered because nobody else -- least of all the GM -- is
         positioned to invent them on her behalf: ``sentiment_updates`` (how she
         now feels toward someone) and ``motive_refs`` (which of her own goals,
-        obligations, sentiments or needs this action was for). The Host
+        sentiments or needs this action was for). The Host
         validates and bounds both before they can touch authoritative state or
         the causal audit; a motive citing something she does not hold is
         dropped rather than believed.

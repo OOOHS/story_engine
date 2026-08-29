@@ -52,9 +52,6 @@ class NavigationSystem(System):
                 knowledge.get_map_snapshot(), origin, destination,
                 blocked_edge=(origin, route_target),
             )
-            obligation_id, remaining = self._relevant_obligation(
-                entity, destination, step
-            )
             seed = f"{actor}|{origin}|{route_target}|{destination}"
             problem_id = f"navigation:{sha256(seed.encode('utf-8')).hexdigest()[:16]}"
             problem = NavigationProblem(
@@ -65,8 +62,6 @@ class NavigationSystem(System):
                 discovered_at=origin,
                 discovered_step=step,
                 alternative_path=alternative,
-                obligation_id=obligation_id,
-                steps_remaining=remaining,
                 failure_rule=str(check.get("rule", "")).strip(),
                 reason=str(check.get("reason", "")).strip(),
             )
@@ -92,23 +87,6 @@ class NavigationSystem(System):
         return LegalityEngine.find_known_path(
             {**map_snapshot, "known_routes": routes}, origin, destination
         )
-
-    @staticmethod
-    def _relevant_obligation(
-        entity: Entity, destination: str, step: int
-    ) -> tuple[str, int | None]:
-        obligations = entity.get_component("ObligationState")
-        if obligations is None:
-            return "", None
-        for record in obligations.obligations.values():
-            if record.status not in {"scheduled", "due"}:
-                continue
-            if any(
-                condition.get("value") == destination
-                for condition in record.completion_conditions
-            ):
-                return record.obligation_id, record.due_step - int(step)
-        return "", None
 
     @staticmethod
     def _component(entities: Dict[str, Entity], component_name: str) -> Any:

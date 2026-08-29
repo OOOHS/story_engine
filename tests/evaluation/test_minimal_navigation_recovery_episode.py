@@ -16,7 +16,6 @@ def test_navigation_recovery_seed_has_no_authored_narrative_dependency():
     assert scenario.storylets == []
     assert scenario.plot_entities == []
     assert scenario.plot_rules == []
-    assert scenario.agreement_offer_templates == []
 
 
 def test_stale_route_grows_a_recovery_goal_and_reaches_stable_closure():

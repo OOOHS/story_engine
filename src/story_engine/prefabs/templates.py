@@ -6,7 +6,6 @@ from src.story_engine.components.planning import Planning
 from src.story_engine.components.agent_controller import AgentController
 from src.story_engine.components.cognition import Cognition
 from src.story_engine.components.drive_state import DriveState
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.trait_state import TraitState
 from src.story_engine.components.sentiment_state import SentimentState
 from src.story_engine.components.goal_state import GoalState
@@ -32,7 +31,6 @@ def create_agent(
     initial_needs: list = None,
     initial_traits: list = None,
     risk_tolerance: float = 0.5,
-    initial_obligations: list = None,
     goal_specs: list = None,
     initial_claim_knowledge: list = None,
     memory_namespace: str = None,
@@ -59,7 +57,6 @@ def create_agent(
     )
     entity.add_component(TraitState.from_initial(initial_traits or []))
     entity.add_component(SentimentState())
-    entity.add_component(ObligationState.from_initial(initial_obligations or []))
     entity.add_component(GoalState.from_initial(goals, goal_specs or []))
     entity.add_component(ModifierState())
     entity.add_component(KnowledgeState.from_initial(initial_claim_knowledge or []))

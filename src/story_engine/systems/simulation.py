@@ -4,7 +4,6 @@ from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.character_lifecycle import CharacterLifecycle
 from src.story_engine.environment.character_entries import CharacterEntryAuthority
-from src.story_engine.environment.contracts import ContractDynamics
 from src.story_engine.environment.world_transaction import (
     TransactionResult,
     WorldStateTransaction,
@@ -23,7 +22,6 @@ from src.story_engine.simulation import (
     ClaimCommunicationResolver,
     CommunicationResolver,
     ObjectDeliveryResolver,
-    AgreementActionResolver,
     RouteCommunicationResolver,
     ProposalArbiter,
     ResourceContestResolver,
@@ -45,7 +43,6 @@ class SimulationSystem(System):
         self.social = SocialDynamics()
         self.characters = CharacterLifecycle()
         self.character_entries = CharacterEntryAuthority()
-        self.contracts = ContractDynamics()
         self.transaction = WorldStateTransaction()
         self.proposals = ProposalArbiter()
         self.resource_contests = ResourceContestResolver()
@@ -56,7 +53,6 @@ class SimulationSystem(System):
         self.communications = CommunicationResolver()
         self.claim_communications = ClaimCommunicationResolver()
         self.object_deliveries = ObjectDeliveryResolver()
-        self.agreement_actions = AgreementActionResolver()
         self.route_communications = RouteCommunicationResolver()
         self.authority = SemanticAuthorityFilter()
 
@@ -69,11 +65,7 @@ class SimulationSystem(System):
             scene_state = entity.get_component("SceneState")
             drama_state = entity.get_component("DramaState")
             plot_state = entity.get_component("PlotState")
-            relation_registry = context.get("relation_registry") or getattr(
-                context.get("agreement_registry"), "relation_registry", None
-            )
-            if relation_registry is not None:
-                context["relation_registry"] = relation_registry
+            relation_registry = context.get("relation_registry")
             relation_before = relation_registry.snapshot() if relation_registry else None
             relationship_book = (
                 relation_registry.to_relationship_book() if relation_registry else None
@@ -181,21 +173,11 @@ class SimulationSystem(System):
                     entities,
                     context.get("intents", []),
                 ),
-                "obligation_context": self._build_obligation_context(
-                    entities,
-                    context.get("intents", []),
-                    current_step,
-                ),
                 "modifier_catalog": list(context.get("modifier_catalog", [])),
                 "claim_catalog": (
                     context["claim_registry"].gm_catalog()
                     if context.get("claim_registry") is not None
                     else []
-                ),
-                "agreement_snapshot": (
-                    context["agreement_registry"].to_book().model_dump(mode="json")
-                    if context.get("agreement_registry") is not None
-                    else {}
                 ),
                 "character_entry_authorizations": list(
                     context.get("character_spawn_authorizations", [])
@@ -330,47 +312,16 @@ class SimulationSystem(System):
                     self.object_deliveries,
                     {"intents": intents, "scene_state": scene_state},
                 ),
-                (
-                    "agreement_action_traces",
-                    self.agreement_actions,
-                    {
-                        "intents": intents,
-                        "scenario": scenario,
-                        "current_step": current_step,
-                    },
-                ),
             ):
                 resolution = resolver.resolve(result, **kwargs)
                 result = resolution.result
                 context[trace_key] = list(resolution.traces)
-            agreement_registry = context.get("agreement_registry")
-            agreement_book = (
-                agreement_registry.to_book()
-                if agreement_registry
-                else None
-            )
             proposal_actors = {
                 str(item.get("actor", "")).strip()
                 for item in context.get("intents", [])
                 if isinstance(item, dict)
                 and str(item.get("actor", "")).strip()
             }
-            existing_obligation_states = {
-                entity_name: obligations
-                for entity_name, character_entity in entities.items()
-                if (
-                    obligations := character_entity.get_component("ObligationState")
-                ) is not None
-            }
-            contract_resolution = self.contracts.resolve(
-                agreement_book,
-                scene_state,
-                existing_obligation_states,
-                result,
-                current_step=current_step,
-                proposal_actors=proposal_actors,
-            )
-            result = contract_resolution.result
             result = self.resource_contests.resolve(
                 scene_state,
                 result,
@@ -403,17 +354,6 @@ class SimulationSystem(System):
                 prepared_drive = spawn_plan.entity.get_component("DriveState")
                 if prepared_drive is not None:
                     drive_states[spawn_plan.name] = prepared_drive
-            obligation_states = {
-                entity_name: obligations
-                for entity_name, character_entity in entities.items()
-                if (
-                    obligations := character_entity.get_component("ObligationState")
-                ) is not None
-            }
-            if spawn_plan is not None:
-                prepared_obligations = spawn_plan.entity.get_component("ObligationState")
-                if prepared_obligations is not None:
-                    obligation_states[spawn_plan.name] = prepared_obligations
             spawned: List[str] = []
             preparation_errors = list(outcome_errors) + list(
                 spawn_preparation.errors
@@ -435,10 +375,8 @@ class SimulationSystem(System):
                     relationship_book=relationship_book,
                     character_spawn_plan=spawn_plan,
                     drive_states=drive_states,
-                    obligation_states=obligation_states,
                     current_step=current_step,
                     proposal_actors=proposal_actors,
-                    agreement_book=agreement_book,
                     emergent_meter_budget=int(
                         getattr(scenario, "emergent_meter_budget", 0) or 0
                     ),
@@ -467,8 +405,6 @@ class SimulationSystem(System):
                         relation_registry.apply_relationship_book(
                             relationship_book, entities
                         )
-                        if agreement_registry is not None:
-                            agreement_registry.apply_book(agreement_book, entities)
                     except Exception as exc:
                         if transaction_result.checkpoint:
                             transaction_result.checkpoint.restore()
@@ -476,7 +412,7 @@ class SimulationSystem(System):
                             relation_registry.restore(relation_before, entities)
                         transaction_result = TransactionResult(
                             False,
-                            [f"agreement entity publication rolled back: {exc}"],
+                            [f"relationship publication rolled back: {exc}"],
                         )
                 if (
                     transaction_result.committed
@@ -627,11 +563,6 @@ class SimulationSystem(System):
                 entities,
                 context.get("intents", []),
             )
-            context["obligation_context"] = self._build_obligation_context(
-                entities,
-                context.get("intents", []),
-                current_step,
-            )
             context["state_snapshot"] = scene_state.get_snapshot() if scene_state else {}
             context["player_pov"] = player_pov
             context["visibility_window"] = visibility_window
@@ -641,9 +572,6 @@ class SimulationSystem(System):
                 "committed": transaction_result.committed,
                 "errors": list(transaction_result.errors),
             }
-            context["contract_resolution_errors"] = list(
-                contract_resolution.errors
-            )
             context["outcome_check_errors"] = outcome_errors
             context["outcome_check_traces"] = outcome_traces
 
@@ -673,25 +601,6 @@ class SimulationSystem(System):
             drive = entity.get_component("DriveState") if entity else None
             if drive and hasattr(drive, "get_private_snapshot"):
                 packet[name] = drive.get_private_snapshot()
-        return packet
-
-    def _build_obligation_context(
-        self,
-        entities: Dict[str, Entity],
-        intents: List[Dict[str, Any]],
-        current_step: int,
-    ) -> Dict[str, Any]:
-        relevant_names = {
-            str(item.get("actor", "")).strip()
-            for item in intents or []
-            if isinstance(item, dict) and str(item.get("actor", "")).strip()
-        }
-        packet = {}
-        for name in relevant_names:
-            entity = entities.get(name)
-            obligations = entity.get_component("ObligationState") if entity else None
-            if obligations and hasattr(obligations, "get_private_snapshot"):
-                packet[name] = obligations.get_private_snapshot(current_step)
         return packet
 
     def _build_visibility_window(

@@ -31,9 +31,7 @@ def _branch(outcome, result, description):
         "knowledge_updates": [],
         "object_lifecycle": [],
         "exchanges": [],
-        "agreement_updates": [],
         "drive_updates": [],
-        "obligation_updates": [],
         "tension_delta": 0,
     }
 
@@ -56,9 +54,7 @@ def _result():
         "knowledge_updates": [],
         "object_lifecycle": [],
         "exchanges": [],
-        "agreement_updates": [],
         "drive_updates": [],
-        "obligation_updates": [],
         "tension_delta": 0,
     }
 

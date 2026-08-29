@@ -48,13 +48,6 @@ def test_dynamic_character_enters_entity_world_and_agent_registry_together():
             "initial_beliefs": [
                 {"statement": "有人正在追赶自己", "confidence": 0.7, "source": "脚步声"}
             ],
-            "initial_obligations": [
-                {
-                    "obligation_id": "deliver_letter",
-                    "title": "交出密信",
-                    "due_step": 4,
-                }
-            ],
         },
         player_name="玩家",
         agent_registry=registry,
@@ -77,7 +70,6 @@ def test_dynamic_character_enters_entity_world_and_agent_registry_together():
     assert registry.is_registered("信使") is True
     assert scene.get_scene_flag("dynamic_character_names") == ["信使"]
     assert entities["信使"].get_component("Cognition").beliefs[0]["statement"] == "有人正在追赶自己"
-    assert "deliver_letter" in entities["信使"].get_component("ObligationState").obligations
 
 
 def test_invalid_spawn_location_falls_back_to_player_location():

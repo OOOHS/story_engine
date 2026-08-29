@@ -33,7 +33,6 @@ def _step(
         committed=True,
         relationship_count=0,
         sentiment_count=0,
-        agreement_count=0,
         modifier_count=0,
         claim_count=0,
         known_claim_count=0,
@@ -335,7 +334,7 @@ def test_replay_signature_includes_the_reason_each_character_gave():
     right_step = EpisodeStepTrace(
         **{
             **left_step.__dict__,
-            "stated_motives": (("甲", "obligation", "escort-guest"),),
+            "stated_motives": (("甲", "sentiment", "escort-guest"),),
         }
     )
     left_report = EpisodeReport(

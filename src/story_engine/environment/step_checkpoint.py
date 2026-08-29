@@ -33,7 +33,6 @@ class RunnerStepCheckpoint:
     agent_runtimes: Dict[str, Any]
     relation_bindings: Dict[str, str]
     claim_bindings: Dict[str, str]
-    agreement_limit: int
     action_queue: Any
     clock_step: int
     clock_time: datetime
@@ -64,7 +63,6 @@ class RunnerStepCheckpoint:
             agent_runtimes=runner.agent_registry.runtime_snapshot(),
             relation_bindings=runner.relation_registry.binding_snapshot(),
             claim_bindings=runner.claim_registry.binding_snapshot(),
-            agreement_limit=int(runner.agreement_registry.max_agreements),
             action_queue=runner.action_queue.checkpoint(),
             clock_step=int(runner.clock.current_step),
             clock_time=runner.clock.current_time,
@@ -102,7 +100,6 @@ class RunnerStepCheckpoint:
             self.relation_bindings,
             runner.entities,
         )
-        runner.agreement_registry.max_agreements = int(self.agreement_limit)
         runner.claim_registry.restore_bindings(
             self.claim_bindings,
             runner.entities,

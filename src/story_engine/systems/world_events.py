@@ -346,19 +346,6 @@ class WorldEventSystem(System):
                     observation_windows=observation_windows,
                 )
             )
-        candidates.extend(
-            self._obligation_events(
-                entities,
-                context.get("obligation_transitions", {}),
-                current_step=self._step(context),
-            )
-        )
-        candidates.extend(
-            self._agreement_events(
-                context,
-                current_step=self._step(context),
-            )
-        )
         return candidates
 
     def _topology_events(
@@ -801,16 +788,11 @@ class WorldEventSystem(System):
                 + (f"，涉及物品{'、'.join(objects)}" if objects else "")
                 + "。"
             )
-            contract_id = self._text(exchange.get("contract_id"), 120)
-            if contract_id:
-                source_type = "agreement_resolution"
-                source_ref = f"{contract_id}:settled"
-            else:
-                source_type = "resolved_action"
-                source_ref = (
-                    f"step:{int(current_step)}:actors:"
-                    + "+".join(sorted(parties))
-                )
+            source_type = "resolved_action"
+            source_ref = (
+                f"step:{int(current_step)}:actors:"
+                + "+".join(sorted(parties))
+            )
             events.append(
                 {
                     "event_id": f"exchange:{current_step}:{index}:{exchange_id}",
@@ -837,133 +819,6 @@ class WorldEventSystem(System):
                             "path": "owner",
                         }
                         for object_id in objects
-                    ],
-                }
-            )
-        return events
-
-    def _obligation_events(
-        self,
-        entities: Dict[str, Entity],
-        transitions: Any,
-        *,
-        current_step: int,
-    ) -> List[Dict[str, Any]]:
-        if not isinstance(transitions, dict):
-            return []
-        events = []
-        for actor, records in transitions.items():
-            state = entities.get(actor).get_component("ObligationState") if entities.get(actor) else None
-            for index, transition in enumerate(records or []):
-                if not isinstance(transition, dict):
-                    continue
-                status = self._text(transition.get("status"), 40)
-                if status not in {"fulfilled", "breached", "cancelled", "delegated"}:
-                    continue
-                obligation_id = self._text(transition.get("obligation_id"), 160)
-                record = state.obligations.get(obligation_id) if state else None
-                title = self._text(getattr(record, "title", obligation_id), 240)
-                statement = f"{actor}承担的义务“{title}”进入了{status}状态。"
-                events.append(
-                    {
-                        "event_id": f"obligation:{actor}:{obligation_id}:{status}",
-                        "kind": f"obligation_{status}",
-                        "title": title,
-                        "statement": statement,
-                        "occurred_step": current_step,
-                        "location": "",
-                        "subjects": [actor],
-                        "objects": [],
-                        "direct_witnesses": [],
-                        "self_witnesses": [actor],
-                        "source_type": "obligation",
-                        "source_ref": f"{actor}:{obligation_id}",
-                        "impacts": [
-                            {
-                                "scope": "obligation",
-                                "target": obligation_id,
-                                "path": "status",
-                            }
-                        ],
-                    }
-                )
-        return events
-
-    def _agreement_events(
-        self,
-        context: Dict[str, Any],
-        *,
-        current_step: int,
-    ) -> List[Dict[str, Any]]:
-        registry = context.get("agreement_registry")
-        book = registry.to_book() if registry is not None else None
-        events = []
-        occurrence_counts: Dict[str, int] = {}
-        for transition in context.get("agreement_transitions", []) or []:
-            if not isinstance(transition, dict):
-                continue
-            agreement_id = self._text(
-                transition.get("agreement_id") or transition.get("contract_id"),
-                160,
-            )
-            record = book.agreements.get(agreement_id) if book else None
-            if not agreement_id or record is None:
-                continue
-            axis = next(
-                (
-                    field
-                    for field in ("performance_status", "status", "escrow_status")
-                    if transition.get(field)
-                ),
-                "",
-            )
-            status = self._text(transition.get(axis), 40) if axis else ""
-            if not status:
-                continue
-            axis_name = axis.removesuffix("_status")
-            base_event_id = f"agreement:{agreement_id}:{axis_name}:{status}"
-            occurrence = occurrence_counts.get(base_event_id, 0)
-            occurrence_counts[base_event_id] = occurrence + 1
-            event_id = (
-                base_event_id
-                if occurrence == 0
-                else f"{base_event_id}:{occurrence}"
-            )
-            parties = self._text_list(record.parties, 8, 120)
-            title = self._text(record.title or agreement_id, 240)
-            statement = f"协议“{title}”的{axis_name}进入了{status}状态。"
-            source_type = "agreement"
-            source_ref = agreement_id
-            if axis == "status":
-                source_type = "agreement_resolution"
-                source_ref = f"{agreement_id}:{status}"
-            elif axis == "performance_status":
-                source_type = "agreement_performance_resolution"
-                source_ref = f"{agreement_id}:{status}"
-            elif axis == "escrow_status":
-                custody_id = self._text(transition.get("custody_id"), 160)
-                source_type = "agreement_escrow_resolution"
-                source_ref = f"{agreement_id}:{custody_id}:{status}"
-            events.append(
-                {
-                    "event_id": event_id,
-                    "kind": f"agreement_{axis_name}_{status}",
-                    "title": title,
-                    "statement": statement,
-                    "occurred_step": current_step,
-                    "location": "",
-                    "subjects": parties,
-                    "objects": [],
-                    "direct_witnesses": [],
-                    "self_witnesses": parties,
-                    "source_type": source_type,
-                    "source_ref": source_ref,
-                    "impacts": [
-                        {
-                            "scope": "agreement",
-                            "target": agreement_id,
-                            "path": axis,
-                        }
                     ],
                 }
             )

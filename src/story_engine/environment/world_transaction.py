@@ -8,11 +8,9 @@ from src.story_engine.environment.character_lifecycle import (
     CharacterLifecycle,
     CharacterSpawnPlan,
 )
-from src.story_engine.environment.contracts import ContractDynamics
-from src.story_engine.environment.escrows import ContractEscrowDynamics
 from src.story_engine.environment.exchanges import ExchangeDynamics
 from src.story_engine.environment.world_object_lifecycle import WorldObjectLifecycle
-from src.story_engine.motivation import NeedDynamics, ObligationDynamics
+from src.story_engine.motivation import NeedDynamics
 from src.story_engine.social import SocialDynamics
 
 
@@ -26,10 +24,6 @@ class WorldStateCheckpoint:
     relationship_snapshot: Any = field(repr=False, default=None)
     drive_states: Any = field(repr=False, default=None)
     drive_snapshots: Any = field(repr=False, default=None)
-    obligation_states: Any = field(repr=False, default=None)
-    obligation_snapshots: Any = field(repr=False, default=None)
-    contract_state: Any = field(repr=False, default=None)
-    contract_snapshot: Any = field(repr=False, default=None)
 
     def restore(self) -> None:
         if self.scene_state is not None and self.scene_snapshot is not None:
@@ -51,12 +45,6 @@ class WorldStateCheckpoint:
             snapshot = (self.drive_snapshots or {}).get(name)
             if drive is not None and snapshot is not None:
                 drive.restore_from(snapshot)
-        for name, state in (self.obligation_states or {}).items():
-            snapshot = (self.obligation_snapshots or {}).get(name)
-            if state is not None and snapshot is not None:
-                state.restore_from(snapshot)
-        if self.contract_state is not None and self.contract_snapshot is not None:
-            self.contract_state.restore_from(self.contract_snapshot)
 
 
 @dataclass(frozen=True)
@@ -100,8 +88,6 @@ class WorldStateTransaction:
         "max_dynamic_characters",
         "dynamic_world_object_names",
         "max_dynamic_world_objects",
-        "obligation_conflict_horizon",
-        "agreement_wakeup_horizon",
         "agent_goal_wakeup_interval",
         "agent_open_goal_review_interval",
         "public_event_attention_budget",
@@ -115,11 +101,8 @@ class WorldStateTransaction:
         self.social = SocialDynamics()
         self.objects = WorldObjectLifecycle()
         self.exchanges = ExchangeDynamics()
-        self.contracts = ContractDynamics()
-        self.escrows = ContractEscrowDynamics()
         self.characters = CharacterLifecycle()
         self.needs = NeedDynamics()
-        self.obligations = ObligationDynamics()
 
     def commit(
         self,
@@ -130,18 +113,11 @@ class WorldStateTransaction:
         relationship_book: Any = None,
         character_spawn_plan: CharacterSpawnPlan | None = None,
         drive_states: Dict[str, Any] | None = None,
-        obligation_states: Dict[str, Any] | None = None,
         current_step: int = 0,
         proposal_actors: set[str] | None = None,
-        contract_state: Any = None,
-        agreement_book: Any = None,
         consumed_storylet_ids: List[str] | None = None,
         emergent_meter_budget: int = 0,
     ) -> TransactionResult:
-        # ``contract_state`` is retained as a compatibility boundary for older
-        # callers.  New runtime code passes the transaction-scoped AgreementBook.
-        if agreement_book is not None:
-            contract_state = agreement_book
         # ``plot_state`` and ``consumed_storylet_ids`` are accepted only for
         # call-site compatibility. Plot clocks, storylet consumption, new
         # plot_beat_proposals, and director_signals are no longer
@@ -173,18 +149,6 @@ class WorldStateTransaction:
                 for name, drive in (drive_states or {}).items()
                 if drive is not None
             },
-            obligation_states=dict(obligation_states or {}),
-            obligation_snapshots={
-                name: state.__class__(**deepcopy(state.model_dump()))
-                for name, state in (obligation_states or {}).items()
-                if state is not None
-            },
-            contract_state=contract_state,
-            contract_snapshot=(
-                contract_state.__class__(**deepcopy(contract_state.model_dump()))
-                if contract_state is not None
-                else None
-            ),
         )
 
         staged_scene = SceneState(**deepcopy(scene_state.get_snapshot())) if scene_state else None
@@ -203,16 +167,6 @@ class WorldStateTransaction:
             for name, drive in (drive_states or {}).items()
             if drive is not None
         }
-        staged_obligations = {
-            name: state.__class__(**deepcopy(state.model_dump()))
-            for name, state in (obligation_states or {}).items()
-            if state is not None
-        }
-        staged_contract = (
-            contract_state.__class__(**deepcopy(contract_state.model_dump()))
-            if contract_state is not None
-            else None
-        )
         working_result = result
         try:
             if staged_scene:
@@ -220,29 +174,11 @@ class WorldStateTransaction:
                 errors.extend(
                     self.characters.stage(staged_scene, character_spawn_plan)
                 )
-                contract_resolution = self.contracts.resolve(
-                    staged_contract,
-                    staged_scene,
-                    staged_obligations,
-                    working_result,
-                    current_step=int(current_step),
-                    proposal_actors=set(proposal_actors or set()),
-                )
-                errors.extend(contract_resolution.errors)
-                staged_contract = contract_resolution.state
-                working_result = contract_resolution.result
                 errors.extend(
                     self.exchanges.apply(
                         staged_scene,
                         deepcopy(working_result),
                         proposal_actors=set(proposal_actors or set()),
-                    )
-                )
-                errors.extend(
-                    self.escrows.apply_deposits(
-                        staged_scene,
-                        staged_contract,
-                        working_result,
                     )
                 )
                 errors.extend(
@@ -269,16 +205,6 @@ class WorldStateTransaction:
                         working_result,
                         current_step=int(current_step),
                         budget=int(emergent_meter_budget),
-                    )
-                )
-                errors.extend(
-                    self.obligations.apply_updates(
-                        staged_obligations,
-                        staged_drives,
-                        staged_scene,
-                        working_result,
-                        current_step=int(current_step),
-                        proposal_actors=set(proposal_actors or set()),
                     )
                 )
                 errors.extend(
@@ -319,11 +245,6 @@ class WorldStateTransaction:
                 for actor in staged_drives:
                     if actor not in staged_scene.actor_states:
                         errors.append(f"drive state references missing actor: {actor}")
-                for actor in staged_obligations:
-                    if actor not in staged_scene.actor_states:
-                        errors.append(
-                            f"obligation state references missing actor: {actor}"
-                        )
             if staged_drama:
                 staged_drama.apply_delta(tension_delta)
         except Exception as exc:
@@ -353,12 +274,6 @@ class WorldStateTransaction:
             drive = (drive_states or {}).get(name)
             if drive is not None:
                 drive.restore_from(staged_drive)
-        for name, staged_state in staged_obligations.items():
-            state = (obligation_states or {}).get(name)
-            if state is not None:
-                state.restore_from(staged_state)
-        if contract_state is not None and staged_contract is not None:
-            contract_state.restore_from(staged_contract)
         if working_result is not result:
             result.clear()
             result.update(working_result)
@@ -390,12 +305,6 @@ class WorldStateTransaction:
         sanitized["drive_creations"] = []
         sanitized["director_signals"] = []
         sanitized["plot_beat_proposals"] = []
-        sanitized["obligation_updates"] = []
-        sanitized["contract_updates"] = []
-        sanitized["agreement_updates"] = []
-        sanitized["contract_settlements"] = []
-        sanitized["contract_authorizations"] = {}
-        sanitized["contract_escrow_deposits"] = []
         sanitized["storylet_hits"] = []
         sanitized["tension_delta"] = 0.0
         sanitized["spawn_character"] = None

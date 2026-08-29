@@ -4,26 +4,26 @@ Story Engine 采用事件驱动的部分可观察多角色博弈（POSG）作为
 
 ## 映射
 
-- `S`：Scene、Object、Plot、Relationship、Drive、Obligation、Contract 等权威状态。
+- `S`：Scene、Object、Plot、Relationship、Drive 等权威状态。
 - `O_i`：角色 `i` 的 POV、被动观察和主动观察结果；尚未交付给策略的新世界事件与社会回应分别保存在宿主拥有的有限 pending 队列中。
-- `L_i`：Host 可验证的私人账本，包括 POV 事件收据、Claim 来源、身体压力、义务、协议、日程、地图和已登记目标；它不是公共知识，也不等于角色的完整心智。
+- `L_i`：Host 可验证的私人账本，包括 POV 事件收据、Claim 来源、身体压力、日程、地图和已登记目标；它不是公共知识，也不等于角色的完整心智。
 - `M_i`：持久 subject 自己的回忆、注意、评价、情绪、信念解释、计划、笔记、动机和选择。Hermes 的 `M_i` 位于其 conversation/JSON memory/tool 上下文。宿主不保留 `M_i` 的镜像。
 - `G_i`：Host 登记的目标 watch。它保存来源、调度与权威完成锁；对 Hermes 而言不直接等于欲望或注意优先级，只有权威状态条件能令其 achieved/failed。
 - `K`：客观 Claim Entity 集合及其 truth conditions / evidence links；`K_i` 是角色私有 KnowledgeState，只保存该角色对 Claim 的立场和证据来源。
 - `C_i^H`：角色 runtime 内部生成的私人候选集合；不会暴露给宿主或其他角色。宿主一侧不存在对应的候选集合。
 - `A_i`：角色自己从 `C_i^H` 中选出并提交的单个原子大动作 proposal。宿主只接收 `A_i`，不重排。
 - `T`：确定性环境规则、宿主 world/observation 随机流、语义 GM 和 WorldStateTransaction 共同构成的状态转移。
-- `R_i`：角色自己的 active `G_i`、needs、relationships、obligations 与风险偏好；不同角色不共享统一奖励。
+- `R_i`：角色自己的 active `G_i`、needs、relationships 与风险偏好；不同角色不共享统一奖励。
 
 对每个可行动角色 `i`，宿主维持一一映射
 `SceneBody_i ↔ ECSEntity_i(AgentController) ↔ LiveRuntime_i`。初始内容缺少任一项时
 Session 不成立；运行中任一绑定脱落时，下一步在时间推进和状态修改前 fail closed。
-Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为主体，
+Claim、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为主体，
 不参与这条映射，也不会获得角色行动回合。
 
 这里选择 POSG 而不是 Dec-POMDP，是因为故事角色通常具有冲突或不一致的目标。Hermes 是被指派给该角色的长程决策过程：它保存自己的 conversation、原生 JSON memory/tool 上下文，接收环境投递的私人刺激，并按人设与当前证据选择该人物的下一步。宿主不读取或重排这些私人候选，只接收一个 `A_i` 并负责合法性、时间、资源、概率结果和权威结算。宿主一侧没有 Utility Policy，也不运行 Bellman 求解。
 
-因为宿主不选择 `A_i`，它也无法重建角色的动机。角色可以随 `A_i` 附带 `motive_refs`，声明这一步响应的是自己哪个 active Goal、Obligation、Sentiment 或 Drive need；宿主在角色私有 snapshot 中核验后才编入 provenance，引用她并不持有的记录会被驳回。Episode 只记录角色提交了什么、她给出的理由、以及世界如何结算，不把宿主事后推断伪装成角色的真实动机。
+因为宿主不选择 `A_i`，它也无法重建角色的动机。角色可以随 `A_i` 附带 `motive_refs`，声明这一步响应的是自己哪个 active Goal、Sentiment 或 Drive need；宿主在角色私有 snapshot 中核验后才编入 provenance，引用她并不持有的记录会被驳回。Episode 只记录角色提交了什么、她给出的理由、以及世界如何结算，不把宿主事后推断伪装成角色的真实动机。
 
 临界 `DriveNeed_i` 会唤醒 auto/background 策略，但不自动等于未完成剧情。自然闭合只检查 `actionable_critical_need(i,n)`：need 已达到自己的 critical threshold，且当前受限观察中至少存在一个 Host 验证为 available、对同一 need 有负 delta 的 affordance。普通漂移、无已知解法的压力与 dormant 角色压力只保留诊断。这样既不会在角色眼前有食物却仍严重饥饿时提前结束，也不会因世界暂时没有水源而让 Episode 永远无法形成章节边界。
 
@@ -39,7 +39,7 @@ Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但�
 - `communicate`：向角色表达或回应；
 - `wait`：等待、保持现状或让出行动机会。
 
-每种动作只固定类型，具体方法与目标仍使用自然语言 `detail / target`。`interact` 可以额外携带 `affordance_id`，但它只能逐字引用当前观察 `O_i` 中该 target 已有且 available 的对象能力；这是 proposal 对现有能力的稳定引用，不是新的动作类型或成功声明。环境把可见能力和 authored affordance 作为机会投射给角色，但不会因为“能放下”就自动替 Hermes 生成动机。Hermes 自己形成并选择意图；兼容 runtime 才由宿主根据 Trait、Drive、Goal、Relationship、Obligation 与风险给候选计分并采样。环境规则始终裁定硬约束；GM 只补充无法由规则确定的语义结果。已验证 authored affordance 的 `use` 操作由宿主从最终正向行动物化；`engine:take/drop/open/close` 则是从 portable、owner、container_open、可见性和可访问性即时派生的通用物理能力，并编译为现有 `relocate/set_container_state` 事务。内容不能声明 `engine:*` id。动作完成时 Host 会重新验证，因并发或排队而失效的引用只阻塞该动作。GM 漏写、改写 affordance id 或为 blocked 行动声称操作都不能改变该结果。
+每种动作只固定类型，具体方法与目标仍使用自然语言 `detail / target`。`interact` 可以额外携带 `affordance_id`，但它只能逐字引用当前观察 `O_i` 中该 target 已有且 available 的对象能力；这是 proposal 对现有能力的稳定引用，不是新的动作类型或成功声明。环境把可见能力和 authored affordance 作为机会投射给角色，但不会因为“能放下”就自动替 Hermes 生成动机。Hermes 自己形成并选择意图；宿主不给候选计分或采样。环境规则始终裁定硬约束；GM 只补充无法由规则确定的语义结果。已验证 authored affordance 的 `use` 操作由宿主从最终正向行动物化；`engine:take/drop/open/close` 则是从 portable、owner、container_open、可见性和可访问性即时派生的通用物理能力，并编译为现有 `relocate/set_container_state` 事务。内容不能声明 `engine:*` id。动作完成时 Host 会重新验证，因并发或排队而失效的引用只阻塞该动作。GM 漏写、改写 affordance id 或为 blocked 行动声称操作都不能改变该结果。
 
 ## 策略与随机性
 
@@ -47,7 +47,7 @@ Claim、Agreement、Relationship、WorldEvent 和 GM 虽然也是 Entity，但�
 
 这仍是性格机制的第一层实现：当前 Trait 以结构化 bootstrap 进入长程主体，但人格/目标条件化的注意竞争、评价理论 appraisal、刺激衰减与真正异步抢占尚未完成，不能把候选 utility 当成已经客观校准的心理模型。
 
-宿主一侧不存在第二套策略：结构化 Trait、关系 Track、临期义务、需求和风险偏好都只作为证据进入角色的输入包，由角色自己权衡，宿主不用它们给候选打分或采样。任何 runtime 都不能提供世界结果的概率、随机数或最终成功声明。
+宿主一侧不存在第二套策略：结构化 Trait、关系 Track、需求和风险偏好都只作为证据进入角色的输入包，由角色自己权衡，宿主不用它们给候选打分或采样。任何 runtime 都不能提供世界结果的概率、随机数或最终成功声明。
 
 Session 从一个公开可记录的 seed 派生两个互不干扰的宿主随机流：
 
@@ -58,11 +58,11 @@ Session 从一个公开可记录的 seed 派生两个互不干扰的宿主随机
 
 语义 GM 不能为不确定行动直接写最终成功或失败。它必须输出一个 `uncertain_outcome`：固定难度、可选的权威 capability 名称，以及 success/failure 两个完整候选补丁。宿主先对两边执行相同的 authority projection：位置分量只能属于当前 move actor，并落在 `{原位置, LegalityEngine 授权目的地}`；其余坐标从两个候选同时删除并审计。随后宿主从 SceneState 的 capabilities/skills 生成有限修正，使用对应随机流选择一个分支，再把唯一被选中的补丁合并进 WorldStateTransaction。模型提供的 probability、roll 或数值 modifier 属于非法字段；未选分支不会进入 Cognition、Memory 或 Rendering。
 
-短期社会评价不直接等于长期奖励或关系真相。已提交、对角色可观察的社会行动可以形成受限 `social_impact`；宿主将其映射为该角色私有 Sentiment，并由 Sentiment 的强度与衰减构成后续 `R_i` 的一部分——它作为证据进入角色的输入包，由角色自己决定要不要照它行动，宿主不用它给选项打分。少量、确定性的 Track effect 用来沉淀长期关系，避免一次事件把永久 trust/favor 粗暴改满。不可观察事件不进入该角色的 Sentiment。来源始终由宿主绑定到已验证 action 或 Agreement performance resolution，关系轨道再指回该 Sentiment；模型提供的自由文本理由只用于角色理解，不作为因果权限。
+短期社会评价不直接等于长期奖励或关系真相。已提交、对角色可观察的社会行动可以形成受限 `social_impact`；宿主将其映射为该角色私有 Sentiment，并由 Sentiment 的强度与衰减构成后续 `R_i` 的一部分——它作为证据进入角色的输入包，由角色自己决定要不要照它行动，宿主不用它给选项打分。少量、确定性的 Track effect 用来沉淀长期关系，避免一次事件把永久 trust/favor 粗暴改满。不可观察事件不进入该角色的 Sentiment。来源始终由宿主绑定到已验证 action，关系轨道再指回该 Sentiment；模型提供的自由文本理由只用于角色理解，不作为因果权限。
 
 非社会临时条件通过 `ModifierState` 进入 `R_i`。语义 GM 只能从宿主 catalog 选择 kind，并提供已提交行动支持的 target、source、定性 intensity 和 reason；duration、stacking 与精确 magnitude 属于宿主定义。Modifier 既不修改随机数也不给行动打分：它是角色能看到的一项临时处境，由角色自己权衡。其角色可见归因服从 `O_i`，但宿主另存 `Modifier <- ResolvedAction` provenance；隐藏来源可以对角色未知，同时仍对权威审计可知。
 
-持续需求 `DriveNeed_i` 保存有界的宿主因果 ledger。对象 affordance/语义压力产生 `DriveNeed <- ResolvedAction`，义务期限产生 `DriveNeed <- Obligation`，确定性漂移产生 `DriveNeed <- Clock`。ledger 不属于 `O_i`，但与 DriveState 一起事务化，使后续 `ResolvedAction <- DriveNeed <- cause` 可以重放。
+持续需求 `DriveNeed_i` 保存有界的宿主因果 ledger。对象 affordance/语义压力产生 `DriveNeed <- ResolvedAction`，确定性漂移产生 `DriveNeed <- Clock`。ledger 不属于 `O_i`，但与 DriveState 一起事务化，使后续 `ResolvedAction <- DriveNeed <- cause` 可以重放。
 
 Claim 的客观 truth status 属于 `S`，但不会直接进入 `O_i`。角色只能通过成功主动观察已连接且可见的 Evidence，或通过同场角色的 communicate 更新 `K_i`。传播内容可以是谎言，因此接收的是 asserted stance，不是 Claim 真值；接收 confidence 由宿主根据 trust 与现场证据确定。
 
@@ -70,7 +70,7 @@ Evidence observation 由 Host 从 `observe(target)`、当前可见对象和 Clai
 
 Claim communication 使用 `communicate(target, claim_id, claim_stance, evidence_refs)` 的非权威引用。Input 只保留发送者 `K_i` 中存在的 Claim、当前可见接收者，以及发送者已知且当场可见/持有的 evidence；`claim_stance` 是角色选择公开表达的立场，可以与私有 stance 不同，从而允许撒谎。正向沟通后 Host 替换模型自报的 Claim knowledge update，再由 ClaimKnowledgeSystem 验证同场与可出示性并根据 evidence/trust 计算接收置信度。该转移改变 `K_j`，不改变 `K` 的 truth，也不强迫 `B_j` 形成特定情绪或行动。
 
-单边整件交付使用 `interact(target=object_id, delivery_recipient=actor)`。Input 只接受发送者当前持有、公开、portable 的可见对象和同场可见接收者；语义层仍决定对方是否实际接住/允许交付，只有正向动作才由 Host 把 exact object/recipient 编译为 `relocate(owner=recipient)`。完成时再次验证所有权与同场，陈旧交付只阻塞该动作。它不用于部分堆栈、互换或附条件交易；这些仍必须由双方 proposal 与 Exchange/Agreement 原子事务处理，单方面语言不能制造对方同意。
+单边整件交付使用 `interact(target=object_id, delivery_recipient=actor)`。Input 只接受发送者当前持有、公开、portable 的可见对象和同场可见接收者；语义层仍决定对方是否实际接住/允许交付，只有正向动作才由 Host 把 exact object/recipient 编译为 `relocate(owner=recipient)`。完成时再次验证所有权与同场，陈旧交付只阻塞该动作。它不用于部分堆栈、互换或当面交易；这些仍必须由双方 proposal 与 Exchange 原子事务处理，单方面语言不能制造对方同意。
 
 同理，角色 Entity 的完整 actor row 属于 `S`，而不是 `O_i`。观察函数使用 `public_projection(S_j)` 生成他人状态，只公开物理位置、外显姿态与内容明确声明的字段；`self_projection(S_i)` 额外包含角色自己的能力和内在状态，但仍删除导演控制。宿主 transition、Legality、概率和 motive 系统继续读取完整 `host_projection(S)`。因此“同场”只产生可观察身体信息，不等价于读取对方能力、恐惧、偏见或剧情用途。
 
@@ -141,45 +141,6 @@ Rendering 主导：已提交事实的文字表达
 Rendering 还执行独立的最小权限投影：即使 POV 已过滤，单轮 `state_updates.actor_states`、social director flags、Storylet/Conflict 建议、causal rule 和内部 notes 也不会原样进入 Narrator。这样渲染模型不能从旁路恢复被观察函数删除的幕后状态。
 
 Timeline 给 Rendering 的投影只保留公开 day phase/phase transition，以及玩家本人确实错过的 commitment 结果；其他角色的 due/upcoming schedule、carrier states 和 transition pressure 不进入 Narrator。
-### Agreement offer capabilities
-
-An authored agreement offer is a Host-owned capability, not a Storylet and not
-an authoritative Agent payload. The proposer observes only a bounded summary
-when all counterparties and referenced assets are currently available. Its
-formal action is a reference:
-
-```text
-communicate(propose, agreement_template_id)
-communicate(accept|reject|withdraw, agreement_id)
-```
-
-The Host expands a proposal into fixed parties, terms, expiry, transfers,
-services, escrow and delegation rules. Responses may reference only a pending
-Agreement in the actor's private snapshot. The semantic GM may decide whether
-the communication succeeds, but cannot substitute an Agreement ID, party,
-asset or hidden completion condition.
-
-For ordinary asset offers the Host derives a bounded capability directly from
-the actor's current POV: public portable objects owned by the actor may be
-offered, and public portable objects owned by a visible counterparty may be
-requested. The Agent selects references on either side; the Host derives a
-stable ID and exact transfers. Objects absent from the POV, including contents
-behind an opaque closed container, never enter this capability catalog.
-
-A delivery-service capability is likewise derived when a visible counterparty
-owns a visible portable object. The proposer selects that object, one qualitative
-deadline (`urgent`, `soon`, or `flexible`), and optionally one visible owned
-asset as escrow payment. The Host compiles a delivery Obligation whose only
-completion evidence is authoritative ownership by the proposer; deadline
-offsets are fixed at 1/3/12 steps. Payment release and refund rules are fixed by
-the Host and cannot be authored by the Agent or semantic GM.
-
-The proposer may instead select one destination exposed by the current
-location's public topology. The completion predicate then becomes authoritative
-object location at that destination. Only immediately connected known
-locations enter this catalog; the service cannot reveal undiscovered map nodes.
-Moving there and using the normal Host `drop` affordance is therefore necessary
-for fulfillment.
 
 Each character has a Host-owned private map consisting of known locations and
 known route edges. Entering a location additively teaches that node and its
@@ -203,11 +164,10 @@ each edge atomically with common reporter and learned-step provenance.
 
 A failed remembered edge becomes a Host-owned private `NavigationProblem` for
 that actor. It records the failed edge, intended destination, discovery place
-and step, the Host legality `failure_rule`, any route still reachable in the actor's own known map, and a related
-delivery Obligation with remaining time when applicable. It never consults
+and step, the Host legality `failure_rule`, and any route still reachable in the actor's own known map. It never consults
 secret Host topology, creates no Goal, and prescribes no response; it only wakes
 a background Agent so that the Agent may reroute, investigate, ask for help,
-renegotiate, wait, or accept failure. Leaving the discovery location resolves
+wait, or try another method. Leaving the discovery location resolves
 the immediate local problem.
 
 Episode closure also treats every non-terminal Timeline commitment as an
@@ -233,52 +193,15 @@ problem.
 Episode evaluation projects only explicit provenance into a causal graph. In
 particular, a navigation recovery may form
 `Goal <- NavigationProblem <- movement_failure:failure_rule`; WorldEvent and
-response edges similarly use their Host source refs and response ids. An
-Obligation also carries Host-owned immediate provenance: authored seeds point
-to `scenario`, service duties point to their Agreement, action-created duties
-point to the verified resolved-action batch, and delegation points to the
-original actor-qualified Obligation. This permits
-`WorldEvent <- Obligation <- Agreement/resolved_action/scenario` without
-inferring causality from summaries. A response id that is actually present in
+response edges similarly use their Host source refs and response ids. A response id that is actually present in
 the receiving actor's private Cognition may itself ground a new Goal, yielding
 `Goal <- event_response <- WorldEvent`; another actor cannot cite that private
 response as its own source. Graph
 depth is diagnostic rather than utility or quality reward, and cycles are
 bounded instead of being semantically repaired by a model.
 
-Agreement creation is also attributed to the Host-verified positive
-communication batch that proposed it. The Agent may choose a visible offer or
-asset/service reference, but cannot write `source_kind/source_ref`; the Host
-stores `resolved_action:step/actor` on the Agreement Entity. Consequently a
-service story can expose
-`WorldEvent <- Obligation <- Agreement <- resolved_action` rather than treating
-the formal promise as an unexplained root.
-
-Terminal Agreement transitions carry a separate Host-owned source. Settlement,
-rejection, withdrawal and countering point to the verified response action;
-expiry points to the authoritative clock step. A settlement node therefore has
-two explicit parents—the Agreement being resolved and the action that resolved
-it—and a service Obligation may depend on that settlement node. The evaluation
-graph is a DAG with sets of parents rather than a single-parent tree, so chain
-depth follows the deepest explicit path instead of whichever edge was observed
-last.
-
-Agreement performance is a third, distinct consequence. When linked service
-Obligations become fulfilled, breached, or cancelled, evaluation creates an
-`AgreementPerformanceResolution` node with parents for the settled Agreement
-and every matching actor-qualified Obligation. The projected performance
-WorldEvent points to this resolution node, so “the contract exists” is never
-used as a substitute explanation for “the service was breached.”
-
-Escrow custody and escrow disposition are also separate nodes. Deposit creates
-`AgreementEscrow <- AgreementResolution:settled`; later release or refund
-creates `AgreementEscrowResolution` with parents for both the custody lot and
-the triggering AgreementPerformanceResolution. The escrow WorldEvent points to
-that exact custody resolution, preserving which held asset moved and why.
-
 Completed bilateral exchange events never use a free-standing semantic
-exchange id as their causal root. Agreement-materialized transfers point to
-`AgreementResolution:settled`; ordinary consent-backed exchanges point to the
+exchange id as their causal root. Consent-backed exchanges point to the
 Host-verified same-step actor action batch. The exchange id remains in the
 WorldEvent id for identity and replay, while provenance describes why ownership
 changed.

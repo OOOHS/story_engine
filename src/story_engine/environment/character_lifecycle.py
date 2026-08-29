@@ -125,12 +125,6 @@ class CharacterLifecycle:
         initial_needs = [
             deepcopy(item) for item in raw_needs if isinstance(item, dict)
         ][:12]
-        raw_obligations = request.get("initial_obligations", [])
-        if not isinstance(raw_obligations, list):
-            raw_obligations = []
-        initial_obligations = [
-            deepcopy(item) for item in raw_obligations if isinstance(item, dict)
-        ][:12]
         try:
             risk_tolerance = min(
                 1.0, max(0.0, float(request.get("risk_tolerance", 0.5)))
@@ -153,7 +147,6 @@ class CharacterLifecycle:
                 initial_commitments=initial_commitments,
                 initial_needs=initial_needs,
                 risk_tolerance=risk_tolerance,
-                initial_obligations=initial_obligations,
                 memory_namespace=memory_namespace,
             )
         except Exception as exc:

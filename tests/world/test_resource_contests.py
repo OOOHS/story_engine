@@ -100,7 +100,6 @@ def _result(operations, actors=None):
         "knowledge_updates": [],
         "object_lifecycle": operations,
         "drive_updates": [],
-        "obligation_updates": [],
         "tension_delta": 0,
     }
 

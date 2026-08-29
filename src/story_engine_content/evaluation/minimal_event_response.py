@@ -178,9 +178,7 @@ class SimulationControl(Component):
             "claim_discoveries": [],
             "object_lifecycle": [],
             "exchanges": [],
-            "agreement_updates": [],
             "drive_updates": [],
-            "obligation_updates": [],
             "tension_delta": 0.0,
         }
 

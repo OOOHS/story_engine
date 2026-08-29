@@ -1,14 +1,12 @@
 from types import SimpleNamespace
 from copy import deepcopy
 
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
 from src.story_engine.prefabs.templates import create_agent
-from src.story_engine.social import AgreementRecord, AgreementRegistry
 from src.story_engine.systems.world_events import WorldEventSystem
 from src.story_engine.systems.simulation import SimulationSystem
 from src.story_engine.agents import AgentScheduler
@@ -789,92 +787,6 @@ def test_exchange_is_one_event_known_to_parties_and_same_location_witnesses():
     assert entities["甲"].get_component("Cognition").knows_event(event_id)
     assert entities["乙"].get_component("Cognition").knows_event(event_id)
     assert not entities["丙"].get_component("Cognition").knows_event(event_id)
-
-
-def test_terminal_obligation_event_stays_private_to_debtor():
-    entities, _ = _world()
-    entities["甲"].add_component(
-        ObligationState.from_initial(
-            [{"obligation_id": "deliver", "title": "交付密信", "due_step": 4}]
-        )
-    )
-    context = {
-        "clock": SimpleNamespace(current_step=4),
-        "obligation_transitions": {
-            "甲": [{"obligation_id": "deliver", "status": "fulfilled"}]
-        },
-    }
-
-    WorldEventSystem().update(entities, context)
-
-    event_id = "obligation:甲:deliver:fulfilled"
-    assert entities["甲"].get_component("Cognition").knows_event(event_id)
-    assert not entities["乙"].get_component("Cognition").knows_event(event_id)
-
-
-def test_agreement_performance_event_is_known_only_to_parties():
-    entities, _ = _world()
-    registry = AgreementRegistry()
-    book = registry.to_book()
-    book.agreements["service"] = AgreementRecord(
-        agreement_id="service",
-        proposer="甲",
-        parties=["甲", "乙"],
-        title="护送协议",
-        status="settled",
-        performance_status="fulfilled",
-    )
-    registry.apply_book(book, entities)
-    context = {
-        "clock": SimpleNamespace(current_step=5),
-        "agreement_registry": registry,
-        "agreement_transitions": [
-            {"contract_id": "service", "performance_status": "fulfilled"}
-        ],
-    }
-
-    WorldEventSystem().update(entities, context)
-
-    event_id = "agreement:service:performance:fulfilled"
-    fact = entities[f"WorldEvent:{event_id}"].get_component("WorldEventFact")
-    assert fact.kind == "agreement_performance_fulfilled"
-    assert fact.source_type == "agreement_performance_resolution"
-    assert fact.source_ref == "service:fulfilled"
-    assert entities["甲"].get_component("Cognition").knows_event(event_id)
-    assert entities["乙"].get_component("Cognition").knows_event(event_id)
-    assert not entities["丙"].get_component("Cognition").knows_event(event_id)
-
-
-def test_agreement_escrow_event_points_to_the_specific_custody_resolution():
-    entities, _ = _world()
-    registry = AgreementRegistry()
-    book = registry.to_book()
-    book.agreements["service"] = AgreementRecord(
-        agreement_id="service",
-        proposer="甲",
-        parties=["甲", "乙"],
-        title="托管护送协议",
-        status="settled",
-    )
-    registry.apply_book(book, entities)
-    context = {
-        "clock": SimpleNamespace(current_step=6),
-        "agreement_registry": registry,
-        "agreement_transitions": [
-            {
-                "contract_id": "service",
-                "custody_id": "custody:payment",
-                "escrow_status": "refunded",
-            }
-        ],
-    }
-
-    WorldEventSystem().update(entities, context)
-
-    event_id = "agreement:service:escrow:refunded"
-    fact = entities[f"WorldEvent:{event_id}"].get_component("WorldEventFact")
-    assert fact.source_type == "agreement_escrow_resolution"
-    assert fact.source_ref == "service:custody:payment:refunded"
 
 
 def test_internal_relationship_and_sentiment_drift_do_not_become_world_events():

@@ -7,8 +7,6 @@ from src.story_engine.components.sentiment_state import SentimentState
 from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.simulation.randomness import DeterministicRandomStreams
 from src.story_engine.social import (
-    AgreementRecord,
-    AgreementRegistry,
     SocialRelationRegistry,
 )
 from src.story_engine.systems.sentiments import SentimentSystem
@@ -299,48 +297,3 @@ def test_self_reported_sentiment_still_rejects_unknown_kind_and_actors():
     assert context["sentiment_updates"] == []
     assert any("unknown sentiment kind" in error for error in context["sentiment_errors"])
     assert any("existing characters" in error for error in context["sentiment_errors"])
-
-
-def test_authoritative_agreement_breach_creates_participant_local_betrayal():
-    entities = _entities()
-    relation_registry = SocialRelationRegistry()
-    agreement_registry = AgreementRegistry(relation_registry)
-    book = agreement_registry.to_book()
-    book.agreements["repair"] = AgreementRecord(
-        agreement_id="repair",
-        proposer="甲",
-        parties=["甲", "乙"],
-        status="settled",
-        performance_status="breached",
-        performance_obligations=[
-            {
-                "actor": "乙",
-                "obligation_id": "repair_watch",
-                "resolved_status": "breached",
-            }
-        ],
-    )
-    agreement_registry.apply_book(book, entities)
-    context = {
-        "clock": type("Clock", (), {"current_step": 6})(),
-        "relation_registry": relation_registry,
-        "agreement_registry": agreement_registry,
-        "state_transaction": {"committed": True, "errors": []},
-        "simulation_result": {"resolved_actions": [], "social_impacts": []},
-        "agreement_transitions": [
-            {"contract_id": "repair", "performance_status": "breached"}
-        ],
-    }
-
-    SentimentSystem().update(entities, context)
-
-    betrayal = entities["甲"].get_component("SentimentState").sentiments[
-        "乙:betrayed"
-    ]
-    assert betrayal.intensity == 0.85
-    assert betrayal.source_event == (
-        "agreement_performance_resolution:repair:breached"
-    )
-    assert relation_registry.to_relationship_book().get_metrics("甲", "乙")[
-        "trust"
-    ] < 0

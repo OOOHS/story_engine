@@ -12,7 +12,6 @@ _REFERENCE_KEYS = {
     "clock",
     "agent_registry",
     "action_queue",
-    "agreement_registry",
     "relation_registry",
     "random_streams",
     "check_resolver",

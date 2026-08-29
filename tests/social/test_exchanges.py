@@ -3,7 +3,6 @@ from copy import deepcopy
 from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
@@ -117,7 +116,6 @@ def _result(exchanges, actions=None):
         "object_lifecycle": [],
         "exchanges": exchanges,
         "drive_updates": [],
-        "obligation_updates": [],
         "tension_delta": 0,
     }
 
@@ -679,101 +677,6 @@ def test_exchange_ownership_participates_in_post_commit_causal_plot():
 
     assert settled["causal_plot_rules"] == ["alice_gets_key"]
     assert plots.plots["key_trade"]["clock"] == 1
-
-
-def _delegable_obligation():
-    return ObligationState.from_initial(
-        [
-            {
-                "obligation_id": "deliver",
-                "title": "去远处送货",
-                "due_step": 5,
-                "delegation_policy": "bilateral",
-                "completion_conditions": [
-                    {
-                        "scope": "actor",
-                        "target": "甲",
-                        "path": "location",
-                        "operator": "eq",
-                        "value": "远处",
-                    }
-                ],
-            }
-        ]
-    )
-
-
-def test_payment_and_obligation_delegation_commit_as_one_contract():
-    scene = _scene()
-    obligations = {"甲": _delegable_obligation(), "乙": ObligationState()}
-    result = _result(
-        [
-            _exchange(
-                "key_for_delivery",
-                ["甲", "乙"],
-                [{"from": "乙", "to": "甲", "object_id": "乙的钥匙"}],
-            )
-        ],
-        actions=[_action("甲", "甲接受钥匙并提出转交任务"), _action("乙", "乙收下任务")],
-    )
-    result["obligation_updates"] = [
-        {
-            "operation": "delegate",
-            "actor": "甲",
-            "source": "甲",
-            "obligation_id": "deliver",
-            "delegate": "乙",
-            "accepted_by": "乙",
-            "reason": "乙以钥匙为对价接手送货责任",
-        }
-    ]
-
-    outcome = _commit(
-        scene,
-        result,
-        obligation_states=obligations,
-    )
-
-    assert outcome.committed is True
-    assert scene.get_object_state("乙的钥匙")["owner"] == "甲"
-    assert obligations["甲"].obligations["deliver"].status == "delegated"
-    assert obligations["乙"].obligations["deliver"].delegated_from == "甲"
-
-
-def test_failed_delegation_rolls_back_payment_in_same_contract():
-    scene = _scene()
-    obligations = {"甲": _delegable_obligation(), "乙": ObligationState()}
-    result = _result(
-        [
-            _exchange(
-                "invalid_contract",
-                ["甲", "乙"],
-                [{"from": "乙", "to": "甲", "object_id": "乙的钥匙"}],
-            )
-        ]
-    )
-    result["obligation_updates"] = [
-        {
-            "operation": "delegate",
-            "actor": "甲",
-            "source": "甲",
-            "obligation_id": "deliver",
-            "delegate": "乙",
-            "accepted_by": "甲",
-            "reason": "accepted_by 非法",
-        }
-    ]
-
-    outcome = _commit(
-        scene,
-        result,
-        obligation_states=obligations,
-    )
-
-    assert outcome.committed is False
-    assert scene.get_object_state("乙的钥匙")["owner"] == "乙"
-    assert obligations["甲"].obligations["deliver"].status == "scheduled"
-    assert obligations["乙"].obligations == {}
 
 
 def test_stack_key_cannot_be_forged_through_state_updates():

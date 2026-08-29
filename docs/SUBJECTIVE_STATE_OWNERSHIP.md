@@ -9,7 +9,7 @@ Host private ledger = POV-safe、可验证、会参与结算或调度的私人�
 Hermes subject mind = 回忆、注意、评价、情绪、信念解释、计划、动机和选择
 ```
 
-“private”不自动等于“属于 Hermes”。一项信息即使只有单个角色可见，只要 Host 必须用它防止读心、伪造知识、逃避义务或自报目标完成，就必须保留一份权威私人记录。反过来，Host 不能因为某个心理描述有助于策略，就把它升级成角色真实感受。
+“private”不自动等于“属于 Hermes”。一项信息即使只有单个角色可见，只要 Host 必须用它防止读心、伪造知识或自报目标完成，就必须保留一份权威私人记录。反过来，Host 不能因为某个心理描述有助于策略，就把它升级成角色真实感受。
 
 ## 字段归属
 
@@ -19,7 +19,7 @@ Hermes subject mind = 回忆、注意、评价、情绪、信念解释、计划�
 | 亲历事件 | 事件 ID、来源、时间、地点、witness mode、可验证 statement | 事件如何被记住、联想和重构 | `ledger_update:epistemic_record` 与 stimulus |
 | Claim 知识 | stance、confidence、basis、source、evidence refs | 相信程度的主观意义、怀疑和推理 | 增量 `claim_position` |
 | 地图与路线 | 已观察或合法获知的地点、边和来源 | 路线偏好、担忧和策略 | 增量 `known_map/navigation_problem` |
-| 义务、协议、日程 | 条款、参与者、期限、状态和履约证据 | 是否认同、重视、怨恨、逃避或协商 | 增量 ledger；状态消失时 retraction |
+| 日程 | 条款、参与者、期限与出席/缺席证据 | 是否赴约、重视、怨恨或回避 | 增量 ledger；状态消失时 retraction |
 | Goal | 已登记目标、来源、调度信息和隐藏完成锁 | 真正欲望、目标层级、注意与放弃原因 | `goal_registration`；Hermes 可提交一个 `goal_requests` 登记请求 |
 | Drive/Modifier | 身体或规则压力、有效期及来源 | 主观感受、意义和应对倾向 | `drive_signal/condition_signal`，不是情绪声明 |
 | Trait | 稳定倾向参数 | 当下表达、冲突和自我理解 | 仅 identity bootstrap |
@@ -36,8 +36,8 @@ Hermes subject mind = 回忆、注意、评价、情绪、信念解释、计划�
 {
   "kind": "ledger_update",
   "payload": {
-    "category": "obligation",
-    "ref": "obligation:deliver-letter",
+    "category": "schedule_commitment",
+    "ref": "schedule:evening-gathering",
     "revision": 2,
     "record": {}
   }
@@ -55,7 +55,7 @@ Hermes 对 Host 只输出：
 1. 一个最终 action。内部 candidates 只由 Hermes adapter 私下采样，宿主看不到也不重排；
 2. 可选的一个 `goal_requests` 登记请求，用于让 Host 编译完成证据、安排 wakeup 或审计进度；
 3. 可选的 `sentiment_updates`：她现在对某人的感受。这是她自己的账目，不是登记请求——GM 最没有资格代她决定这件事；
-4. 可选的 `motive_refs`：这一步是为了她自己的哪个目标、义务、感受或需求。宿主既然不替她选行动，就无法重建理由，只能由她说。
+4. 可选的 `motive_refs`：这一步是为了她自己的哪个目标、感受或需求。宿主既然不替她选行动，就无法重建理由，只能由她说。
 
 第 3、4 项都会被 Host 校验并限量后才能触碰权威状态或因果审计：引用她并不持有的东西会被丢弃而不是采信。
 

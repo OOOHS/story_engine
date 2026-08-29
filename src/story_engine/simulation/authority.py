@@ -25,11 +25,9 @@ class SemanticAuthorityFilter:
     HOST_OWNED_LIST_FIELDS = (
         "plot_updates",
         "relationship_updates",
-        "contract_settlements",
-        "contract_escrow_deposits",
         "storylet_hits",
     )
-    HOST_OWNED_MAP_FIELDS = ("contract_authorizations",)
+    HOST_OWNED_MAP_FIELDS = ()
     BRANCH_NAMES = ("success", "failure")
     # The resolver names a magnitude directly. The host no longer maps a
     # qualitative tier to a fixed number -- it only bounds the raw value so
@@ -40,8 +38,6 @@ class SemanticAuthorityFilter:
     DRIFT_BOUNDS = (0.0, 0.08)
     THRESHOLD_BOUNDS = (0.5, 0.95)
     TENSION_BOUNDS = (-0.15, 0.15)
-    OBLIGATION_DUE_BOUNDS = (0.0, 0.3)
-    OBLIGATION_BREACH_BOUNDS = (0.0, 0.4)
     # A hard, small ceiling so the GM cannot turn "one soft nudge" into a
     # directive stream across every actor in a single tick.
     MAX_DIRECTOR_SIGNALS_PER_TICK = 3
@@ -147,7 +143,6 @@ class SemanticAuthorityFilter:
         self._compile_drive_updates(container, path, rejected)
         self._compile_drive_creations(container, path, rejected)
         self._compile_director_signals(container, path, rejected)
-        self._compile_obligation_updates(container, path, rejected)
 
         raw_tension = container.get("tension_delta")
         container["tension_delta"] = self._clamp(
@@ -240,48 +235,6 @@ class SemanticAuthorityFilter:
                 rejected.append(f"{path}.drive_creations[{index}].critical_threshold")
             creation["drift_per_turn"] = drift
             creation["critical_threshold"] = threshold
-
-    def _compile_obligation_updates(
-        self,
-        container: Dict[str, Any],
-        path: str,
-        rejected: List[str],
-    ) -> None:
-        """Shape obligation_updates.create: a resolver may name the due and
-        breach pressure cost directly, bounded to a sane range. Everything
-        else about the operation (due_step, grace_steps,
-        completion_conditions, ...) is a scheduling/eligibility fact the
-        resolver already states directly and ObligationDynamics validates
-        against real world state. The one invariant this pass still owns:
-        missing a deadline must never cost less than merely having one.
-        """
-        updates = container.get("obligation_updates")
-        if not isinstance(updates, list):
-            return
-        for index, update in enumerate(updates):
-            if not isinstance(update, dict):
-                continue
-            if str(update.get("operation", "")).strip() != "create":
-                continue
-            prefix = f"{path}.obligation_updates[{index}]"
-
-            raw_due = update.get("due_pressure_delta")
-            due_delta = self._clamp(raw_due, *self.OBLIGATION_DUE_BOUNDS, default=0.12)
-            if raw_due is not None and self._as_float(raw_due, 0.12) != due_delta:
-                rejected.append(f"{prefix}.due_pressure_delta")
-
-            raw_breach = update.get("breach_pressure_delta")
-            breach_delta = self._clamp(
-                raw_breach, *self.OBLIGATION_BREACH_BOUNDS, default=0.2
-            )
-            if raw_breach is not None and self._as_float(raw_breach, 0.2) != breach_delta:
-                rejected.append(f"{prefix}.breach_pressure_delta")
-            if breach_delta < due_delta:
-                rejected.append(f"{prefix}.breach_pressure_delta:below_due_cost")
-                breach_delta = due_delta
-
-            update["due_pressure_delta"] = due_delta
-            update["breach_pressure_delta"] = breach_delta
 
     def _compile_director_signals(
         self,

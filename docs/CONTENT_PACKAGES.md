@@ -79,7 +79,7 @@ python web_main.py \
 
 - 初始地点、物品和公开/私有世界状态；
 - 角色身份、目标、需求、特质和 Agent runtime 配置；
-- 初始稀疏关系、Claim、Obligation、Agreement 与 Plot；
+- 初始稀疏关系、Claim 与 Plot；
 - 通用 Storylet、因果规则、时间安排和宿主可见性 schema。
 - 可选的 `narration.guidance` 与单回合文本上限；不声明时核心 Narrator 保持中立，不替内容选择节奏或题材腔调。
 

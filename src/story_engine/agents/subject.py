@@ -112,9 +112,7 @@ class SubjectLedgerProjector:
     """
 
     _CATEGORY_PRIORITY = {
-        "obligation": 90,
         "goal_registration": 85,
-        "agreement": 85,
         "schedule_commitment": 80,
         "navigation_problem": 80,
         "claim_position": 75,
@@ -240,25 +238,11 @@ class SubjectLedgerProjector:
             + list(goals.get("recent_history", []) or []),
             ("goal_id",),
         )
-        obligations = perception.private_obligations or {}
-        cls._add_list(
-            records,
-            "obligation",
-            list(obligations.get("active", []) or [])
-            + list(obligations.get("recent_history", []) or []),
-            ("obligation_id",),
-        )
         cls._add_list(
             records,
             "schedule_commitment",
             (perception.private_schedule or {}).get("active", []),
             ("commitment_id",),
-        )
-        cls._add_snapshot_groups(
-            records,
-            "agreement",
-            perception.private_agreements or {},
-            ("agreement_id",),
         )
 
         knowledge = perception.private_knowledge or {}
@@ -284,18 +268,6 @@ class SubjectLedgerProjector:
             ("relation_id", "other", "actor"),
         )
         return records
-
-    @classmethod
-    def _add_snapshot_groups(
-        cls,
-        records: Dict[tuple[str, str], Dict[str, Any]],
-        category: str,
-        snapshot: Dict[str, Any],
-        id_fields: tuple[str, ...],
-    ) -> None:
-        for value in snapshot.values():
-            if isinstance(value, list):
-                cls._add_list(records, category, value, id_fields)
 
     @classmethod
     def _add_mapping(
@@ -400,8 +372,6 @@ class IntentSignature:
             action.target.casefold(),
             action.affordance_id.casefold(),
             action.claim_id.casefold(),
-            action.agreement_operation.casefold(),
-            action.agreement_id.casefold(),
         )
 
 
@@ -663,8 +633,8 @@ def build_subject_wake_packet(
         "ownership_contract": {
             "host_private_ledger": (
                 "Messages of kind ledger_update/ledger_retraction are POV-safe, "
-                "Host-verifiable records used for knowledge, schedules, obligations, "
-                "agreements, registered goals and settlement. They are evidence or "
+                "Host-verifiable records used for knowledge, schedules, "
+                "registered goals and settlement. They are evidence or "
                 "constraints, not a declaration of what this character feels, "
                 "values or intends."
             ),
@@ -699,15 +669,15 @@ def build_subject_wake_packet(
                 "title": "required for adopt",
                 "source_kind": (
                     "resolved_goal | claim | world_event | event_response | drive_need | "
-                    "obligation | agreement | visible_object | visible_actor | "
+                    "visible_object | visible_actor | "
                     "relationship | navigation_problem"
                 ),
                 "source_ref": "required for adopt; copy a real ledger/world ref",
                 "reason": "brief subjective reason; never a completion claim",
                 "resolution_kind": (
                     "optional Host-verifiable watch such as reach_location, "
-                    "possess_object, deliver_object, fulfill_obligation, "
-                    "settle_agreement, verify_claim or communicate_event"
+                    "possess_object, deliver_object, "
+                    "verify_claim or communicate_event"
                 ),
                 "resolution_target": "optional real world/ledger ref",
             },

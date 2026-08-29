@@ -33,9 +33,6 @@ class ExchangeDynamics(AssetTransferEngine):
             if isinstance(item, dict)
         ]
         proposals = set(proposal_actors or set())
-        contract_authorizations = result.get("contract_authorizations", {})
-        if not isinstance(contract_authorizations, dict):
-            contract_authorizations = {}
         lifecycle_objects = {
             self._text(item.get("object_id"), 120)
             for item in result.get("object_lifecycle", [])
@@ -53,15 +50,6 @@ class ExchangeDynamics(AssetTransferEngine):
                 continue
             exchange_id = self._text(exchange.get("exchange_id"), 120)
             reason = self._text(exchange.get("reason"), 500)
-            contract_id = self._text(exchange.get("contract_id"), 120)
-            authorization = (
-                contract_authorizations.get(contract_id, {})
-                if contract_id
-                else {}
-            )
-            authorized_actors = set(authorization.get("actors", [])) if isinstance(
-                authorization, dict
-            ) else set()
             if not exchange_id:
                 errors.append(f"{prefix} requires exchange_id")
             elif exchange_id in exchange_ids:
@@ -79,7 +67,7 @@ class ExchangeDynamics(AssetTransferEngine):
             for party in parties:
                 if party not in scene_state.actor_states:
                     errors.append(f"{prefix} has unknown party: {party}")
-                if party not in proposals and party not in authorized_actors:
+                if party not in proposals:
                     errors.append(
                         f"{prefix} requires current-turn proposal from {party}"
                     )
@@ -107,20 +95,10 @@ class ExchangeDynamics(AssetTransferEngine):
             ):
                 errors.append(f"{prefix} requires both parties co-located")
             for party in parties:
-                if (
-                    party not in authorized_actors
-                    and not self._has_action_evidence(party, shared_location, actions)
-                ):
+                if not self._has_action_evidence(party, shared_location, actions):
                     errors.append(
                         f"{prefix} requires observable positive action from {party}"
                     )
-            if contract_id and (
-                not isinstance(authorization, dict)
-                or not set(parties).issubset(authorized_actors)
-                or str(authorization.get("location", "")).strip()
-                != str(shared_location or "")
-            ):
-                errors.append(f"{prefix} has invalid contract authorization: {contract_id}")
 
             transfers = exchange.get("transfers", [])
             if not isinstance(transfers, list) or not transfers:

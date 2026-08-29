@@ -83,7 +83,7 @@ artifacts/minimal-investigation/
 - 不同动作轨迹和最终世界状态数量；
 - 实际发生过角色决策的 Episode 数；
 - 每个 Episode 的决策数、通过校验的动机自述数与被驳回的动机引用数，并通过 `metric_summary` 汇总 mean/min/max/sum；
-- 有多少 Episode 至少出现一条角色自己归因到 Goal、Obligation、Sentiment 或 Drive need 的真实行动，以及跨 seed 的动机边数量/行动数量；
+- 有多少 Episode 至少出现一条角色自己归因到 Goal、Sentiment 或 Drive need 的真实行动，以及跨 seed 的动机边数量/行动数量；
 - 可验证 Goal 的结算率；
 - Agent Goal 的采用、开放目标细化、结尾开放积压和最终结算数量；这些指标也直接进入 `review.md` 与 Hermes launcher 的终端 JSON 摘要；
 - 自然完结数量/比例与 steps-to-closure 的 mean/min/max；
@@ -145,23 +145,6 @@ python scripts/eval/run_episode_sweep.py \
 
 这组数字是机制回归基线，不是产品质量目标。测试只固定较宽的涌现下限，并允许今后在有证据的情况下重新校准权重。
 
-## 内置最小托管服务回归种子
-
-`src.story_engine_content.evaluation.minimal_service:create_minimal_service_session` 覆盖 Agreement、限时 Obligation、Escrow、履约、违约、晚交付和补偿修复。它同样没有 Storylet 或 Plot：委托人决定何时提出托管报价，承运人从接受、请求调整、履约、拖延和违约后补偿等候选中由宿主策略采样。包裹实际交付已使用通用 `delivery_recipient` + ObjectDeliveryResolver，不再由内容 resolver 按包裹名字直接改 owner；协议条款提议/接受仍由内容语义层表达并受通用 Agreement 权限边界约束。
-
-```bash
-python scripts/eval/run_episode_sweep.py \
-  --factory src.story_engine_content.evaluation.minimal_service:create_minimal_service_session \
-  --seeds 0,1,2,3,4,5 \
-  --steps 8 \
-  --quiet \
-  --output artifacts/minimal-service
-```
-
-当前 6-seed 基线得到 3 次按时 fulfilled、3 次 breached，Goal 结算率 100%。较短的 3-seed 动机回归要求每个 Episode 都至少出现一次结构化世界状态推动的真实行动，并保持至少两条不同策略轨迹；当前基线产生 15 个 motivated actions。违约 seed 延长运行后可以继续形成补偿 Agreement；固定回归 seed 4 会产生“超过 deadline 后晚交付、Escrow 退款、补偿报价最终 settled”的完整链条。
-
-这个回归还固定了一条时间语义：当动作完成时刻已经超过 `due_step + grace_steps`，即使同一时刻世界条件终于满足，也应先判 breach，不能把迟到结果追溯成按时 fulfilled。晚交付可以改变物品归属和后续关系，但不会抹掉已经发生的违约。
-
 ## 内置最小目标生长回归种子
 
 `src.story_engine_content.evaluation.minimal_goal_growth:create_minimal_goal_growth_session` 验证故事不会在第一个目标结算后机械停止。该 seed 使用通用 `HostRuleSimulationControl`，没有故事专用 Simulation resolver：旅人通过环境自动派生的 `engine:take` 取得钥匙后，从宿主已确认的 resolved Goal 自主形成“带着钥匙离开房间”的新目标；宿主核验来源、生成 id 和 priority，并把 `reach_location` 编译为隐藏的权威条件。合法移动由空间图确定性结算；角色实际抵达走廊后目标 achieved，Episode 经过稳定窗口才自然收束。
@@ -173,13 +156,3 @@ python scripts/eval/run_episode_sweep.py \
 - 新目标进入宿主策略和 Episode stakes；
 - `stable_steps` 不会把第一个目标刚结束的短暂空窗误判为结局；
 - Agent 目标被宿主依据真实位置结算后，世界才重新获得完结资格。
-The minimal service episode now uses Host-owned Agreement offer templates and
-the generic Host-rule simulation baseline. Its agreement, obligation, escrow,
-late delivery, refund and compensation transitions no longer depend on a
-content-specific semantic resolver or Chinese phrase matching.
-
-`minimal_delivery_route` is a stricter no-template regression: it declares only
-three connected places, two Agents and two owned objects. The Agents derive a paid
-delivery offer from POV affordances, settle it, move across the topology, drop
-the parcel across two independently scheduled movement hops, drop it at the destination, fulfill the generated Obligation and release
-escrow without Storylets, Plots or authored Agreement templates.

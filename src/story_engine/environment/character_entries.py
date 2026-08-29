@@ -115,9 +115,6 @@ class CharacterEntryAuthority:
                 authorization.get("initial_commitments", [])
             ),
             "initial_needs": deepcopy(authorization.get("initial_needs", [])),
-            "initial_obligations": deepcopy(
-                authorization.get("initial_obligations", [])
-            ),
             "risk_tolerance": authorization.get("risk_tolerance", 0.5),
         }
         if profile_mode == "semantic":

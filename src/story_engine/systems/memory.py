@@ -45,15 +45,6 @@ class MemorySystem(System):
         exchanges = json.dumps(
             simulation_result.get("exchanges", []), ensure_ascii=False
         )
-        agreement_transitions = json.dumps(
-            context.get("agreement_transitions", []), ensure_ascii=False
-        )
-        obligation_updates = json.dumps(
-            simulation_result.get("obligation_updates", []), ensure_ascii=False
-        )
-        obligation_transitions = json.dumps(
-            context.get("obligation_transitions", {}), ensure_ascii=False
-        )
         world_event_updates = json.dumps(
             context.get("world_event_updates", []), ensure_ascii=False
         )
@@ -64,9 +55,6 @@ class MemorySystem(System):
             f"State Updates:\n{state_updates}\n"
             f"Object Lifecycle:\n{object_lifecycle}\n"
             f"Exchanges:\n{exchanges}\n"
-            f"Agreement Transitions:\n{agreement_transitions}\n"
-            f"Obligation Updates:\n{obligation_updates}\n"
-            f"Obligation Transitions:\n{obligation_transitions}\n"
             f"World Events:\n{world_event_updates}"
         )
         scene_state = next(
@@ -191,34 +179,12 @@ class MemorySystem(System):
                             f"Step {current_step}\nPrivate World Event:\n{event_text}"
                         )
 
-                own_obligation_transitions = list(
-                    (context.get("obligation_transitions", {}) or {}).get(
-                        entity_name, []
-                    )
-                )
                 own_sentiment_updates = [
                     item
                     for item in context.get("sentiment_updates", [])
                     if isinstance(item, dict)
                     and item.get("affected") == entity_name
                 ]
-                agreement_book = (
-                    context["agreement_registry"].to_book()
-                    if context.get("agreement_registry") is not None
-                    else None
-                )
-                own_agreement_transitions = []
-                for item in context.get("agreement_transitions", []):
-                    if not isinstance(item, dict) or agreement_book is None:
-                        continue
-                    agreement_id = str(
-                        item.get("agreement_id")
-                        or item.get("contract_id")
-                        or ""
-                    )
-                    record = agreement_book.agreements.get(agreement_id)
-                    if record is not None and entity_name in record.parties:
-                        own_agreement_transitions.append(item)
                 own_resolved_actions = [
                     item
                     for item in simulation_result.get("resolved_actions", [])
@@ -243,12 +209,6 @@ class MemorySystem(System):
                 if own_goal_transitions:
                     salience += 3.0
                     event_kinds.append("goal")
-                if own_obligation_transitions:
-                    salience += 3.0
-                    event_kinds.append("obligation")
-                if own_agreement_transitions:
-                    salience += 2.5
-                    event_kinds.append("agreement")
                 if own_claim_updates:
                     salience += 2.5
                     event_kinds.append("claim")

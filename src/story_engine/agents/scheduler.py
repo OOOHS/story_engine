@@ -12,9 +12,6 @@ class AgentScheduler:
     reaches their location. The scheduler never changes world state itself.
     """
 
-    def __init__(self) -> None:
-        self._obligation_conflicts = None
-
     def activation_for(
         self,
         entity: Entity,
@@ -27,7 +24,6 @@ class AgentScheduler:
         has_manual_override: bool,
         scene_state: Any = None,
         plot_state: Any = None,
-        agreement_registry: Any = None,
     ) -> AgentActivation:
         controller = entity.get_component("AgentController")
         if has_manual_override:
@@ -70,37 +66,6 @@ class AgentScheduler:
                 True,
                 "background",
                 f"schedule_due:{urgent_schedule}",
-            )
-
-        urgent_agreement = self._urgent_agreement(
-            entity, step, agreement_registry, scene_state
-        )
-        if policy in {"auto", "background"} and urgent_agreement:
-            return AgentActivation(
-                True,
-                "background",
-                f"agreement_due:{urgent_agreement}",
-            )
-
-        urgent_conflict = self._urgent_obligation_conflict(
-            entity,
-            step,
-            scene_state=scene_state,
-            plot_state=plot_state,
-        )
-        if policy in {"auto", "background"} and urgent_conflict:
-            return AgentActivation(
-                True,
-                "background",
-                urgent_conflict,
-            )
-
-        urgent_obligation = self._urgent_obligation(entity, step)
-        if policy in {"auto", "background"} and urgent_obligation:
-            return AgentActivation(
-                True,
-                "background",
-                f"obligation_due:{urgent_obligation}",
             )
 
         critical_need = self._critical_need(entity)
@@ -271,73 +236,6 @@ class AgentScheduler:
                 continue
             if int(step) >= due_step - wake_before:
                 return str(item.get("commitment_id", "")).strip()
-        return ""
-
-    def _urgent_obligation(self, entity: Entity, step: int) -> str:
-        state = entity.get_component("ObligationState")
-        if not state or not hasattr(state, "next_wakeup"):
-            return ""
-        record = state.next_wakeup(step)
-        return str(record.obligation_id) if record else ""
-
-    def _urgent_agreement(
-        self,
-        entity: Entity,
-        step: int,
-        agreement_registry: Any,
-        scene_state: Any,
-    ) -> str:
-        if not agreement_registry or not hasattr(agreement_registry, "next_wakeup"):
-            return ""
-        raw_horizon = (
-            scene_state.get_scene_flag("agreement_wakeup_horizon", 1)
-            if scene_state
-            else 1
-        )
-        try:
-            horizon = max(0, min(20, int(raw_horizon)))
-        except (TypeError, ValueError):
-            horizon = 1
-        return str(agreement_registry.next_wakeup(entity.name, step, horizon) or "")
-
-    def _urgent_obligation_conflict(
-        self,
-        entity: Entity,
-        step: int,
-        *,
-        scene_state: Any = None,
-        plot_state: Any = None,
-    ) -> str:
-        state = entity.get_component("ObligationState")
-        if not state or not scene_state:
-            return ""
-        # Import lazily so the low-level agents package does not acquire the
-        # environment -> systems -> agents cycle during module initialization.
-        if self._obligation_conflicts is None:
-            from src.story_engine.motivation.obligation_conflicts import (
-                ObligationConflictAnalyzer,
-            )
-
-            self._obligation_conflicts = ObligationConflictAnalyzer()
-        conflicts = self._obligation_conflicts.analyze(
-            state,
-            actor_name=entity.name,
-            scene_state=scene_state,
-            plot_state=plot_state,
-            current_step=step,
-        )
-        if not conflicts:
-            return ""
-        raw_horizon = scene_state.get_scene_flag("obligation_conflict_horizon", 6)
-        try:
-            horizon = max(0, min(50, int(raw_horizon)))
-        except (TypeError, ValueError):
-            horizon = 6
-        for conflict in conflicts:
-            if conflict.get("severity") not in {"hard", "constrained"}:
-                continue
-            if int(conflict.get("steps_until_earliest_deadline", 10**9)) <= horizon:
-                return str(conflict.get("conflict_id", ""))
         return ""
 
     def _is_scheduled(self, actor_name: str, step: int, interval: int) -> bool:

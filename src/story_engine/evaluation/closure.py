@@ -12,8 +12,6 @@ class EpisodeClosurePolicy:
     minimum_steps: int = 0
     require_goal_anchor: bool = False
     require_no_active_verifiable_goals: bool = True
-    require_no_active_obligations: bool = True
-    require_no_open_agreements: bool = True
     require_empty_action_queue: bool = True
     require_resolved_plots: bool = False
     require_no_active_agent_goals: bool = True
@@ -33,10 +31,6 @@ class EpisodeClosurePolicy:
             require_no_active_verifiable_goals=bool(
                 self.require_no_active_verifiable_goals
             ),
-            require_no_active_obligations=bool(
-                self.require_no_active_obligations
-            ),
-            require_no_open_agreements=bool(self.require_no_open_agreements),
             require_empty_action_queue=bool(self.require_empty_action_queue),
             require_resolved_plots=bool(self.require_resolved_plots),
             require_no_active_agent_goals=bool(
@@ -86,21 +80,12 @@ class EpisodeClosureEvaluator:
         "scene",
         "plots",
         "relationships",
-        "agreements",
-        "obligations",
         "goals",
         "knowledge",
         "navigation",
         "claims",
         "world_events",
     })
-
-    TERMINAL_OBLIGATION_STATUSES = {
-        "fulfilled",
-        "breached",
-        "cancelled",
-        "delegated",
-    }
 
     def evaluate(
         self,
@@ -114,7 +99,6 @@ class EpisodeClosureEvaluator:
         verifiable_goals = 0
         active_verifiable_goals = 0
         active_agent_goals = 0
-        active_obligations = 0
         active_navigation_problems = 0
         active_timeline_commitments = 0
         dormant_navigation_problems = 0
@@ -156,12 +140,6 @@ class EpisodeClosureEvaluator:
                 active_agent_goals += sum(
                     record.status == "active" and record.origin == "agent"
                     for record in goal_state.goals.values()
-                )
-            obligation_state = entity.get_component("ObligationState")
-            if obligation_state is not None:
-                active_obligations += sum(
-                    record.status not in self.TERMINAL_OBLIGATION_STATUSES
-                    for record in obligation_state.obligations.values()
                 )
             scene_state = entity.get_component("SceneState")
             if scene_state is not None and id(scene_state) not in seen_scene_states:
@@ -278,24 +256,8 @@ class EpisodeClosureEvaluator:
             and actionable_critical_needs
         ):
             blockers.append("actionable_critical_needs")
-        if policy.require_no_active_obligations and active_obligations:
-            blockers.append("active_obligations")
         if policy.require_stable_material_state and current_material_changes:
             blockers.append("material_state_changed")
-
-        agreement_book = runner.agreement_registry.to_book()
-        pending_agreements = 0
-        pending_performance = 0
-        for record in agreement_book.agreements.values():
-            if record.status == "pending":
-                pending_agreements += 1
-            if record.status == "settled" and record.performance_status == "pending":
-                pending_performance += 1
-        if policy.require_no_open_agreements:
-            if pending_agreements:
-                blockers.append("pending_agreements")
-            if pending_performance:
-                blockers.append("pending_agreement_performance")
 
         queue_snapshot = runner.action_queue.snapshot()
         pending_actions = len(queue_snapshot.get("pending", []))
@@ -322,7 +284,6 @@ class EpisodeClosureEvaluator:
                 "verifiable_goal_count": verifiable_goals,
                 "active_verifiable_goal_count": active_verifiable_goals,
                 "active_agent_goal_count": active_agent_goals,
-                "active_obligation_count": active_obligations,
                 "active_navigation_problem_count": active_navigation_problems,
                 "active_timeline_commitment_count": active_timeline_commitments,
                 "dormant_navigation_problem_count": dormant_navigation_problems,
@@ -336,8 +297,6 @@ class EpisodeClosureEvaluator:
                 "dormant_actionable_critical_need_count": (
                     dormant_actionable_critical_needs
                 ),
-                "pending_agreement_count": pending_agreements,
-                "pending_agreement_performance_count": pending_performance,
                 "pending_action_count": pending_actions,
                 "unresolved_plot_count": unresolved_plots,
                 "material_change_kinds": list(current_material_changes),

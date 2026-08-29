@@ -19,8 +19,6 @@ class WorldEventImpact(BaseModel):
         "scene",
         "relationship",
         "social_relation",
-        "obligation",
-        "agreement",
         "claim",
         "knowledge",
         "world_event",

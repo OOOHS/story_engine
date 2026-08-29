@@ -29,14 +29,13 @@ class SentimentSystem(System):
 
         transaction = context.get("state_transaction", {})
         result = context.get("simulation_result", {})
-        agreement_transitions = context.get("agreement_transitions", [])
         self_reports = context.get("agent_sentiment_updates", [])
         committed_social_impacts = (
             result.get("social_impacts", [])
             if transaction.get("committed")
             else []
         )
-        if not committed_social_impacts and not agreement_transitions and not self_reports:
+        if not committed_social_impacts and not self_reports:
             context["sentiment_updates"] = []
             context["sentiment_errors"] = []
             context["sentiment_transitions"] = decay_transitions
@@ -81,17 +80,6 @@ class SentimentSystem(System):
         )
         applied = self_applied + applied
         errors = self_errors + errors
-        agreement_registry = context.get("agreement_registry")
-        if not errors and agreement_transitions and agreement_registry is not None:
-            applied.extend(
-                self.dynamics.apply_agreement_transitions(
-                    sentiment_states=staged_states,
-                    relationship_book=relationship_book,
-                    agreement_book=agreement_registry.to_book(),
-                    transitions=agreement_transitions,
-                    current_step=step,
-                )
-            )
         if errors:
             context["sentiment_updates"] = []
             context["sentiment_errors"] = errors

@@ -13,7 +13,6 @@ from src.story_engine.components.navigation_state import (
     NavigationProblem,
     NavigationState,
 )
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.relationship import RelationshipBit
 from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
@@ -26,12 +25,7 @@ from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
 from src.story_engine.session import create_session
 from src.story_engine.knowledge import ClaimRegistry
-from src.story_engine.social import (
-    AgreementBook,
-    AgreementRecord,
-    AgreementRegistry,
-    SocialRelationRegistry,
-)
+from src.story_engine.social import SocialRelationRegistry
 from src.story_engine.systems.goals import GoalSystem
 from src.story_engine.systems.input import InputSystem
 
@@ -1315,102 +1309,6 @@ def test_deliver_object_template_resolves_from_authoritative_ownership():
     scene.get_object_state("信件").update({"owner": "乙", "location": None})
     context.update(
         clock=SimpleNamespace(current_step=3),
-        agent_goal_requests=[],
-    )
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
-
-    assert goal.status == "achieved"
-
-
-def test_fulfill_obligation_template_has_host_success_and_failure_locks():
-    gm = Entity("GameMaster")
-    gm.add_component(SceneState())
-    actor = Entity("甲")
-    goals = GoalState.from_initial([])
-    obligations = ObligationState.from_initial(
-        [{"obligation_id": "delivery", "title": "交货", "due_step": 5}]
-    )
-    actor.add_component(goals)
-    actor.add_component(obligations)
-    context = {
-        "clock": SimpleNamespace(current_step=1),
-        "agent_goal_requests": [
-            {
-                "actor": "甲",
-                "operation": "adopt",
-                "title": "履行交货责任",
-                "source_kind": "obligation",
-                "source_ref": "delivery",
-                "resolution_kind": "fulfill_obligation",
-                "resolution_target": "delivery",
-            }
-        ],
-    }
-
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
-    goal = next(record for record in goals.goals.values() if record.origin == "agent")
-    assert goal.completion_conditions[0]["scope"] == "obligation"
-    assert goal.failure_conditions[0]["value"] == [
-        "breached",
-        "cancelled",
-        "delegated",
-    ]
-
-    obligations.obligations["delivery"].status = "breached"
-    context.update(
-        clock=SimpleNamespace(current_step=6),
-        agent_goal_requests=[],
-    )
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
-
-    assert goal.status == "failed"
-
-
-def test_settle_agreement_template_reads_only_participant_agreement_state():
-    gm = Entity("GameMaster")
-    gm.add_component(SceneState())
-    actor = Entity("甲")
-    goals = GoalState.from_initial([])
-    actor.add_component(goals)
-    registry = AgreementRegistry()
-    book = AgreementBook(
-        agreements={
-            "deal": AgreementRecord(
-                agreement_id="deal",
-                proposer="甲",
-                parties=["甲", "乙"],
-                accepted_by=["甲"],
-                status="pending",
-                expires_step=5,
-            )
-        }
-    )
-    registry.apply_book(book)
-    context = {
-        "clock": SimpleNamespace(current_step=1),
-        "agreement_registry": registry,
-        "agent_goal_requests": [
-            {
-                "actor": "甲",
-                "operation": "adopt",
-                "title": "促成当前协议",
-                "source_kind": "agreement",
-                "source_ref": "deal",
-                "resolution_kind": "settle_agreement",
-                "resolution_target": "deal",
-            }
-        ],
-    }
-
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
-    goal = next(record for record in goals.goals.values() if record.origin == "agent")
-    assert goal.status == "active"
-
-    settled = registry.to_book()
-    settled.agreements["deal"].status = "settled"
-    registry.apply_book(settled)
-    context.update(
-        clock=SimpleNamespace(current_step=2),
         agent_goal_requests=[],
     )
     GoalSystem().update({"GameMaster": gm, "甲": actor}, context)

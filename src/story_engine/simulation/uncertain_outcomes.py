@@ -16,11 +16,9 @@ LIST_PATCH_FIELDS = {
     "claim_discoveries",
     "object_lifecycle",
     "exchanges",
-    "agreement_updates",
     "drive_updates",
     "drive_creations",
     "director_signals",
-    "obligation_updates",
 }
 BRANCH_FIELDS = LIST_PATCH_FIELDS | {
     "resolved_action",
@@ -306,10 +304,6 @@ class UncertainOutcomeResolver:
         for field_name in LIST_PATCH_FIELDS:
             values = deepcopy(branch.get(field_name, []))
             result.setdefault(field_name, []).extend(values)
-        if branch.get("agreement_updates"):
-            result.setdefault("contract_updates", []).extend(
-                deepcopy(branch["agreement_updates"])
-            )
         result["tension_delta"] = float(result.get("tension_delta", 0.0)) + float(
             branch.get("tension_delta", 0.0)
         )

@@ -18,8 +18,6 @@ def test_public_system_api_only_exposes_authoritative_runner_phases():
         "InputSystem",
         "ActionSchedulingSystem",
         "SimulationSystem",
-        "ObligationSystem",
-        "AgreementSystem",
         "ClaimSystem",
         "GoalSystem",
         "ModifierSystem",
@@ -42,6 +40,11 @@ def test_legacy_direct_narration_and_entity_spawn_modules_are_removed():
         ENGINE_ROOT / "systems" / "narrative.py",
         ENGINE_ROOT / "systems" / "observation.py",
         ENGINE_ROOT / "systems" / "contracts.py",
+        ENGINE_ROOT / "systems" / "agreements.py",
+        ENGINE_ROOT / "systems" / "obligations.py",
+        ENGINE_ROOT / "environment" / "contracts.py",
+        ENGINE_ROOT / "environment" / "escrows.py",
+        ENGINE_ROOT / "environment" / "agreement_offers.py",
         ENGINE_ROOT / "components" / "narrative_control.py",
         ENGINE_ROOT / "components" / "persona.py",
         ENGINE_ROOT / "components" / "relationship_state.py",
@@ -121,18 +124,10 @@ def test_timeline_has_no_actor_staging_or_teleportation_path():
     assert "private_schedule" in timeline_source
 
 
-def test_contract_state_is_only_a_non_component_compatibility_adapter():
-    from src.story_engine.components.contract_state import ContractState
-    from src.story_engine.core.component import Component
-
-    assert not issubclass(ContractState, Component)
-
-
 def test_live_runtime_has_no_gm_owned_contract_state_fallback():
     runtime_files = [
         ENGINE_ROOT / "systems" / "input.py",
         ENGINE_ROOT / "systems" / "simulation.py",
-        ENGINE_ROOT / "systems" / "agreements.py",
         ENGINE_ROOT / "agents" / "scheduler.py",
         ENGINE_ROOT / "agents" / "types.py",
     ]

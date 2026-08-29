@@ -34,9 +34,7 @@ class AgentMemoryContextBuilder:
         visible_proposals: Iterable[Dict[str, Any]],
         world_signals: Iterable[Dict[str, Any]],
         private_goals: Dict[str, Any],
-        private_obligations: Dict[str, Any],
         private_schedule: Dict[str, Any],
-        private_agreements: Dict[str, Any],
         private_knowledge: Dict[str, Any],
         private_navigation: Dict[str, Any],
         private_sentiments: Dict[str, Any],
@@ -93,18 +91,6 @@ class AgentMemoryContextBuilder:
             "commitments",
             [
                 *(
-                    f"义务 {item.get('obligation_id', '')} {item.get('title', '')} "
-                    f"{item.get('creditor', '')}"
-                    for item in private_obligations.get("active", [])[:6]
-                    if isinstance(item, dict)
-                ),
-                *(
-                    f"协议 {item.get('agreement_id', '')} {item.get('title', '')} "
-                    f"{item.get('summary', '')} {' '.join(item.get('parties', []) or [])}"
-                    for item in private_agreements.get("pending", [])[:6]
-                    if isinstance(item, dict)
-                ),
-                *(
                     f"日程 {item.get('commitment_id', '')} {item.get('title', '')} "
                     f"{item.get('location', '')} {item.get('due_step', '')}"
                     for item in private_schedule.get("active", [])[:6]
@@ -112,8 +98,7 @@ class AgentMemoryContextBuilder:
                 ),
                 *(
                     f"路线受阻 {item.get('route_source', '')} "
-                    f"{item.get('route_target', '')} {item.get('destination', '')} "
-                    f"{item.get('obligation_id', '')}"
+                    f"{item.get('route_target', '')} {item.get('destination', '')}"
                     for item in private_navigation.get("active", [])[:6]
                     if isinstance(item, dict)
                 ),

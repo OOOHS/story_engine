@@ -1,5 +1,5 @@
 from copy import deepcopy
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from pydantic import BaseModel, Field
 
@@ -15,8 +15,6 @@ class NavigationProblem(BaseModel):
     discovered_at: str
     discovered_step: int
     alternative_path: List[str] = Field(default_factory=list)
-    obligation_id: str = ""
-    steps_remaining: Optional[int] = None
     failure_rule: str = ""
     reason: str = ""
 

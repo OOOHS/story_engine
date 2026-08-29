@@ -46,22 +46,6 @@ class ClaimConfig(BaseModel):
     false_conditions: List[StateCondition] = Field(default_factory=list)
 
 
-class AgreementOfferTemplateConfig(BaseModel):
-    """Host-owned terms that a character may choose to propose."""
-
-    template_id: str
-    agreement_id: str
-    proposer: str
-    parties: List[str] = Field(min_length=2, max_length=3)
-    title: str
-    summary: str = ""
-    expires_after_steps: int = Field(default=8, ge=1, le=20)
-    transfers: List[Dict[str, Any]] = Field(default_factory=list)
-    services: List[Dict[str, Any]] = Field(default_factory=list)
-    escrows: List[Dict[str, Any]] = Field(default_factory=list)
-    delegations: List[Dict[str, Any]] = Field(default_factory=list)
-
-
 class StoryBeatConfig(BaseModel):
     """
     Structured beat guidance carried by a storylet when it becomes active.
@@ -185,25 +169,6 @@ class TraitConfig(BaseModel):
     description: str = ""
 
 
-class ObligationConfig(BaseModel):
-    """A private, deadline-bearing responsibility owned by one character."""
-
-    obligation_id: str
-    title: str
-    summary: str = ""
-    creditor: Optional[str] = None
-    due_step: int = Field(ge=0)
-    grace_steps: int = Field(default=0, ge=0, le=100)
-    wake_before_steps: int = Field(default=1, ge=0, le=100)
-    pressure_need: Optional[str] = None
-    due_pressure_delta: float = Field(default=0.1, ge=0.0, le=0.5)
-    breach_pressure_delta: float = Field(default=0.2, ge=0.0, le=0.5)
-    completion_conditions: List[StateCondition] = Field(default_factory=list)
-    delegation_policy: Literal["forbidden", "bilateral", "creditor_consent"] = (
-        "creditor_consent"
-    )
-
-
 class GoalConfig(BaseModel):
     """A character goal with optional host-verifiable resolution evidence."""
 
@@ -248,7 +213,6 @@ class CharacterConfig(BaseModel):
     initial_needs: List[NeedConfig] = Field(default_factory=list)
     initial_traits: List[TraitConfig] = Field(default_factory=list)
     risk_tolerance: float = Field(default=0.5, ge=0.0, le=1.0)
-    initial_obligations: List[ObligationConfig] = Field(default_factory=list)
     initial_claim_knowledge: List[ClaimKnowledgeConfig] = Field(default_factory=list)
     initial_known_locations: List[str] = Field(default_factory=list)
     llm_config: Dict[str, Any] = Field(default_factory=dict)  # 可选的模型配置覆盖
@@ -317,9 +281,6 @@ class ScenarioConfig(BaseModel):
     initial_actor_states: Dict[str, Dict[str, Any]] = Field(default_factory=dict)
     initial_relationships: List[RelationshipConfig] = Field(default_factory=list)
     claims: List[ClaimConfig] = Field(default_factory=list)
-    agreement_offer_templates: List[AgreementOfferTemplateConfig] = Field(
-        default_factory=list
-    )
     storylets: List[StoryletConfig] = Field(default_factory=list)
     drama: DramaConfig = Field(default_factory=DramaConfig)
     conflict: ConflictConfig = Field(default_factory=ConflictConfig)

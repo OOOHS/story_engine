@@ -9,7 +9,6 @@ from src.story_engine.scenarios.config import (
     PlotStageConfig,
     PlotRuleConfig,
     NeedConfig,
-    ObligationConfig,
     TraitConfig,
     NarrationConfig,
 )
@@ -235,26 +234,6 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 TraitConfig(trait_id="hospitable", intensity=0.45),
             ],
             risk_tolerance=0.2,
-            initial_obligations=[
-                ObligationConfig(
-                    obligation_id="secure_inn_before_midnight",
-                    title="午夜前检查并锁好旅馆后门",
-                    summary="雾夜里不能让码头方向的人从后门悄悄进入",
-                    due_step=4,
-                    grace_steps=1,
-                    wake_before_steps=1,
-                    pressure_need="避祸",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="world_object",
-                            target="海员之眠",
-                            path="rear_door_locked",
-                            operator="eq",
-                            value=True,
-                        )
-                    ],
-                )
-            ],
             is_player=False,
             llm_config={
                 "system_instruction_extras": "你是 1920 年代新英格兰滨海小镇旅馆老板。你知道镇上有人失踪、有人私藏怪书，但你不愿细说，怕惹祸上身。若被追问，可暗示「去问密大的人」或「别去码头仓库附近」。说话带一点方言与迷信。"
@@ -281,26 +260,6 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 TraitConfig(trait_id="brave", intensity=0.6),
             ],
             risk_tolerance=0.62,
-            initial_obligations=[
-                ObligationConfig(
-                    obligation_id="verify_harbor_lead",
-                    title="在天亮前确认一条港口失踪线索",
-                    summary="至少找到一个能把失踪案与码头活动联系起来的可靠事实",
-                    due_step=5,
-                    grace_steps=1,
-                    wake_before_steps=2,
-                    pressure_need="查明真相",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="plot",
-                            target="harbor_ritual",
-                            path="clock",
-                            operator="gte",
-                            value=1,
-                        )
-                    ],
-                )
-            ],
             is_player=True,
         ),
         CharacterConfig(
@@ -325,26 +284,6 @@ cthulhu_arkham_scenario = ScenarioConfig(
                 TraitConfig(trait_id="fearful_of_forbidden", intensity=0.65),
             ],
             risk_tolerance=0.38,
-            initial_obligations=[
-                ObligationConfig(
-                    obligation_id="inspect_forbidden_lock",
-                    title="夜深前检查禁书书架的机关",
-                    summary="确认隐藏机关没有被陌生人动过",
-                    due_step=6,
-                    grace_steps=0,
-                    wake_before_steps=2,
-                    pressure_need="守住禁书",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="world_object",
-                            target="私人图书馆",
-                            path="lock_inspected",
-                            operator="eq",
-                            value=True,
-                        )
-                    ],
-                )
-            ],
             activation_policy="background",
             background_interval=2,
             is_player=False,

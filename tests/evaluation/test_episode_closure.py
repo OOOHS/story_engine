@@ -5,7 +5,6 @@ from src.story_engine.components.goal_state import GoalState
 from src.story_engine.components.drive_state import DriveState
 from src.story_engine.components.cognition import Cognition
 from src.story_engine.components.agent_controller import AgentController
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.navigation_state import (
     NavigationProblem,
     NavigationState,
@@ -34,14 +33,6 @@ class _Entity:
         return self.components.get(name)
 
 
-class _AgreementRegistry:
-    def __init__(self, agreements=None):
-        self.agreements = agreements or {}
-
-    def to_book(self):
-        return SimpleNamespace(agreements=self.agreements)
-
-
 class _ActionQueue:
     def __init__(self, pending=None):
         self.pending = pending or []
@@ -50,13 +41,12 @@ class _ActionQueue:
         return {"pending": list(self.pending)}
 
 
-def _closure_session(*, goal_state=None, obligation_state=None, cognition=None,
+def _closure_session(*, goal_state=None, cognition=None,
                      controller=None, navigation_state=None,
-                     agreements=None, pending_actions=None, plot_state=None,
+                     pending_actions=None, plot_state=None,
                      scene_state=None, drive_state=None):
     entity = _Entity(
         GoalState=goal_state,
-        ObligationState=obligation_state,
         PlotState=plot_state,
         Cognition=cognition,
         AgentController=controller,
@@ -66,7 +56,6 @@ def _closure_session(*, goal_state=None, obligation_state=None, cognition=None,
     )
     runner = SimpleNamespace(
         entities={"actor": entity},
-        agreement_registry=_AgreementRegistry(agreements),
         action_queue=_ActionQueue(pending_actions),
     )
     return SimpleNamespace(runner=runner)
@@ -82,18 +71,9 @@ def test_closure_evaluator_reports_authoritative_blockers():
             }
         ]
     )
-    obligations = ObligationState.from_initial(
-        [{"obligation_id": "o", "title": "履约", "due_step": 5}]
-    )
-    agreements = {
-        "proposal": SimpleNamespace(status="pending", performance_status="none"),
-        "service": SimpleNamespace(status="settled", performance_status="pending"),
-    }
     plots = PlotState(plots={"p": {"clock": 1, "max_clock": 3}})
     session = _closure_session(
         goal_state=goals,
-        obligation_state=obligations,
-        agreements=agreements,
         pending_actions=[{"event_id": "future"}],
         plot_state=plots,
     )
@@ -106,9 +86,6 @@ def test_closure_evaluator_reports_authoritative_blockers():
     assert status.eligible is False
     assert set(status.blockers) == {
         "active_verifiable_goals",
-        "active_obligations",
-        "pending_agreements",
-        "pending_agreement_performance",
         "pending_actions",
         "unresolved_plots",
     }

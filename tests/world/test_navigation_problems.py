@@ -1,6 +1,5 @@
 from src.story_engine.components.knowledge_state import KnowledgeState
 from src.story_engine.components.navigation_state import NavigationState
-from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
 from src.story_engine.systems.navigation import NavigationSystem
@@ -34,19 +33,6 @@ def _entities(with_alternative=True):
         )
     )
     actor.add_component(NavigationState())
-    actor.add_component(
-        ObligationState.from_initial([
-            {
-                "obligation_id": "deliver",
-                "title": "送货到城镇",
-                "due_step": 9,
-                "completion_conditions": [{
-                    "scope": "world_object", "target": "包裹",
-                    "path": "location", "operator": "eq", "value": "城镇",
-                }],
-            }
-        ])
-    )
     return {"GameMaster": gm, "旅人": actor}
 
 
@@ -71,8 +57,6 @@ def test_stale_route_creates_private_problem_with_alternative_and_deadline():
     assert problem["route_source"] == "村口"
     assert problem["route_target"] == "断桥"
     assert problem["alternative_path"] == ["村口", "南路", "城镇"]
-    assert problem["obligation_id"] == "deliver"
-    assert problem["steps_remaining"] == 4
     assert problem["failure_rule"] == "stale_route"
 
 

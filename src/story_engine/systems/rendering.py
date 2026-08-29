@@ -264,20 +264,13 @@ class RenderingSystem(System):
             "simulation_notes": [],
             "object_lifecycle": visible_lifecycle,
             "exchanges": [],
-            "contract_updates": [],
-            "agreement_updates": [],
-            "contract_settlements": [],
-            "contract_authorizations": {},
-            "contract_escrow_deposits": [],
             "resource_contests": [],
             "action_feedback": [],
             "drive_updates": [],
-            "obligation_updates": [],
             "social_impacts": [],
             "modifier_updates": [],
             "knowledge_updates": [],
             "claim_discoveries": [],
-            "obligation_conflicts": {},
         }
 
     @staticmethod

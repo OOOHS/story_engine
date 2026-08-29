@@ -11,7 +11,6 @@ from src.story_engine.scenarios.config import (
     PlotStageConfig,
     PlotRuleConfig,
     NeedConfig,
-    ObligationConfig,
     RelationshipConfig,
     RelationshipDirectionConfig,
     RelationshipBitConfig,
@@ -854,27 +853,6 @@ false_heiress_scenario = ScenarioConfig(
                 TraitConfig(trait_id="proud", intensity=0.75),
             ],
             risk_tolerance=0.5,
-            initial_obligations=[
-                ObligationConfig(
-                    obligation_id="decide_family_dinner",
-                    title="在正式开席前决定是否进入家宴",
-                    summary="无论入席还是拒绝，都必须在家宴节奏把自己裹进去前作出选择",
-                    creditor="沈先生",
-                    due_step=2,
-                    grace_steps=0,
-                    wake_before_steps=1,
-                    pressure_need="尊严与归属",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="actor",
-                            target="林见微",
-                            path="location",
-                            operator="eq",
-                            value="餐厅",
-                        )
-                    ],
-                )
-            ],
             is_player=True,
         ),
         CharacterConfig(
@@ -1038,26 +1016,6 @@ false_heiress_scenario = ScenarioConfig(
                 TraitConfig(trait_id="compassionate", intensity=0.55),
             ],
             risk_tolerance=0.15,
-            initial_obligations=[
-                ObligationConfig(
-                    obligation_id="return_old_ledger",
-                    title="饭后把旧账册送回书房",
-                    summary="不要让旧账册继续留在佣人可能翻到的地方",
-                    due_step=5,
-                    grace_steps=1,
-                    wake_before_steps=1,
-                    pressure_need="生计安全",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="world_object",
-                            target="旧账册",
-                            path="location",
-                            operator="eq",
-                            value="书房",
-                        )
-                    ],
-                )
-            ],
             activation_policy="background",
             background_interval=2,
             is_player=False,

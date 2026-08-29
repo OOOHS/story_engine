@@ -9,8 +9,6 @@ from src.story_engine.systems import (
     System,
     CognitionSystem,
     DriveSystem,
-    ObligationSystem,
-    AgreementSystem,
     GoalSystem,
     ModifierSystem,
     ClaimSystem,
@@ -31,7 +29,7 @@ from src.story_engine.environment.action_queue import ActionEventQueue
 from src.story_engine.environment.host_mutations import HostMutationTransaction
 from src.story_engine.environment.step_checkpoint import RunnerStepCheckpoint
 from src.story_engine.environment.delivery import DeliveryReceipt, clone_delivery_context
-from src.story_engine.social import AgreementRegistry, SocialRelationRegistry
+from src.story_engine.social import SocialRelationRegistry
 from src.story_engine.simulation.randomness import DeterministicRandomStreams
 from src.story_engine.simulation.checks import HostCheckResolver
 from src.story_engine.knowledge import ClaimRegistry
@@ -42,8 +40,6 @@ def _default_phase_order() -> List[str]:
         "InputSystem",
         "ActionSchedulingSystem",
         "SimulationSystem",
-        "ObligationSystem",
-        "AgreementSystem",
         "ClaimSystem",
         "GoalSystem",
         "ModifierSystem",
@@ -83,7 +79,6 @@ class Runner:
         self.agent_registry = AgentRegistry()
         self.action_queue = ActionEventQueue(start_time=self.clock.current_step)
         self.relation_registry = SocialRelationRegistry()
-        self.agreement_registry = AgreementRegistry(self.relation_registry)
         self.claim_registry = ClaimRegistry()
         self.scenario = None
         self.memory_namespace = (
@@ -107,8 +102,6 @@ class Runner:
             InputSystem(),
             ActionSchedulingSystem(),
             SimulationSystem(),
-            ObligationSystem(),
-            AgreementSystem(),
             ClaimSystem(),
             GoalSystem(),
             self.modifier_system,
@@ -218,7 +211,6 @@ class Runner:
             "clock": self.clock,
             "player_name": entity.name,
             "action_queue": self.action_queue,
-            "agreement_registry": self.agreement_registry,
             "relation_registry": self.relation_registry,
             "claim_registry": self.claim_registry,
             "_relationship_book_view": self.relation_registry.to_relationship_book(),
@@ -358,7 +350,6 @@ class Runner:
             "intents": [],
             "agent_registry": self.agent_registry,
             "action_queue": self.action_queue,
-            "agreement_registry": self.agreement_registry,
             "relation_registry": self.relation_registry,
             "random_seed": self.random_seed,
             "random_streams": self.random_streams,

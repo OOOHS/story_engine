@@ -14,12 +14,11 @@ from src.story_engine.agents.commitment import (
     repetition_target,
 )
 from src.story_engine.agents.memory_context import AgentMemoryContextBuilder
-from src.story_engine.motivation import NeedDynamics, ObligationConflictAnalyzer
+from src.story_engine.motivation import NeedDynamics
 from src.story_engine.narrative import TimelineEngine
 from src.story_engine.environment.physical_affordances import (
     PhysicalAffordanceEngine,
 )
-from src.story_engine.environment.agreement_offers import AgreementOfferEngine
 from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 
@@ -34,8 +33,6 @@ class InputSystem(System):
         self.scheduler = AgentScheduler()
         self.needs = NeedDynamics()
         self.physical_affordances = PhysicalAffordanceEngine()
-        self.agreement_offers = AgreementOfferEngine()
-        self.obligation_conflicts = ObligationConflictAnalyzer()
         self.memory_context = AgentMemoryContextBuilder()
         self.timeline = TimelineEngine()
 
@@ -45,7 +42,6 @@ class InputSystem(System):
         intents_buffer = context.setdefault("intents", [])
         scene_state = self._get_scene_state(entities)
         plot_state = self._get_plot_state(entities)
-        agreement_registry = context.get("agreement_registry")
         player_name = context.get("player_name")
         agent_registry = context.get("agent_registry")
         action_queue = context.get("action_queue")
@@ -138,7 +134,6 @@ class InputSystem(System):
                 has_manual_override=name in overrides,
                 scene_state=scene_state,
                 plot_state=plot_state,
-                agreement_registry=agreement_registry,
             )
             activation_trace[name] = {
                 "active": activation.active,
@@ -310,31 +305,6 @@ class InputSystem(System):
                         "recipient": action_spec.delivery_recipient,
                     }
                 )
-            agreement_reference = self._validated_agreement_reference(
-                action_spec, perception
-            )
-            if action_spec.agreement_operation and not agreement_reference:
-                for key in (
-                    "agreement_operation",
-                    "agreement_id",
-                    "agreement_template_id",
-                    "agreement_give_refs",
-                    "agreement_request_refs",
-                    "agreement_service_object",
-                    "agreement_service_destination",
-                    "agreement_payment_ref",
-                    "agreement_deadline",
-                ):
-                    action_payload.pop(key, None)
-                context.setdefault("agent_action_reference_rejections", []).append(
-                    {
-                        "actor": name,
-                        "reference_kind": "agreement_action",
-                        "operation": action_spec.agreement_operation,
-                        "agreement_id": action_spec.agreement_id,
-                        "template_id": action_spec.agreement_template_id,
-                    }
-                )
             route_reference = self._validated_route_reference(
                 action_spec, perception
             )
@@ -365,27 +335,6 @@ class InputSystem(System):
                     claim_reference.get("evidence_refs", [])
                 ),
                 "action_delivery_recipient": delivery_recipient,
-                "action_agreement_operation": agreement_reference.get("operation", ""),
-                "action_agreement_id": agreement_reference.get("agreement_id", ""),
-                "action_agreement_template_id": agreement_reference.get("template_id", ""),
-                "action_agreement_give_refs": list(
-                    agreement_reference.get("give_refs", [])
-                ),
-                "action_agreement_request_refs": list(
-                    agreement_reference.get("request_refs", [])
-                ),
-                "action_agreement_service_object": agreement_reference.get(
-                    "service_object", ""
-                ),
-                "action_agreement_service_destination": agreement_reference.get(
-                    "service_destination", ""
-                ),
-                "action_agreement_payment_ref": agreement_reference.get(
-                    "payment_ref", ""
-                ),
-                "action_agreement_deadline": agreement_reference.get(
-                    "deadline", ""
-                ),
                 "action_route_source": route_reference.get("source", ""),
                 "action_route_target": route_reference.get("target", ""),
                 "action_route_path": list(route_reference.get("path", [])),
@@ -531,161 +480,6 @@ class InputSystem(System):
         if isinstance(quantity, bool) or not isinstance(quantity, int) or quantity < 1:
             return ""
         return recipient
-
-    @staticmethod
-    def _validated_agreement_reference(
-        action: AgentAction,
-        perception: AgentPerception,
-    ) -> Dict[str, str]:
-        operation = str(action.agreement_operation or "").strip()
-        if action.kind != "communicate" or not operation:
-            return {}
-        if operation == "propose":
-            template_id = str(action.agreement_template_id or "").strip()
-            if not template_id:
-                if action.agreement_service_object:
-                    return InputSystem._validated_delivery_service_reference(
-                        action, perception
-                    )
-                return InputSystem._validated_asset_offer_reference(
-                    action, perception
-                )
-            opportunity = next(
-                (
-                    item for item in perception.agreement_opportunities
-                    if isinstance(item, dict)
-                    and str(item.get("template_id", "")).strip() == template_id
-                ),
-                None,
-            )
-            if opportunity is None:
-                return {}
-            counterparties = set(opportunity.get("counterparties", []) or [])
-            if action.target not in counterparties:
-                return {}
-            return {
-                "operation": operation,
-                "agreement_id": str(opportunity.get("agreement_id", "")).strip(),
-                "template_id": template_id,
-            }
-        agreement_id = str(action.agreement_id or "").strip()
-        record = next(
-            (
-                item for item in perception.private_agreements.get("pending", []) or []
-                if isinstance(item, dict)
-                and str(item.get("agreement_id", "")).strip() == agreement_id
-            ),
-            None,
-        )
-        if record is None:
-            return {}
-        actor = perception.actor_name
-        if operation in {"accept", "reject"} and not record.get("awaiting_actor"):
-            return {}
-        if operation == "reject" and actor == str(record.get("proposer", "")):
-            return {}
-        if operation == "withdraw" and actor != str(record.get("proposer", "")):
-            return {}
-        counterparties = set(record.get("parties", []) or []) - {actor}
-        if action.target not in counterparties:
-            return {}
-        return {"operation": operation, "agreement_id": agreement_id, "template_id": ""}
-
-    @staticmethod
-    def _validated_asset_offer_reference(
-        action: AgentAction,
-        perception: AgentPerception,
-    ) -> Dict[str, Any]:
-        opportunity = next(
-            (
-                item for item in perception.agreement_opportunities
-                if isinstance(item, dict)
-                and item.get("opportunity_kind") == "asset_offer"
-                and str(item.get("counterparty", "")).strip() == action.target
-            ),
-            None,
-        )
-        if opportunity is None:
-            return {}
-        give_refs = tuple(action.agreement_give_refs)
-        request_refs = tuple(action.agreement_request_refs)
-        if not give_refs and not request_refs:
-            return {}
-        if (
-            len(give_refs) > 4
-            or len(request_refs) > 4
-            or set(give_refs).intersection(request_refs)
-            or not set(give_refs).issubset(opportunity.get("give_options", []))
-            or not set(request_refs).issubset(
-                opportunity.get("request_options", [])
-            )
-        ):
-            return {}
-        agreement_id = AgreementOfferEngine.asset_offer_id(
-            perception.actor_name,
-            action.target,
-            give_refs,
-            request_refs,
-            perception.step,
-        )
-        return {
-            "operation": "propose",
-            "agreement_id": agreement_id,
-            "template_id": "",
-            "give_refs": give_refs,
-            "request_refs": request_refs,
-        }
-
-    @staticmethod
-    def _validated_delivery_service_reference(
-        action: AgentAction,
-        perception: AgentPerception,
-    ) -> Dict[str, str]:
-        opportunity = next(
-            (
-                item for item in perception.agreement_opportunities
-                if isinstance(item, dict)
-                and item.get("opportunity_kind") == "delivery_service_offer"
-                and str(item.get("provider", "")).strip() == action.target
-            ),
-            None,
-        )
-        object_id = str(action.agreement_service_object or "").strip()
-        payment_ref = str(action.agreement_payment_ref or "").strip()
-        destination = str(action.agreement_service_destination or "").strip()
-        deadline = str(action.agreement_deadline or "").strip()
-        if (
-            opportunity is None
-            or object_id not in opportunity.get("service_object_options", [])
-            or deadline not in opportunity.get("deadline_options", [])
-            or (
-                destination
-                and destination not in opportunity.get("destination_options", [])
-            )
-            or (
-                payment_ref
-                and payment_ref not in opportunity.get("payment_options", [])
-            )
-        ):
-            return {}
-        agreement_id = AgreementOfferEngine.delivery_service_id(
-            perception.actor_name,
-            action.target,
-            object_id,
-            destination,
-            payment_ref,
-            deadline,
-            perception.step,
-        )
-        return {
-            "operation": "propose",
-            "agreement_id": agreement_id,
-            "template_id": "",
-            "service_object": object_id,
-            "service_destination": destination,
-            "payment_ref": payment_ref,
-            "deadline": deadline,
-        }
 
     @staticmethod
     def _validated_route_reference(
@@ -872,23 +666,6 @@ class InputSystem(System):
                 else []
             )
         }
-        obligations = entity.get_component("ObligationState")
-        private_obligations = (
-            obligations.get_private_snapshot(step)
-            if obligations and hasattr(obligations, "get_private_snapshot")
-            else {}
-        )
-        if obligations and scene_state:
-            private_obligations["conflicts"] = self.obligation_conflicts.analyze(
-                obligations,
-                actor_name=actor_name,
-                scene_state=scene_state,
-                plot_state=self._get_plot_state_from_scene(scene_state),
-                current_step=step,
-            )
-            private_obligations["conflict_count"] = len(
-                private_obligations["conflicts"]
-            )
         goals = entity.get_component("GoalState")
         private_goals = (
             goals.get_private_snapshot()
@@ -936,11 +713,6 @@ class InputSystem(System):
             if claim_registry is not None and knowledge_state is not None
             else {}
         )
-        private_agreements = (
-            context["agreement_registry"].get_private_snapshot(actor_name, step)
-            if context.get("agreement_registry") is not None
-            else {}
-        )
         navigation = entity.get_component("NavigationState")
         if navigation is not None and actor_location:
             navigation.resolve_departed(str(actor_location))
@@ -948,15 +720,6 @@ class InputSystem(System):
             navigation.private_snapshot()
             if navigation and hasattr(navigation, "private_snapshot")
             else {}
-        )
-        agreement_opportunities = self.agreement_offers.build_opportunities(
-            context.get("scenario"),
-            actor_name=actor_name,
-            scene_state=scene_state,
-            agreement_registry=context.get("agreement_registry"),
-            visible_actors=world_view.get("visible_actors", []),
-            visible_objects=world_view.get("visible_objects", []),
-            map_knowledge=private_knowledge.get("map", {}),
         )
         private_schedule = self.timeline.private_schedule(
             scene_state,
@@ -983,9 +746,7 @@ class InputSystem(System):
                 visible_proposals=visible_proposals,
                 world_signals=world_signals,
                 private_goals=private_goals,
-                private_obligations=private_obligations,
                 private_schedule=private_schedule,
-                private_agreements=private_agreements,
                 private_knowledge=private_knowledge,
                 private_navigation=private_navigation,
                 private_sentiments=private_sentiments,
@@ -1016,14 +777,11 @@ class InputSystem(System):
             private_sentiments=private_sentiments,
             relationship_context=relationship_context,
             affordance_opportunities=affordance_opportunities,
-            private_obligations=private_obligations,
             private_schedule=private_schedule,
             private_goals=private_goals,
             private_modifiers=private_modifiers,
             private_knowledge=private_knowledge,
             private_navigation=private_navigation,
-            private_agreements=private_agreements,
-            agreement_opportunities=agreement_opportunities,
             recent_observations=recent_observations,
             passive_observations=passive_observations,
             active_observation_results=active_observation_results,
@@ -1147,7 +905,6 @@ class InputSystem(System):
     # motive can only cite something the character demonstrably has.
     _MOTIVE_SOURCES = {
         "goal": ("GoalState", "goals"),
-        "obligation": ("ObligationState", "obligations"),
         "sentiment": ("SentimentState", "sentiments"),
         "drive_need": ("DriveState", "needs"),
     }
@@ -1164,8 +921,8 @@ class InputSystem(System):
 
         The Host cannot derive this: it no longer chooses her action, so it has
         no view of what she was weighing. She is the only one who can say, and
-        the claim is still falsifiable -- she may only cite a goal, obligation,
-        sentiment or need she actually holds. An unresolvable reference is
+        the claim is still falsifiable -- she may only cite a goal, sentiment
+        or need she actually holds. An unresolvable reference is
         dropped and logged rather than trusted, so the audit trail stays a
         record of checkable facts instead of self-flattery.
         """

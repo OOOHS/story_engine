@@ -23,15 +23,6 @@ class AgentAction:
     claim_stance: str = ""
     evidence_refs: Tuple[str, ...] = ()
     delivery_recipient: str = ""
-    agreement_operation: str = ""
-    agreement_id: str = ""
-    agreement_template_id: str = ""
-    agreement_give_refs: Tuple[str, ...] = ()
-    agreement_request_refs: Tuple[str, ...] = ()
-    agreement_service_object: str = ""
-    agreement_service_destination: str = ""
-    agreement_payment_ref: str = ""
-    agreement_deadline: str = ""
     route_source: str = ""
     route_target: str = ""
     route_path: Tuple[str, ...] = ()
@@ -72,31 +63,6 @@ class AgentAction:
             delivery_recipient = cls._text(
                 value.get("delivery_recipient"), 120
             )
-            agreement_operation = cls._text(
-                value.get("agreement_operation"), 20
-            )
-            agreement_id = cls._text(value.get("agreement_id"), 120)
-            agreement_template_id = cls._text(
-                value.get("agreement_template_id"), 120
-            )
-            agreement_give_refs = cls._reference_list(
-                value.get("agreement_give_refs", [])
-            )
-            agreement_request_refs = cls._reference_list(
-                value.get("agreement_request_refs", [])
-            )
-            agreement_service_object = cls._text(
-                value.get("agreement_service_object"), 120
-            )
-            agreement_service_destination = cls._text(
-                value.get("agreement_service_destination"), 120
-            )
-            agreement_payment_ref = cls._text(
-                value.get("agreement_payment_ref"), 120
-            )
-            agreement_deadline = cls._text(
-                value.get("agreement_deadline"), 20
-            )
             route_source = cls._text(value.get("route_source"), 120)
             route_target = cls._text(value.get("route_target"), 120)
             route_path = cls._reference_list(value.get("route_path", []))
@@ -116,38 +82,6 @@ class AgentAction:
                 evidence_refs=evidence_refs if kind == "communicate" else (),
                 delivery_recipient=(
                     delivery_recipient if kind == "interact" else ""
-                ),
-                agreement_operation=(
-                    agreement_operation
-                    if kind == "communicate"
-                    and agreement_operation
-                    in {"propose", "accept", "reject", "withdraw"}
-                    else ""
-                ),
-                agreement_id=agreement_id if kind == "communicate" else "",
-                agreement_template_id=(
-                    agreement_template_id if kind == "communicate" else ""
-                ),
-                agreement_give_refs=(
-                    agreement_give_refs if kind == "communicate" else ()
-                ),
-                agreement_request_refs=(
-                    agreement_request_refs if kind == "communicate" else ()
-                ),
-                agreement_service_object=(
-                    agreement_service_object if kind == "communicate" else ""
-                ),
-                agreement_service_destination=(
-                    agreement_service_destination if kind == "communicate" else ""
-                ),
-                agreement_payment_ref=(
-                    agreement_payment_ref if kind == "communicate" else ""
-                ),
-                agreement_deadline=(
-                    agreement_deadline
-                    if kind == "communicate"
-                    and agreement_deadline in {"urgent", "soon", "flexible"}
-                    else ""
                 ),
                 route_source=route_source if kind == "communicate" else "",
                 route_target=route_target if kind == "communicate" else "",
@@ -187,28 +121,7 @@ class AgentAction:
                 payload["claim_stance"] = self.claim_stance
             if self.evidence_refs:
                 payload["evidence_refs"] = list(self.evidence_refs)
-        if self.kind == "communicate" and self.agreement_operation:
-            payload["agreement_operation"] = self.agreement_operation
-            if self.agreement_id:
-                payload["agreement_id"] = self.agreement_id
-            if self.agreement_template_id:
-                payload["agreement_template_id"] = self.agreement_template_id
-            if self.agreement_give_refs:
-                payload["agreement_give_refs"] = list(self.agreement_give_refs)
-            if self.agreement_request_refs:
-                payload["agreement_request_refs"] = list(
-                    self.agreement_request_refs
-                )
-            if self.agreement_service_object:
-                payload["agreement_service_object"] = self.agreement_service_object
-            if self.agreement_service_destination:
-                payload["agreement_service_destination"] = (
-                    self.agreement_service_destination
-                )
-            if self.agreement_payment_ref:
-                payload["agreement_payment_ref"] = self.agreement_payment_ref
-            if self.agreement_deadline:
-                payload["agreement_deadline"] = self.agreement_deadline
+        if self.kind == "communicate":
             if self.route_source and self.route_target:
                 payload["route_source"] = self.route_source
                 payload["route_target"] = self.route_target

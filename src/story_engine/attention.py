@@ -37,8 +37,6 @@ class HostAttentionPolicy:
             priority = 90
         elif "missed" in kind:
             priority = 80
-        elif kind.startswith("obligation_") or kind.startswith("agreement_"):
-            priority = 75
         elif kind == "exchange_completed":
             priority = 70
         elif kind == "route_opened":

@@ -9,10 +9,9 @@ class CommunicationResolution:
     Speaking is not a judgment call. Legality already decides, mechanically,
     whether a character can reach her target (co-located, not blocked); once
     that is true the words leave her mouth exactly as proposed. Whether a
-    listener believes a Claim, whether an agreement forms, whether anyone
-    cares -- that is settled downstream by trust-weighted belief formation
-    and contract dynamics, never by a narrative "did this communication
-    succeed" verdict.
+    listener believes a Claim, whether anyone cares -- that is settled
+    downstream by trust-weighted belief formation, never by a narrative
+    "did this communication succeed" verdict.
 
     The semantic GM still *sees* ``communicate`` intents (it may still
     contribute ``knowledge_updates``/``social_impacts`` -- content-level

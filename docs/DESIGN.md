@@ -61,7 +61,7 @@ Action Scheduling
   -> 原子动作进入离散事件队列，推进到最早完成批次
 Simulation
   -> 根据绝对状态与结构化约束做结算
-Obligation / Agreement / Claim / Goal / Modifier / Relationship / Drive
+Claim / Goal / Modifier / Relationship / Drive
   -> 根据已提交事实推进跨回合生命周期与私有动机
 Cognition
   -> 按角色位置与可见性归档结构化亲历结果
@@ -94,12 +94,12 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 负责 Simulation 阶段：
 
-- 输入：GM semantic snapshot、已提交 `intents`、合法性、当前参与者自身的 Drive/Obligation、可见关系定性状态，以及 Claim/Agreement/角色入口等结算目录
+- 输入：GM semantic snapshot、已提交 `intents`、合法性、当前参与者自身的 Drive、可见关系定性状态，以及 Claim/角色入口等结算目录
 - 输出：`resolved_actions`、`state_updates`、`social_impacts`、定性 `conflict_level` 等语义候选；Storylet hit、Plot、长期关系、Drive magnitude 和 Drama tension 数值不属于该层输出
 - 不确定结果的 success/failure 只是语义补丁候选。宿主在随机选择前同时清理两边的 actor.location：只有当前 move actor 的原位置或 LegalityEngine 授权目的地可保留，其他角色、非 move 坐标和替换目的地全部进入 authority rejection
 - Storylet、Conflict、Drama directive、Plot snapshot、Situation、reaction pressure 和角色导演字段只保留在 Host context 中用于检测、评估与事后归因，不进入任何语义 resolver。GM 因而只能回答“这些角色已经提出的行动在世界中发生了什么”，不能根据剧情压力把中性行动故意扭成预定节拍
 - `ScenarioConfig.rules` 只描述客观世界法则与题材常识；叙事节奏、语言风格和揭示方式属于 `ScenarioConfig.narration`。公开 `environment` 只能包含角色可观察环境，不能混入“仅 GM 参考”的隐藏设定
-- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换、Agreement/Obligation transition 和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断、Plot pressure 或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
+- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断、Plot pressure 或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
 
 ### NarrativeRenderer
 
@@ -115,7 +115,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 ### Episode 完结边界
 
 - 完结是 evaluation 层的宿主派生状态，不是 Agent/GM 动作，也不是世界关机指令。
-- 默认要求可验证 Goal 全部结算、没有活动 Obligation、没有开放 Agreement 或待结算 performance、动作队列为空；内容可选择同时要求 Plot 完结。
+- 默认要求可验证 Goal 全部结算、没有尚未出席/错过/取消的 Timeline commitment、动作队列为空；内容可选择同时要求 Plot 完结。
 - 场景中仍为 `scheduled/due` 的 Timeline commitment 默认也阻塞 Episode closure；否则眼前目标刚完成时，未来宴会、仪式或约定可能尚未发生，评估器却会制造假结局。它们必须先由真实位置与时间结算为出席、错过或取消；需要章节式截断时可在 closure policy 中显式关闭该条件。
 - 条件需连续稳定若干 step 才提前停止，避免把临时空窗当成故事结局；未启用策略时仍执行固定步数。
 - Sentiment、Relationship Track 和普通记忆不要求清空。一个完整 Episode 可以带着感谢、怨恨或新的长期关系结束，而世界之后仍可继续演化。
@@ -169,17 +169,17 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 管理 scheduled / due / resolved / missed / cancelled 承诺状态
 - `participants + location + due/grace + wake_before_steps` 形成角色私有日程信号；临近窗口唤醒离屏 Agent，并向宿主策略提供赴约移动候选
 - 不直接修改角色 location、sub_location、stance、focus 或其他 actor state；出席、迟到和缺席只从角色真实行动后的世界位置判定
-- Timeline 日程不是 Obligation：邀请可以被拒绝；只有明确责任才进入 ObligationState
+- Timeline 日程可以被拒绝或错过；口头承诺不进入宿主状态机，只留在沟通与角色记忆里
 - Timeline attendance Event 不再把 commitment id 当作充分原因。Host 建立 `TimelineResolution:<id>:resolved|missed`，父节点包含 authored commitment、到期 clock step，以及每位参与者在约定地点的 presence/absence 判定；Event 再指向 resolution。day-phase transition 直接指向选择该阶段的 clock step
 - 当玩家错过重要承诺时形成结构化 aftermath，而不是伪造玩家曾经在场
 - 根据同场角色关系与压力状态选择转场压力承载者，不识别任何具体故事人物
 
 ### WorldEventSystem
 
-- 在 Simulation、Obligation、Agreement 与社会状态结算完成后运行，只投影已经提交的客观变化
-- 把角色真实移动、普通可观察对象属性变化、Timeline attendance、物品生命周期、exchange、Obligation 终态和 Agreement 生命周期/履约/托管 transition 物化为独立 `WorldEvent:<id>` Entity，而不是把 aftermath 文本当作全世界共同记忆
+- 在 Simulation 与社会状态结算完成后运行，只投影已经提交的客观变化
+- 把角色真实移动、普通可观察对象属性变化、Timeline attendance、物品生命周期和 exchange 物化为独立 `WorldEvent:<id>` Entity，而不是把 aftermath 文本当作全世界共同记忆
 - `WorldEventFact` 保存客观 kind、statement、step、location、subjects、objects、visibility、来源和宿主派生的 `impacts`；`WorldEventWitnesses` 只登记直接现场者和事件当事人的 self witness
-- `impacts` 是 `scope + target + path` 组成的权威状态失效键，不是故事标签或 LLM 语义判断。对象移动、所有权、可见性、容器开闭、义务和协议状态等由各宿主系统确定性投影；容器开闭还会投影到内部对象的 accessibility/visibility，因此间接但真实的机会变化可以被目标感知
+- `impacts` 是 `scope + target + path` 组成的权威状态失效键，不是故事标签或 LLM 语义判断。对象移动、所有权、可见性、容器开闭等由各宿主系统确定性投影；容器开闭还会投影到内部对象的 accessibility/visibility，因此间接但真实的机会变化可以被目标感知
 - WorldEvent id 继续描述“哪件事发生”，source type/ref 描述“为什么发生”：角色移动和经过生命周期验证的拿取/放下/开关/使用/销毁指向 actor resolved action；普通对象属性差分只有在 Host ledger 将 action target 与该对象精确匹配时才指向 action batch；Host edit 使用稳定 change id。公共 scene flag 缺少精确 actor ledger 时保持 transition source，不把同轮所有行动者猜成原因
 - 合法空间移动由 LegalityEngine 的图结果写入 actor location，语义 GM 即使漏写 `state_updates` 也不能让身体停在原地；提交后宿主从前后位置差生成 movement Event
 - movement Event 同时向出发地的离开目击者和目的地的到达目击者投射，各自 Experience 保留自己的观察地点。移动者保留 self cognition，但不把自己明知的移动重新排入 passive attention，避免自唤醒循环
@@ -191,7 +191,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 宿主对象补丁同样从 before/after 生成稳定 `host_object_state_changes`，no-op 不递增 `world_version`；真实差分进入普通 `object_state_changed` Event、typed impacts、目标重激活与 POV Rendering，不再存在“状态已经改了但世界中无人能观察”的静默旁路
 - `HostMutationTransaction` 是 `world_edits + topology_changes` 的外层提交边界：两者在同一 Scene 副本执行，任一子事务非法则共同回滚；成功批次无论包含几类变化都只递增一次版本
 - 步前宿主批次被拒绝时 Runner fail closed：设置 `step_aborted / step_abort_reason` 后在 Input 之前返回，AgentRegistry、ActionEventQueue、GameClock、WorldEvent 与 Session step_count 均不消费这次无效调用；修正后的 retry 保持原 step 和稳定 id
-- 宿主命令通过后，Runner 在 Input 前捕获整步 checkpoint；它按原对象恢复全部 ECS model fields，并恢复 Entity 集合、Agent runtime bindings、Relation/Agreement/Claim bindings、离散行动堆、busy map、sequence 与 GameClock
+- 宿主命令通过后，Runner 在 Input 前捕获整步 checkpoint；它按原对象恢复全部 ECS model fields，并恢复 Entity 集合、Agent runtime bindings、Relation/Claim bindings、离散行动堆、busy map、sequence 与 GameClock
 - Dispatcher 在权威 phase 中只缓冲消息；Input～WorldEvent 的 System 或 callback 抛出未预期异常时，后续 phase 不运行，checkpoint 与 dispatcher 一起 rollback，`authoritative_step_failed=true` 且 Session 不计步
 - WorldEventSystem 完成是 authoritative commit barrier。Rendering/Memory 属于交付层且各自在执行前捕获短 checkpoint；异常只撤销失败 phase 新增的内部 Component/context 半状态，返回 `delivery_phase_exception + step_committed=true` 而不倒转合法世界或更早成功的交付。外部文字/回调和 Agent runtime 推理调用不可逆，但会被标记为 delivery error，未提交 proposal 永远不成为事实
 - 产品适配器不得把失败 context 当普通 turn。`public_step_status` 只投影 `aborted / rolled_back / delivery_failed / committed`、是否提交及 phase/type；异常 message 留在宿主日志。Web 对未提交尝试写 system history 且不增加 step，delivery failure 保留已提交 turn；Console 使用同一投影提示
@@ -209,11 +209,11 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - `HostRuleSimulationControl` 提供无 LLM、无故事特例的确定性语义基线：它只生成原子回退结果，移动、内建物理 affordance、资源竞争和事务由现有 Host 系统完成。评测内容可用它证明 seed 机制，而不为每个对象动作手写 Simulation resolver
 - 正向主动 `observe(target=evidence)` 会由 `EvidenceObservationResolver` 对照 Claim Entity 的 supports/refutes 边派生 private_result 与 claim_discoveries；GM 的 discovery 声明会被替换，Claim truth 不进入观察。对象无关联、不可见或行动失败时不发现，具体社会解释仍留给角色语义层
 - `communicate` 可携带已知 `claim_id`、公开选择的 `claim_stance` 与可出示 `evidence_refs`。Input 以私有 KnowledgeState 投影和可见目标验证，Host 用 `ClaimCommunicationResolver` 替换 GM 自报的 Claim transfer；ClaimKnowledgeSystem 再验证同场并按证据/关系计算接收 confidence。角色可以撒谎，但不能凭空知道 Claim 或展示未知证据
-- 单边整件交付用 `interact(target, delivery_recipient)`：发送者必须持有公开 portable 对象，接收者当前可见；语义层正向结算后 `ObjectDeliveryResolver` 覆盖该对象的 GM lifecycle 写入并生成 exact relocate。部分数量、互换、付款与附条件交付不走该捷径，继续要求双方 proposal 或 Agreement 授权
+- 单边整件交付用 `interact(target, delivery_recipient)`：发送者必须持有公开 portable 对象，接收者当前可见；语义层正向结算后 `ObjectDeliveryResolver` 覆盖该对象的 GM lifecycle 写入并生成 exact relocate。部分数量、互换与付款不走该捷径，继续要求双方 proposal
 - public scene flag 与 Timeline day-phase transition 会生成 `scope=scene,target=scene,path=scene_flags.<field>` impacts，并向现存角色投递一次环境观察；私有 flag、phase_turn、schedule 和消费账本不生成 Event
 - 现场见证者获得私有 event belief 与 passive experience；缺席者只在自己真实所在地获得 self experience，不会被伪装成曾在会场
 - 每个首次获知的 event id 进入角色私有 pending observation 队列；离屏 auto/background Agent 会被唤醒一次，runtime 成功收到完整 perception 后才由宿主确认处理
-- pending observation 不是简单 FIFO。宿主为每条刺激保存不进入 Agent prompt 的 `priority + step + stable id` attention record：违约/销毁/警报/缺席高于普通对象变化，普通移动和时间阶段较低；道歉、解释、指控等 response 与 WorldEvent 在同一个选择边界比较。容量截断保留最高优先级记录，同级按新鲜度和稳定 id 重放；Agent 只看到排序后的真实 id，不看到数值
+- pending observation 不是简单 FIFO。宿主为每条刺激保存不进入 Agent prompt 的 `priority + step + stable id` attention record：销毁/警报/缺席高于普通对象变化，普通移动和时间阶段较低；道歉、解释、指控等 response 与 WorldEvent 在同一个选择边界比较。容量截断保留最高优先级记录，同级按新鲜度和稳定 id 重放；Agent 只看到排序后的真实 id，不看到数值
 - Scheduler 的唤醒原因、AgentPerception 中最多二十条待处理刺激和成功决策后的 acknowledge 使用同一个排序 view，避免“按最旧事件唤醒、却交付并消费最新事件”的错位
 - 每条首次出现的 `source->target:response_kind` 也生成稳定 event-response attention id。它与原 event knowledge 分开消费，因此已知事故上的新道歉、解释或指控仍会唤醒接收者
 - pending event 不允许 Episode 提前 closure；重复收到同一个已知 event id 不会形成无限唤醒，dormant policy 仍只接受人工激活
@@ -252,13 +252,13 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 自然关系目标只能追求 `non_hostile / trusted / close` 等宿主目录状态，不能提交 trust/favor/malice 数值或阈值
 - 甲对乙与乙对甲仍是两个逻辑方向，但不再机械创建两个基础 Entity；首次实际定向互动会惰性创建 pair 并添加 `acquainted` bit
 - favor / malice / trust 不再保存在 GM 集中图或 `SceneState.actor_states` 的动态字段中
-- favor / malice / trust 只由宿主 Sentiment、Agreement transition 或其他显式宿主社会规则改变；Simulation 的直接数值写入会在中央权威边界被清空
+- favor / malice / trust 只由宿主 Sentiment 或其他显式宿主社会规则改变；Simulation 的直接数值写入会在中央权威边界被清空
 - 一次失败、拒绝或冲突不会被引擎自动解释为“恶意增加”
-- 语义层只提交有可观察事实支持的 `social_impacts`；长期 Track delta 由宿主固定目录与 Agreement 等权威 transition 派生，不能由 GM 直接填写
+- 语义层只提交有可观察事实支持的 `social_impacts`；长期 Track delta 由宿主固定目录派生，不能由 GM 直接填写
 
 ### RelationshipSystem
 
-- 在 Agreement 结算后推进 pair relationship 中声明了 `decay_per_step` 的连续 Track，使临时怨恨、紧张或熟悉度可以按宿主规则回归，而不是交给 LLM 随意遗忘
+- 推进 pair relationship 中声明了 `decay_per_step` 的连续 Track，使临时怨恨、紧张或熟悉度可以按宿主规则回归，而不是交给 LLM 随意遗忘
 - 到期的 Relationship Bit 确定性移除；永久的亲属、婚姻或组织身份使用无期限 bit
 - Track decay 与 bit expiry 形成结构化 transition trace，但不会自动替角色生成行动
 
@@ -269,8 +269,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 模型只提供 kind、`minor/moderate/major/extreme` 定性 intensity 和事实 reason；宿主先映射为固定 magnitude，再由 SentimentDefinition 决定持续时间、衰减、Policy tag 权重及少量长期 Track effect，精确权重不进入 Agent prompt
 - 同 target/kind 的重复体验按饱和公式积累，不做无限线性相加；SentimentSystem 在每个世界 step 确定性衰减并清除过期记录
 - 一批 social impacts 在副本上统一验证，任一非法则不发布其中任何感受或关系沉淀
-- Agreement performance 的 fulfilled/breached/cancelled transition 可直接派生参与者局部 grateful/betrayed/hurt，绕过 GM 猜测且不制造全局 reputation
-- Sentiment 的来源由宿主改写为已验证的 `resolved_action` 或 `AgreementPerformanceResolution`；模型自报的 `source_event` 不进入权威状态。由 Sentiment 沉淀的有向 Track 同时保存该 Sentiment 的规范引用，供 Episode 还原“行为/履约 → 感受 → 长期关系 → 后续目标”链
+- Sentiment 的来源由宿主改写为已验证的 `resolved_action`；模型自报的 `source_event` 不进入权威状态。由 Sentiment 沉淀的有向 Track 同时保存该 Sentiment 的规范引用，供 Episode 还原“行为 → 感受 → 长期关系 → 后续目标”链
 
 ### CharacterLifecycle
 
@@ -305,7 +304,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 容器是内容包预定义的通用能力：`is_container`、`container_capacity`、`container_open`、`container_opaque` 与物品的 `container_size` 都属于权威字段，动态模型不能发明或用普通 state update 改写
 - `container` 可以递归嵌套；有效地点沿容器链解析，因此角色携带外层包移动或把整箱交给另一人时，内部物品会自然随行而无需逐项重写
 - 放入和取出要求所有相关容器已打开；关闭的不透明容器遮蔽内容，关闭的透明容器允许看见但不允许直接操作。任何自包含、循环引用、容量超限或缺失容器都会使整轮事务回滚
-- 容量按直接 child 的 `container_size * quantity` 计算，避免嵌套内容在多层重复占用；非空容器不能直接销毁、消耗或移入 escrow custody
+- 容量按直接 child 的 `container_size * quantity` 计算，避免嵌套内容在多层重复占用；非空容器不能直接销毁或消耗
 - 非便携对象不能由普通角色搬动；对象不能借生命周期接口伪装成地点、修改空间图或覆盖保留字段
 - `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本
 - 隐藏对象只进入所有者自己的 POV；其他同场角色和 Rendering 都不会收到其生命周期 payload 或普通属性更新
@@ -323,7 +322,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 对象 quantity 扣减/删除与 DriveState need effect 在同一事务副本上执行，checkpoint 也同时覆盖私有 drive 状态
 - 非物质后果使用显式 `drive_updates`：affected actor、source actor、已有 need、increase/decrease、定性 intensity 与 reason 都必填，source 必须有本轮 resolved action 证据；宿主固定映射有限 delta，若 source 不是本人，该行动还必须在 affected actor 所在地可观察
 - `drive_updates` 不进入玩家 Rendering payload；角色只能在下一轮通过自己的私有 DriveState 感知压力变化
-- 每个 need 保存一个有界的宿主 provenance ledger：对象 affordance 与显式社会/环境压力指向已验证 `resolved_action`，义务到期压力指向对应 Obligation，自然漂移指向 clock step。ledger 不进入 `private_drives`，只用于回滚、重放和 Episode 因果审计
+- 每个 need 保存一个有界的宿主 provenance ledger：对象 affordance 与显式社会/环境压力指向已验证 `resolved_action`，自然漂移指向 clock step。ledger 不进入 `private_drives`，只用于回滚、重放和 Episode 因果审计
 - `NeedDynamics` 会从当前可见对象生成 affordance opportunity，按角色当前 pressure 与 relief 强度排序，但该分数只影响 Agent 判断，不改写 proposal
 - 普通 auto/background 角色的 need 达到 critical threshold 时，`AgentScheduler` 会立即给予一次 background 激活；显式 dormant 仍保持人工控制边界
 
@@ -355,75 +354,17 @@ NeedConfig(
 )
 ```
 
-### ObligationState
+### ObligationState / Agreement / escrow
 
-- `Cognition.commitments` 保留角色自己声称或计划坚持的主观承诺；`ObligationState` 表示引擎真正追踪的、有 id 和期限的私有责任；`Timeline` 表示家宴开席、夜灯亮起等世界级日程，并把参与邀请放入各自 `private_schedule`，但不替角色赴约
-- 每条 obligation 包含 debtor 所属组件、可选 creditor、due step、grace window、wake-before window、status 和事实摘要
-- 每条 obligation 还保存宿主拥有的 `source_kind/source_ref`：内容初始项明确标为 `scenario`，service settlement 指向 Agreement，动态行动创建指向已验证的 resolved-action batch，委托后的新记录指向原承担者及 obligation id；Agent/GM 提供的自定义来源字段会被忽略
-- obligation 可以绑定角色已有的 `pressure_need`，到期与违约分别施加受内容配置约束的 DriveState delta
-- auto/background 角色进入提前唤醒窗口后会以 `obligation_due:<id>` 原因激活；显式 dormant 仍不自动运行
-- `obligation_updates` 允许 `create / fulfill / cancel / delegate`，不允许模型输出 breach；违约只由世界时间超过 due + grace 自动判定
-- create、fulfill 与 cancel 必须引用本轮 positive resolved action；若 source 不是义务承担者，行动必须在承担者所在地可观察，避免异地指派或秘密解除通过心灵感应生效
-- 动态 create 的 due step 必须在当前 step 到未来 200 步内，单角色义务数量有上限，pressure need 和 creditor 必须真实存在
-- 内容包可以声明完整的 `completion_conditions`；动态 create 也可以声明最多四条受白名单约束的条件，仅允许 debtor 自己的 location 或 debtor 当前可见对象的 location/owner/hidden 做 `eq` 比较，不能借义务泄漏秘密对象、隐藏 Plot 或任意角色状态
-- 每条义务声明 `delegation_policy: forbidden | bilateral | creditor_consent`，缺省为 `creditor_consent`；个人责任可禁止转交，无 creditor 的普通分工可以使用 bilateral
-- `delegate` 保留原 obligation id、creditor、deadline、grace、delegation policy 与完成条件，把旧记录原子标为 terminal `delegated`，并在新承担者组件中创建带 `delegated_from` 谱系及 `delegated_obligation:<actor>:<id>` 即时来源的 active 记录；针对原 debtor 的 actor condition 会确定性改写为新 delegate
-- bilateral delegation 必须满足 debtor 与 delegate 同场、双方本轮都真实提交过 Agent proposal、双方都有同场且非 hidden 的 positive resolved action、`accepted_by == delegate`；Simulation 不能替未运行的角色伪造接受
-- creditor_consent 在 creditor 是独立第三方时，还要求 creditor 同场、提交自己的 proposal、产生 positive action，并且 `approved_by == creditor`，避免债务双方私下把对第三人的责任转走
-- 完成条件引用的有形对象必须对新 delegate 当前可见；Plot、scene、其他角色状态或隐藏对象条件不能通过 delegation 泄漏给原本不知道它们的 Agent
-- delegate 可显式绑定自己已有的 `delegate_pressure_need`；未指定时仅在新承担者拥有同名 need 时继承，避免核心凭名称给角色发明心理压力
-- `ObligationSystem` 在 Simulation 后先结算 fulfilled/due/breached，再由 `DriveSystem` 推进自然漂移；状态转换通过 status 保证同一步重入不会重复施压
-- obligation 更新与 Scene、Plot、Drama、Relationship、DriveState 一起进入事务，checkpoint 也恢复义务状态
-- `private_obligations` 只进入承担角色自己的 AgentPerception；Rendering 收不到 obligation update 或私有期限表
-
-### ObligationConflictAnalyzer
-
-- 读取角色自己的 active obligations、权威 completion conditions、当前位置、地点连通图、due step 与 grace window
-- 只分析结构化 `actor.location == 地点`、`world_object.location == 地点` 和有限的对象交付位置，不从 title/summary 猜测题材语义
-- 对每对义务计算“当前位置 -> 义务 A -> 义务 B”和反向路线；两个顺序都可行时不制造冲突
-- 两个顺序都不可行时输出私有 `hard` 冲突；只有一个顺序可行时输出 `constrained` 和唯一 feasible order
-- 分析范围明确为 `debtor_solo_spatial_route`：表示承担者独自执行的路线可行性，不宣称委托、协商、他人帮助或世界事件也不可能解决
-- 已由权威状态满足、已完成、已取消、已委托或已违约的义务不参与冲突
-- 输出按 severity、earliest deadline 和 obligation id 稳定排序，不受义务字典插入顺序影响
-- 冲突只进入承担者的 `private_obligations` 和 GM 内部 phase context，不进入 Rendering、公共 world view 或其他角色 perception
-- 距离最近期限进入 `obligation_conflict_horizon` 后，可唤醒 auto/background 离屏 Agent；显式 dormant 保持不自动唤醒
-- `obligation_conflict_horizon` 是宿主/内容初始化控制的 engine-managed flag，Simulation 模型不能通过普通 state update 改写调度策略
-
-该层的职责是让 Agent 看见真实取舍，而不是替 Agent 选边。例如角色可以选择先履行唯一可行的顺序，也可以向 creditor 协商延期、与另一个 Agent 双边确认责任转交、故意违约或优先满足更高压力的 need。最终行动仍然只是 proposal，义务状态仍由权威证据结算。
-
-示例：
-
-```python
-ObligationConfig(
-    obligation_id="deliver_repair",
-    title="在夜里前交付修好的怀表",
-    creditor="师傅",
-    due_step=5,
-    grace_steps=1,
-    wake_before_steps=2,
-    pressure_need="责任压力",
-    due_pressure_delta=0.1,
-    breach_pressure_delta=0.2,
-    completion_conditions=[
-        StateCondition(
-            scope="world_object",
-            target="怀表",
-            path="owner",
-            operator="eq",
-            value="师傅",
-        )
-    ],
-)
-```
+这一层已经删除。角色之间的跨时承诺不再由宿主义务/协议/托管状态机执行；口头承诺留在沟通与角色记忆里，当场交付只走 `exchanges`。
 
 ### WorldStateTransaction
 
 - 在 SceneState、PlotState、DramaState 与事务级 `RelationshipBook` 的副本上暂存本轮写入
 - 同一事务还可以暂存参与本轮结算的私有 DriveState；快照通过可序列化字段重建，不沿 Component 的 Entity 回指复制 live runtime
-- 角色 ObligationState 使用同样的纯字段重建方式进入事务与 checkpoint，不复制 Entity 或 Agent runtime
 - 校验更新 section、已有角色、已有对象、地点、子区域、空间图、有形对象放置与生命周期账本、宿主派生 plot update、tension 范围，以及宿主关系变化的角色和关系不变量
-- RelationshipBook 只从 pair 关系实体重建；宿主应用 Sentiment、Agreement 等系统派生的有向 track delta 和互动时间线后再原子发布，Scene 不保存关系镜像
-- 所有检查通过后才一次提交；任何一项失败时 Scene、Plot、Drama、SocialRelation、DriveState 与 ObligationState 全部保持原样
+- RelationshipBook 只从 pair 关系实体重建；宿主应用 Sentiment 等系统派生的有向 track delta 和互动时间线后再原子发布，Scene 不保存关系镜像
+- 所有检查通过后才一次提交；任何一项失败时 Scene、Plot、Drama、SocialRelation 与 DriveState 全部保持原样
 - 成功提交返回这些权威组件的提交前恢复 checkpoint；需要 live runtime 等外部资源的生命周期可以在 finalize 失败时撤销已经提交的候选世界
 - checkpoint 同时恢复 need pressure、risk tolerance 和 drive 的 step 游标，避免资源已经回滚而角色仍错误地认为需求已被满足
 - 被拒绝的结算会清空 resolved facts、plot/relationship/host-derived storylet hit 和 spawn 请求，避免 Rendering 描述未提交事实
@@ -470,15 +411,15 @@ ObligationConfig(
 
 ### ExchangeDynamics
 
-- `exchanges` 表示两个已有角色在同轮明确接受的物品或有限资源契约，不是自由形式对白的隐式副作用
+- `exchanges` 表示两个已有角色在同轮明确接受的物品或有限资源当面交付，不是自由形式对白的隐式副作用
 - parties 必须恰好包含两个不同角色，`accepted_by` 必须与 parties 完全一致；双方必须同场、本轮真实提交 Agent proposal，并分别拥有同地点、非 hidden、outcome 为 success/partial/complication 的 resolved action
 - transfer 的 `from` 必须真实拥有 object，`to` 必须是另一 party；对象必须 tangible、portable、已公开且不能同时进入 `object_lifecycle`
 - quantity 缺省为整件或整个堆栈；部分转移只有在内容预定义 `stack_key` 时才允许，模型不能通过普通 state update 或动态 spawn 发明 fungibility
 - 同 stack_key 且除 owner/location/hidden/quantity 外状态一致的 recipient stack 会确定性合并；否则引擎从 source state 复制出稳定 hash id 的 fragment，并纳入 `dynamic_world_object_names` 与数量上限
 - 同轮所有 exchange 先按 object 聚合 claim；总 quantity 超过权威库存、一个对象被指向不同 recipient、或多个 exchange 形成双花时，整笔世界事务拒绝
 - 应用按稳定 exchange/object id 计算，不依赖 JSON 数组顺序；fragment id 使用 object、recipient 与排序后的 exchange ids 生成
-- exchange 在候选 SceneState 上先于 obligation update 和普通 object lifecycle 暂存，因此支付、对象所有权和 responsibility delegation 可以处于同一个 `WorldStateTransaction`
-- 任一 delegation、Plot、关系、Drive 或对象写入随后失败时，交换也随 checkpoint/事务整体回滚，不存在“钱付了但任务没有接手”的半状态
+- exchange 在候选 SceneState 上先于普通 object lifecycle 暂存，因此支付与对象所有权可以处于同一个 `WorldStateTransaction`
+- 任一 Plot、关系、Drive 或对象写入随后失败时，交换也随 checkpoint/事务整体回滚，不存在半提交的转手
 - `CausalPlotEngine` 在交换后的候选世界求值，所以“甲真正通过交易取得钥匙”可以同轮触发 Plot 规则
 - 完整 exchange bundle 只进入 GM episodic memory；Rendering 和普通角色记忆依赖可见 resolved actions，不接收私下的 bundle 明细
 
@@ -523,81 +464,6 @@ ObligationConfig(
 
 核心不理解“铜币”“信用点”“药剂剂量”或“口粮”这些题材名称；`stack_key` 只声明哪些内容对象可以安全视为同一种可合并资源。
 
-### Agreement Entity 与 AgreementDynamics
-
-- 普通协商首先属于 Communication、Cognition 与 Memory；只有各方明确表达、且需要跨时机械执行的承诺才物化为 Agreement Entity
-- Agreement Entity 使用可复用的 `SocialRelation` 表达参与者、发起者、可见性和来源，并用 `AgreementTerms`、`AgreementLifecycle` 表达条款与生命周期；GameMaster 不再持有 `ContractState` 组件
-- Agreement 与 Pair/Group Relationship 共用同一个 `SocialRelationRegistry`；协议通过 `parent_relation_id` 挂靠参与者关系上下文，但保持独立身份、条款和生命周期
-- Agreement Entity 保存宿主派生的创建 provenance。正式 propose 必须来自当前轮真实 Agent proposal 和同地点 positive communicate；Host 将来源固定为 `resolved_action:step:<n>:actor:<name>`，忽略 Agent/GM 附带的自定义 source 字段。counter 产生的新 Agreement 同样指向提出 counter 的已验证行动，并通过 `countered_from` 保留协议谱系
-- 资产所有权仍由 Scene/Asset/Inventory 管理，未来责任由 Obligation 管理，托管由 custody 机制管理；Agreement 只保存授权条款、关联和执行状态
-- 状态机为 `pending -> settled | rejected | withdrawn | expired | countered`；模型不能直接写 status 或声明 expired/settled/countered
-- 每个终态转换还保存独立的 `resolution_source_kind/ref`：settled/rejected/withdrawn/countered 指向作出该回应的 Host-verified resolved action，expired 指向权威 clock step。它与 Agreement 创建来源分离，因此“谁提出”与“谁最终接受或拒绝”不会被 proposal_reason 文本混为一谈
-- `propose` 必须由 proposer 本轮真实 proposal 和同地点 positive action 支持，所有 parties 必须同场，因此条款不会通过远程心灵感应进入其他角色 perception
-- 报价 transfer 在 propose 时先验证当前 owner、portable、hidden、quantity 和 stack_key；delegation 先验证 active obligation、policy、creditor party 和 completion-condition 隐私，但不预先移动或锁定资产
-- 报价不是库存预留。party 最终 accept 时会基于当时的候选 SceneState 重新运行 ExchangeDynamics 和 ObligationDynamics；期间物品已转移、消耗、隐藏或义务终止时，settlement 拒绝并回滚本次接受
-- counter/accept/reject/withdraw 每个 actor 必须在自己的 Agent turn 中提出并拥有 positive action；同一 contract 每轮最多一个 update，避免 JSON 顺序在同轮先接受再撤回
-- 任一 pending party 可以 counter，但必须提供新的稳定 id 和完整替换条款；parties 集合不可变，旧记录进入 `countered` 并保存 `superseded_by`，新记录保存 `countered_from` 且 accepted_by 只包含 counter proposer
-- counter 不移动或锁定资产，也不继承旧 party 的接受。新条款重新执行 transfer/delegation/service/escrow 全部校验；任何字段非法时整个更新回滚，旧报价保持 pending，不产生半条协商链
-- 最后一名 party 接受时，ContractDynamics 产生 engine-owned `contract_authorizations`，允许此前回合已接受的 party 不必重新表示同意；所有 party 仍必须在 settlement 地点同场，保证物理交付成立
-- authorization 每次由权威 Agreement Entity 的事务视图重建，Simulation 正常化会丢弃模型自报字段，WorldStateTransaction 也会覆盖伪造的 settlement/authorization
-- settlement 可同时物化一个 bilateral exchange 和若干 obligation delegation；contract、Scene、Plot、Drive、Obligation 与对象所有权共用一个事务 checkpoint
-- exchange WorldEvent 的 identity 仍保留稳定 exchange id，但 causal source 由 Host 重写：Agreement 物化的资产转移指向 `AgreementResolution:settled`；普通双方同轮交换指向包含 step 与排序 actor 集合的 verified resolved-action batch。临时 exchange id 不再被误当成无来源因果根
-- propose 还可以声明最多四个 `services`：service debtor/creditor 必须是 parties，due_after_steps 从最终 settlement step 起算，并且必须有使用动态 obligation 安全白名单的权威 completion conditions
-- propose 可以声明最多四个 `escrows`：每个 escrow 的付款对象必须公开、portable、由 party 真正拥有，并绑定同一报价中的一个 service id；同一对象不能同时进入即时 transfer、多个 escrow lot 或 object lifecycle
-- escrow 不给 Scene 对象写入不存在的“银行” owner。最终接受时，整件对象从 Scene 移除或从 fungible stack 扣减，并以序列化 custody lot 关联到 Agreement Lifecycle；service fulfilled 后释放给 release_to，service breached/cancelled 命中预先接受的 refund_on 后退给 refund_to
-- 普通 Exchange 与 escrow custody 共用 `AssetTransferEngine` 的 quantity、stack signature、确定性 fragment id、动态对象容量和 merge 语义，避免两套资产算法发生分叉
-- 入托与普通 exchange、delegation、service Obligation 创建、Scene 和 Agreement 同属 WorldStateTransaction；后续 release/refund 使用专门的 Scene+Agreement 原子 settlement，失败时 lot 保持 held 且 Scene 不发生部分写入，可在后续 step 重试
-- Episode 将 held custody lot 与最终 disposition 分开建模：`AgreementEscrow <- AgreementResolution:settled`，`AgreementEscrowResolution <- AgreementEscrow + AgreementPerformanceResolution`；release/refund WorldEvent 指向带 custody id 的具体 resolution，因此多笔托管不会只靠 Agreement id 混在一起
-- service settlement 可以与 upfront transfer 同时提交：付款成功但 service obligation 创建失败时，付款、accepted_by 和 contract status 全部回滚
-- settled service agreement 进入 `performance_status=pending`，并保存 obligation id 与原 responsible actor；`AgreementSystem` 在 `ObligationSystem` 之后读取真实状态，确定性转为 fulfilled/breached/cancelled
-- performance 终态在 Episode 因果图中是独立 resolution 节点，同时指向原 settled Agreement 与真正结算的 actor-qualified Obligation；对应 WorldEvent 的 source 是该 performance resolution，而不是笼统的 Agreement id
-- service obligation 后续被合法 delegate 时，performance 沿 `delegated_to` 链追踪当前承担者，但履约责任历史仍归因于原 contract party，避免通过转包抹掉自己的契约记录
-- breach 不直接携带模型填写的 trust/malice delta。Agreement Entity 提供证据化履约 transition，宿主 Sentiment 定义再确定性产生局部感受及有限的长期关系沉淀
-- party 的 private snapshot 按其亲自参与的 contract 汇总 `counterparty_performance`，同时单列 `own_performance`；旁观者不获得这份局部声誉，世界不存在无传播路径的全局评分
-- CausalPlotEngine 读取 ContractDynamics 已物化后的候选交换，因此跨回合报价最终成交时，对象 owner 变化可以在同轮推进 Plot
-- Agreement 的 `private_agreements` snapshot 只提供给参与者；旁观者 world view、Rendering 和普通 episodic memory 不收到完整条款，GM memory 保留结构化更新与 settlement trace
-- `AgreementSystem` 在 Simulation 后确定性标记过期报价；临近到期的 pending agreement 会以 `agreement_due:<id>` 唤醒 auto/background party，显式 dormant 不自动唤醒
-
-跨回合示意：
-
-```text
-Step 1  甲 propose：令牌换钥匙，expires=4
-        -> Agreement Entity.pending，资产不动
-
-Step 2  双方继续行动，乙尚未接受
-
-        或：乙 counter，提出 token_for_key_v2
-        -> token_for_key.status = countered
-        -> token_for_key.superseded_by = token_for_key_v2
-        -> token_for_key_v2.countered_from = token_for_key
-        -> 新报价只有乙 accepted，资产仍不动
-
-Step 3  乙接受原报价，或甲接受乙的反报价
-        -> 重新检查甲仍拥有令牌、乙仍拥有钥匙、双方同场
-        -> 生成 contract authorization
-        -> ExchangeDynamics 原子交换
-        -> Agreement Entity.settled
-```
-
-如果 Step 2 甲已经把令牌交给丙，则 Step 3 的 accept 会被事务拒绝：乙不会交出钥匙，contract 也不会错误地进入 settled。
-
-延迟服务示意：
-
-```text
-Step 3  Contract settled
-        甲的报酬 -> 乙
-        创建 Obligation(乙, deliver_after_payment, due=Step 6)
-        Contract.performance = pending
-
-Step 5  乙实际把交付物交给甲
-        Obligation -> fulfilled
-        Contract.performance -> fulfilled
-```
-
-如果到 Step 7 仍未满足权威条件，则 Obligation 先进入 breached，随后 AgreementSystem 把 performance 标为 breached。普通 upfront transfer 仍不会被核心偷偷退款；退款、追责、宽恕或新的补偿 agreement 应由角色继续协商。只有各方在原 agreement 中明确接受了 escrow refund_on 条款时，托管资产才会按该权威条款确定性退款。
-
-Deadline 使用动作完成时刻。若当前 step 已超过 `due_step + grace_steps`，Obligation 必须先进入 breached；同一步才出现的完成条件属于晚交付，不能追溯性改写为按时 fulfilled。晚交付仍可以改变资产、Goal 和关系，并可触发后续补偿协商。
-
 ### Knowledge Transfer
 
 - 秘密与信念通过显式 `knowledge_updates` 从 source 传播到 target
@@ -609,7 +475,7 @@ Deadline 使用动作完成时刻。若当前 step 已超过 `due_step + grace_s
 
 ### GoalState / GoalSystem
 
-角色创建时，每个 `Identity.goals` 字符串都会同步成为一个私有 `GoalState` 记录。它可以零配置地参与 Agent 候选生成与宿主策略评分。Agent 候选可显式引用自己当前 active 的 Goal/Obligation，或本轮收到的 WorldEvent/EventResponse；Host 核验归属、POV 和注意队列状态后才把它作为效用贡献，并把事件显著性固定交给 HostAttentionPolicy。没有引用的兼容 runtime 仍可使用保守的自然语言相关性回退。无论来自显式引用还是文本相似度，都只表示“这个行动在角色策略中响应了该动机”，不能证明行动成功或目标已经完成。
+角色创建时，每个 `Identity.goals` 字符串都会同步成为一个私有 `GoalState` 记录。它可以零配置地参与 Agent 决策。Agent 可以引用自己当前 active 的 Goal，或本轮收到的 WorldEvent/EventResponse；Host 核验归属、POV 和注意队列。这只表示“这个行动在角色策略中响应了该动机”，不能证明行动成功或目标已经完成。
 
 场景可以选择提供 `goal_specs`，为少数需要确定结算的目标增加 `completion_conditions` 和 `failure_conditions`。这些条件复用 `StateCondition`，只能查询权威 `SceneState` / `PlotState`：
 
@@ -627,9 +493,9 @@ Deadline 使用动作完成时刻。若当前 step 已超过 `due_step + grace_s
 - 成功与失败条件同时成立时拒绝任意裁决并报告错误；
 - Agent 能看到目标、优先级和生命周期结果，但看不到精确条件锁；
 - 已终结目标不再参与宿主行动策略；
-- Goal 是角色私有动机，不是全局 Plot，也不是 Obligation。
+- Goal 是角色私有动机，不是全局 Plot。
 
-初始目标结算后，角色还可以从自己真正持有的结构化来源继续形成私人目标，包括 resolved Goal、Claim、WorldEvent/EventResponse、Drive need、Sentiment、Obligation、Agreement、可见对象/角色、既有 Relationship 或 NavigationProblem。Agent 只提交自然语言 `goal_requests`；宿主核验 source id、覆盖 actor、防重复与刷目标、限制冷却和 active 数量，并自行决定 priority。新目标不能携带模型编造的完成条件，也不能由 Agent 自报 achieved/failed。宿主模板目前覆盖 `reach_location`、`possess_object`、`deliver_object`、`use_affordance`、`fulfill_obligation`、`settle_agreement`、`verify_claim`、`obtain_evidence`、`become_acquainted`、`reach_relationship_state`、`communicate_event` 和 `respond_to_event`：地点、对象、能力和人物必须通过形成决策时的 POV 校验，交付要求角色真实持有物品且接收者当前可见，`use_affordance` 只能逐字引用当时 Host 提供的对象机会，并等待之后真正提交的 object WorldEvent 才完成；该事件还必须同时匹配 Host 固定的 `object:<step>:<index>:<operation>:<target>` id、对象操作 kind、精确 `resolved_action:step/actor` 来源、subject、object 和 affordance id，单独伪造 event metadata 或由另一角色执行均不能完成。以 Drive need 为来源时，该能力还必须确实降低同一个 need。来源验证使用形成决策时的 Host 快照，而不是动作结算后的状态，避免“同轮吃掉食物后饥饿已经下降”反过来抹掉目标动机。义务和协议只能引用角色自己的记录，Claim 证据必须由 Claim Entity 预先关联且最终同时进入角色 KnowledgeState 与真实资产持有状态，相识、关系与事件回应则分别等待真实 Relationship 或 WorldEventResponses 证据。GoalSystem 通过受限的权威证据视图编译隐藏的成功/失败条件；没有安全模板的自然目标仍诚实地保持不可自证。若后续世界变化让具体做法进入角色 POV，Agent 可以对同一个开放目标提交一次 `refine`；Host 只允许修改 `origin=agent + active + 尚无条件锁` 的目标，并以当前受限 POV 编译模板，不创建第二个目标、不接受模型条件，也不允许改写已有锁。只有 `origin=agent` 的目标可被角色明确细化或放弃。普通来源默认只能产生一次目标；Drive need 是可复发状态，旧目标终结、冷却结束且压力重新出现后可以生成新的目标实例，但不能同时复制 active 目标。这样故事可以从后果和身体压力继续生长，同时不把主观愿望升级成世界真相。
+初始目标结算后，角色还可以从自己真正持有的结构化来源继续形成私人目标，包括 resolved Goal、Claim、WorldEvent/EventResponse、Drive need、Sentiment、可见对象/角色、既有 Relationship 或 NavigationProblem。Agent 只提交自然语言 `goal_requests`；宿主核验 source id、覆盖 actor、防重复与刷目标、限制冷却和 active 数量，并自行决定 priority。新目标不能携带模型编造的完成条件，也不能由 Agent 自报 achieved/failed。宿主模板目前覆盖 `reach_location`、`possess_object`、`deliver_object`、`use_affordance`、`verify_claim`、`obtain_evidence`、`become_acquainted`、`reach_relationship_state`、`communicate_event` 和 `respond_to_event`：地点、对象、能力和人物必须通过形成决策时的 POV 校验，交付要求角色真实持有物品且接收者当前可见，`use_affordance` 只能逐字引用当时 Host 提供的对象机会，并等待之后真正提交的 object WorldEvent 才完成；该事件还必须同时匹配 Host 固定的 `object:<step>:<index>:<operation>:<target>` id、对象操作 kind、精确 `resolved_action:step/actor` 来源、subject、object 和 affordance id，单独伪造 event metadata 或由另一角色执行均不能完成。以 Drive need 为来源时，该能力还必须确实降低同一个 need。来源验证使用形成决策时的 Host 快照，而不是动作结算后的状态，避免“同轮吃掉食物后饥饿已经下降”反过来抹掉目标动机。Claim 证据必须由 Claim Entity 预先关联且最终同时进入角色 KnowledgeState 与真实资产持有状态，相识、关系与事件回应则分别等待真实 Relationship 或 WorldEventResponses 证据。GoalSystem 通过受限的权威证据视图编译隐藏的成功/失败条件；没有安全模板的自然目标仍诚实地保持不可自证。若后续世界变化让具体做法进入角色 POV，Agent 可以对同一个开放目标提交一次 `refine`；Host 只允许修改 `origin=agent + active + 尚无条件锁` 的目标，并以当前受限 POV 编译模板，不创建第二个目标、不接受模型条件，也不允许改写已有锁。只有 `origin=agent` 的目标可被角色明确细化或放弃。普通来源默认只能产生一次目标；Drive need 是可复发状态，旧目标终结、冷却结束且压力重新出现后可以生成新的目标实例，但不能同时复制 active 目标。这样故事可以从后果和身体压力继续生长，同时不把主观愿望升级成世界真相。
 
 收到的 `event_response` 也是独立 Goal 来源，而不必退化成原始 WorldEvent。宿主只接受该角色 Cognition experience 中真实存在的 response id；回应即使已经从 pending attention 确认，仍保留为私有经历来源。由此可以区分“事故本身让我行动”和“对方随后道歉、指控或请求让我形成新决定”，其他角色不能引用这条私有回应。
 
@@ -637,7 +503,7 @@ Deadline 使用动作完成时刻。若当前 step 已超过 `due_step + grace_s
 
 可验证的 Agent-grown Goal 同时形成一个受限后台续行动信号，按受保护的 `agent_goal_wakeup_interval` 提供 `agent_goal:<id>` 激活。开放 Agent Goal 也必须有机会在新世界状态下 refine 或 abandon，但使用更慢的 `agent_open_goal_review_interval`（默认 12 step）并共享最高 8 倍重复行动退避；它不会像可验证目标一样高频续行。成功交付 perception 后才把 step/id 写入 AgentController 调度账本。该账本不属于剧情实质变化，也不进入世界状态变化指标。作者目标仍不增加后台频率，dormant 仍保持人工边界。
 
-调度账本还保存 continuation attempt、最近 action kind/target signature 与重复次数。连续相同签名按 1×/2×/4×/8×指数退避，最多 80 step；方法变化会重置重复计数。次数只作为角色私有规划提示和宿主诊断，不直接改变 Goal status。确定性失败来自模板编译的世界证据：对象型目标使用 `not_exists` 锁识别真正销毁，地点目标识别目标地点被移除，义务/协议继续使用各自的 terminal 状态。暂时不可见、被他人持有、一次 blocked 或几轮无进展都不会被粗暴视为失败。
+调度账本还保存 continuation attempt、最近 action kind/target signature 与重复次数。连续相同签名按 1×/2×/4×/8×指数退避，最多 80 step；方法变化会重置重复计数。次数只作为角色私有规划提示和宿主诊断，不直接改变 Goal status。确定性失败来自模板编译的世界证据：对象型目标使用 `not_exists` 锁识别真正销毁，地点目标识别目标地点被移除。暂时不可见、被他人持有、一次 blocked 或几轮无进展都不会被粗暴视为失败。
 
 `goal_reactivation` 是退避的反向机制。宿主只在变化已经进入该角色 POV 后，先将 Event 的类型化 `scope/target/path` impacts 与 active Agent Goal 的隐藏状态依赖匹配，再以 subject/object/location/source 引用相交作为兼容边界；命中时清空重复签名、保留累计尝试次数，并从事件 step 重启基础间隔。比如开启外层木匣会确定性影响匣中钥匙的 accessibility，从而重新激活“取得钥匙”，即使 Event 的直接 object 是木匣。无关事件不重置，相关但未知的异地事件不重置，重复投递同一个 response 也不重置。更新写入 `goal_reactivations` 审计列表，只记录安全的 `match_basis`，不包含完整隐藏条件。Agent/GM 不能提交 arbitrary relevance 或概率。
 
@@ -727,7 +593,7 @@ Character
 
 InputSystem 不再只用本轮措辞拼一个单一 query。`AgentMemoryContextBuilder` 从角色已经可见的结构化状态生成 `situation / goals / commitments / claims / social / reflection` 六条检索路线，批量查询角色自己的 Memory collection，再按内容去重并限制最多 6 条、单条 1800 字符、总计 9000 字符。检索 query 与结果都不会进入其他角色、语义 GM 或 Rendering；宿主只保留轻量 retrieval trace 供回归诊断。
 
-MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低，物品不可逆变化更高，Goal/Obligation 结算、Agreement 后果、Claim 发现和强 Sentiment 属于高显著性事件。检索候选不会直接按 embedding 距离返回，而是由宿主综合 `route priority + salience + recency + vector relevance` 重排；旧但改变人物命运的事件可以压过近期措辞相似的普通日志。模型输出不能写入或覆盖 salience。
+MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低，物品不可逆变化更高，Goal 结算、Claim 发现和强 Sentiment 属于高显著性事件。检索候选不会直接按 embedding 距离返回，而是由宿主综合 `route priority + salience + recency + vector relevance` 重排；旧但改变人物命运的事件可以压过近期措辞相似的普通日志。模型输出不能写入或覆盖 salience。
 
 长期运行时，`MemoryConsolidator` 每 12 step 扫描至少 24 step 前、`salience < 3` 的普通 `episodic_log`。累计至少 6 条后，宿主从原日志中确定性抽取简短片段，写成一个带 start/end step 和 source count 的 `consolidated_summary`。高显著事件、近期日志与已有摘要永不进入这一批删除。流程严格为“写摘要成功 → 删除源 id”；写入失败时不删除，删除失败时保留摘要和源日志形成可恢复重复，而不冒数据丢失风险。GameMaster 的完整诊断记忆暂不自动压缩。
 
@@ -736,20 +602,11 @@ MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低�
 - `ConsoleDriver` 仍然只暴露玩家在角色空闲决策点输入行动这类简单交互。
 - 中途审查、叙述后编辑、快照回退等导演式能力，还没有重新挂回现有权威事件循环。
 - Storylet 条件语言目前仍是最小实现，后面可以继续扩展成更丰富的状态查询表达式。
-### 协议能力与协议实体
 
-- `agreement_offer_templates` 是 Host 拥有的“可提出条款”，类似对象 affordance；它只提供能力，不强迫角色使用。
-- Agent 提议时只引用 `agreement_template_id`，回应时只引用自己私有视图中的 pending `agreement_id`。
-- Host 编译完整 Agreement 条款；GM 只结算沟通是否正向完成，不能改参与者、资产、托管或履约条件。
-- Agreement 仍作为 SocialRelation Entity 持久化，成交后再物化 Obligation、Escrow 与资产转移。
-- 模板能力不会自动加入通用环境候选池，避免把“能够签约”误当成“想要签约”。
-- 普通物品交易不要求内容包逐份写模板：Host 从当前 POV 中双方公开、portable、已拥有的对象派生 `asset_offer`，Agent 自由选择 give/request 引用，Host 生成稳定 ID 与精确 transfers。
-- 通用报价只覆盖整件资产；服务、托管、委托、部分堆栈和隐藏条件仍走固定模板。报价目录只使用 POV 可见对象，不能泄漏关闭不透明容器内容。
-- GM 不再有直接写 Agreement 的权威通道；无论场景是否声明模板，`agreement_updates` 都由 Host 清空并从已校验 Agent 引用重建。
-- 当前可见角色持有公开物品时，Host 还会派生 `delivery_service_offer`：Agent 可请求对方在 urgent/soon/flexible 期限内把该物交给自己，并可选择自己的一件公开资产作为托管报酬；Host 固定编译 1/3/12 步期限、owner 完成证据和履约释放/违约退款规则。
-- 交付委托也可选择当前地点公开拓扑中的相邻已知地点作为 destination；Host 将完成证据改为物品 location，承运人必须实际移动并通过 `engine:drop` 放下物品。未知地图节点不会进入协议机会。
+### 地图知识与导航问题
+
 - `KnowledgeState` 持有每个角色私有的 `known_locations/known_routes`；亲历地点会增量学习当地公开出口，但不会仅因某个出口当前缺席就静默删除旧记忆或转述路线，断路必须通过真实尝试或明确 topology observation 成为认知事件。seed 可声明角色先验熟悉的地点。长途目的地和 Host 寻路都只使用该角色已知道路，猜中隐藏地点名也不能借权威全图移动。
 - 角色可以用结构化 `route_source/route_target` 向同场角色指路；Input 只允许发送者真实知道的有向边，接收方记录 reported 来源和 learned_step。道路关闭不会全局同步擦除旧认知，实际尝试时 Host 以 `stale_route` 阻止，从而保留迷路、过时地图和重新问路的故事空间。
 - 一次 communicate 也可携带 2..8 个不重复地点的 `route_path`；Input 逐边验证连续性，任一未知边使整条引用失效，Host 再以相同来源和时间原子传播所有边，避免多回合逐段指路的机械流程。
-- `stale_route/movement_blocked` 会生成角色私有、Host 权威的 `NavigationProblem`：保存失败边、Host `failure_rule`、目的地、发现位置/时间、角色已知地图中的备选路径，以及相关 Obligation 和剩余时间。它只唤醒后台 Agent，不自动创建 Goal 或指定应对；备选路径不会读取 Host 隐藏拓扑。Agent 候选可以引用自己的 active `problem_id`，Host 依据剩余时间给出有限恢复动机贡献，但不替角色选择绕路、问路、观察或协商。角色离开发现地点后，该局部问题即视为解决。Episode 可据此记录 `resolved_action <- navigation_problem <- movement_failure` 或 `Goal <- NavigationProblem <- movement_failure`，把真实恢复与无关移动区分开。
+- `stale_route/movement_blocked` 会生成角色私有、Host 权威的 `NavigationProblem`：保存失败边、Host `failure_rule`、目的地、发现位置/时间和角色已知地图中的备选路径。它只唤醒后台 Agent，不自动创建 Goal 或指定应对；备选路径不会读取 Host 隐藏拓扑。角色离开发现地点后，该局部问题即视为解决。
 - 非导航行动的 `fail/blocked` 结果不会制造永久世界实体，而是以带 Host action event id 的近期私有经历保留有限时间。Agent 候选可以引用 `action_failure` 来表达换方法；Host 只接受该角色自己的近期失败，并按经历年龄衰减贡献。成功事件、未知 ID 或其他角色的失败不能成为动机。Episode 可据此记录 `resolved_action <- action_failure`，避免把重复失败误认成合理的持续行动。
