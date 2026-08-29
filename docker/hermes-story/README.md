@@ -1,11 +1,15 @@
 # Hermes Story Runtime
 
-This directory is the project-owned thin shell. Place the unmodified Hermes
-vendor snapshot at `docker/hermes-story/hermes-agent/` before building:
+This directory contains the project-owned thin shell and the Hermes vendor
+snapshot at `docker/hermes-story/hermes-agent/`. Rebuild the image with:
 
 ```bash
 docker build -t hermes-story:latest docker/hermes-story
 ```
+
+The vendor source is distributed under its upstream MIT license; see
+`hermes-agent/LICENSE`. Tests and Python bytecode caches are intentionally not
+copied into this image source tree.
 
 The Dockerfile installs that snapshot into the isolated `/opt/story-venv`
 environment. This is compatible with Hermes base images whose system Python is

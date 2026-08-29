@@ -22,6 +22,10 @@ python main.py --scenario thirteenth-floor \
 本地传输与 Docker 传输复用同一 subject JSON 协议、超时和生命周期；Docker 只是
 依赖打包与部署隔离方式。
 
+Hermes vendor 源码已随项目放在 `docker/hermes-story/hermes-agent/`，因此可以
+直接重建 `hermes-story:latest`，也可以使用 `--hermes-transport local` 启动本地
+多进程运行；该目录保留上游 `LICENSE`，不包含测试和 Python 缓存。
+
 - 世界真相由 ECS 状态决定，不由渲染文本决定。
 - 主循环遵循 `Input -> Action Scheduling -> Simulation -> Rendering` 的权威顺序。
 - `Simulation` 阶段只产出结构化结果，不直接向玩家讲话。

@@ -58,10 +58,15 @@ def main(argv=None):
     )
     if args.hermes_transport == "local":
         project_entrypoint = Path(__file__).resolve().parent / "docker" / "hermes-story" / "entrypoint.py"
+        project_vendor_root = project_entrypoint.parent / "hermes-agent"
         local_config = HermesLocalProcessConfig(
             python_executable=args.hermes_python,
             entrypoint_path=args.hermes_entrypoint or str(project_entrypoint),
-            vendor_root=args.hermes_vendor_root or os.getenv("HERMES_VENDOR_ROOT", ""),
+            vendor_root=(
+                args.hermes_vendor_root
+                or os.getenv("HERMES_VENDOR_ROOT", "")
+                or (str(project_vendor_root) if project_vendor_root.is_dir() else "")
+            ),
             working_directory=args.hermes_working_directory,
         )
         factories = default_local_hermes_runtime_factories(local_config)
