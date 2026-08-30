@@ -6,10 +6,7 @@ import pytest
 
 from src.story_engine.agents import (
     AgentPerception,
-    GumbelSubjectSampler,
     HermesCharacterAgent,
-    IntentSignature,
-    SubjectActionOption,
     SubjectInbox,
     SubjectLedgerProjector,
     SubjectMessage,
@@ -22,29 +19,6 @@ from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.memory import MemorySystem
 
 
-def _options():
-    return (
-        SubjectActionOption(
-            option_id="investigate",
-            action=AgentAction("observe", "检查信封上的蜡印。", "信封"),
-            signature=IntentSignature(
-                motive_lens="查明真相",
-                strategy="先收集证据",
-                stakes=("knowledge",),
-            ),
-            utility=0.2,
-        ),
-        SubjectActionOption(
-            option_id="confront",
-            action=AgentAction("communicate", "要求阿德里安解释信封。", "阿德里安"),
-            signature=IntentSignature(
-                motive_lens="维护尊严",
-                strategy="直接追问",
-                stakes=("trust", "status"),
-            ),
-            utility=0.2,
-        ),
-    )
 
 
 def test_subject_inbox_deduplicates_and_acknowledges_messages():
@@ -159,47 +133,10 @@ def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas(
     )
 
 
-def test_gumbel_subject_sampling_is_replayable_with_a_configured_seed():
-    left = GumbelSubjectSampler("actor-seed").choose(
-        _options(), decision_id="turn-7", temperature=0.9
-    )
-    right = GumbelSubjectSampler("actor-seed").choose(
-        _options(), decision_id="turn-7", temperature=0.9
-    )
-
-    assert left.selected.option_id == right.selected.option_id
-    assert left.trace == right.trace
-    assert left.trace["method"] == "hierarchical_gumbel"
-    assert len(left.trace["motive_lenses"]) == 2
 
 
-def test_gumbel_subject_sampling_preserves_cross_seed_action_diversity():
-    selected = {
-        GumbelSubjectSampler(seed).choose(
-            _options(), decision_id="same-situation", temperature=1.0
-        ).selected.option_id
-        for seed in range(64)
-    }
-
-    assert selected == {"investigate", "confront"}
 
 
-def test_subject_sampling_rejects_wording_only_or_single_lens_diversity():
-    repeated = (
-        SubjectActionOption(
-            option_id="a",
-            action=AgentAction("observe", "查看木门。", "木门"),
-            signature=IntentSignature("调查", "仔细查看", ("knowledge",)),
-        ),
-        SubjectActionOption(
-            option_id="b",
-            action=AgentAction("observe", "更仔细地查看木门。", "木门"),
-            signature=IntentSignature("调查", "仔细查看", ("knowledge",)),
-        ),
-    )
-
-    with pytest.raises(ValueError, match="at least two motive lenses"):
-        GumbelSubjectSampler(1).choose(repeated, decision_id="turn")
 
 
 class _SubjectConversation:
@@ -255,50 +192,6 @@ def _deliberation():
     }
 
 
-def test_hermes_subject_owns_sampling_and_host_receives_one_committed_action():
-    entity = create_agent(
-        name="伊芙",
-        role="调查者",
-        personality="骄傲而好奇",
-        goals=["查明信封的去向"],
-        agent_runtime="hermes",
-        agent_config={"system_instruction_extras": "从不在室内奔跑。"},
-    )
-    conversation = _SubjectConversation(entity.id, [_deliberation()])
-    runtime = HermesCharacterAgent(
-        conversation_factory=lambda _entity, _config: conversation,
-        config={"character_seed": "eve-seed", "character_temperature": 0.8},
-    )
-    perception = AgentPerception(
-        actor_name="伊芙",
-        step=4,
-        activation_scope="foreground",
-        world_view={"location": "会客厅", "visible_actors": ["阿德里安"]},
-        self_state={"location": "会客厅"},
-        passive_observations=[{
-            "event_id": "evt-envelope",
-            "observed_step": 4,
-            "result": "你看见阿德里安把信封交给玛拉。",
-            "priority": 80,
-        }],
-    )
-
-    decision = runtime.decide(entity, perception)
-
-    assert decision.action_spec is not None
-    commitment = commit_runtime_action(decision)
-    assert commitment.trace["mode"] == "runtime_committed"
-    assert commitment.action == decision.action_spec
-    packet = conversation.packets[0]
-    assert packet["identity_bootstrap"]["name"] == "伊芙"
-    assert packet["identity_bootstrap"]["persona_constraints"] == "从不在室内奔跑。"
-    assert packet["agent_contract"]["assigned_character"] == "伊芙"
-    assert "operate this character's next action" in packet["agent_contract"]["role"]
-    assert "You are one character inside" not in json.dumps(packet)
-    assert packet["messages"][0]["message_id"] == "evt-envelope"
-    snapshot = runtime.subject_snapshot(entity)
-    assert snapshot["inbox"]["pending"] == []
-    assert snapshot["decision_ledger"][0]["method"] == "hierarchical_gumbel"
 
 
 def test_hermes_subject_keeps_messages_pending_when_turn_fails():

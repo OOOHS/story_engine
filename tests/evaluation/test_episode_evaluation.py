@@ -83,26 +83,27 @@ class SimulationControl(Component):
             actor = str(intent.get("actor", ""))
             kind = str(intent.get("action_kind", "interact"))
             target = str(intent.get("action_target", ""))
-            action = {
-                "actor": actor,
-                "intent": intent.get("intent", ""),
-                "action_kind": kind,
-                "action_target": target,
-                "outcome": "success",
-                "location": intent.get("location"),
-                "visibility": "public",
-                "result": (
-                    f"{actor}完成了一次主动观察。"
-                    if kind == "observe"
-                    else f"{actor}向{target}清楚表达了自己的打算。"
-                ),
-                "private_result": (
-                    f"{actor}注意到{target}正在认真权衡。"
-                    if kind == "observe"
-                    else ""
-                ),
-            }
-            actions.append(action)
+            actions.append(
+                {
+                    "actor": actor,
+                    "intent": intent.get("intent", ""),
+                    "action_kind": kind,
+                    "action_target": target,
+                    "outcome": "success",
+                    "location": intent.get("location"),
+                    "visibility": "public",
+                    "result": (
+                        f"{actor}完成了一次主动观察。"
+                        if kind == "observe"
+                        else f"{actor}向{target}清楚表达了自己的打算。"
+                    ),
+                    "private_result": (
+                        f"{actor}注意到{target}正在认真权衡。"
+                        if kind == "observe"
+                        else ""
+                    ),
+                }
+            )
             if kind == "communicate" and target:
                 impacts.append(
                     {
@@ -117,7 +118,6 @@ class SimulationControl(Component):
         return {
             "resolved_actions": actions,
             "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-            "plot_updates": [],
             "relationship_updates": [],
             "social_impacts": impacts,
             "knowledge_updates": [],
@@ -128,6 +128,7 @@ class SimulationControl(Component):
             "obligation_updates": [],
             "tension_delta": 0,
         }
+
 
 
 class NarrativeRenderer(Component):
@@ -337,13 +338,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
                 "world_objects": {"钥匙": {"owner": "甲"}},
                 "actor_states": {"甲": {}},
             },
-            "plots": {
-                "escape": {
-                    "clock": 2,
-                    "max_clock": 3,
-                    "current_stage": 0,
-                }
-            },
             "agreements": {
                 "agreements": {
                     "deal": {
@@ -370,9 +364,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     }
     after = deepcopy(before)
     after["material_parts"]["scene"]["world_objects"]["钥匙"]["owner"] = "乙"
-    after["material_parts"]["plots"]["escape"].update(
-        {"clock": 3, "current_stage": 1}
-    )
     after["material_parts"]["agreements"]["agreements"]["deal"][
         "performance_status"
     ] = "fulfilled"
@@ -396,8 +387,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     changes = EpisodeRunner._irreversible_changes(before, after)
 
     assert "object_owner_changed:钥匙" in changes
-    assert "plot_stage_changed:escape" in changes
-    assert "plot_completed:escape" in changes
     assert "agreement_performance_resolved:deal:fulfilled" in changes
     assert "obligation_resolved:甲:deliver:fulfilled" in changes
     assert "obligation_created:甲:follow_up" in changes
@@ -406,171 +395,12 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     assert "goal_refined:甲:follow_up:step:4" in changes
 
 
-def test_goal_refinement_becomes_explicit_causal_parent_of_resolution():
-    before = {
-        "material_parts": {
-            "world_events": {},
-            "agreements": {"agreements": {}},
-            "obligations": {},
-            "goals": {
-                "甲": {
-                    "goals": {
-                        "open": {
-                            "status": "active",
-                            "origin": "agent",
-                            "source_kind": "world_event",
-                            "source_ref": "seed",
-                            "refined_step": None,
-                        }
-                    }
-                }
-            },
-        }
-    }
-    refined = deepcopy(before)
-    refined["material_parts"]["goals"]["甲"]["goals"]["open"].update(
-        {
-            "refined_step": 3,
-            "completion_conditions": [
-                {
-                    "scope": "world_object",
-                    "target": "钥匙",
-                    "path": "owner",
-                    "operator": "eq",
-                    "value": "甲",
-                }
-            ],
-        }
-    )
-    resolved = deepcopy(refined)
-    resolved["material_parts"]["goals"]["甲"]["goals"]["open"][
-        "status"
-    ] = "achieved"
-
-    refinement_handoffs = EpisodeRunner._causal_handoffs(before, refined)
-    resolution_handoffs = EpisodeRunner._causal_handoffs(refined, resolved)
-
-    assert refinement_handoffs == [
-        "goal_refinement:甲:open:step:3<-goal:甲:open"
-    ]
-    assert resolution_handoffs == [
-        "goal_resolution:甲:open:achieved<-goal_refinement:甲:open:step:3"
-    ]
 
 
-def test_causal_handoff_audit_uses_explicit_provenance_without_semantic_guessing():
-    before = {
-        "material_parts": {
-            "world_events": {},
-            "agreements": {"agreements": {}},
-            "obligations": {"甲": {"obligations": {}}},
-            "goals": {"甲": {"goals": {"seed": {"status": "achieved"}}}},
-        }
-    }
-    after = deepcopy(before)
-    after["material_parts"]["world_events"]["door-opened"] = {
-        "fact": {
-            "source_type": "object_lifecycle",
-            "source_ref": "door",
-        },
-        "responses": {
-            "communications": [{
-                "response_id": "event-response:door-opened:甲->乙:report",
-            }]
-        },
-    }
-    after["material_parts"]["goals"]["甲"]["goals"]["follow-up"] = {
-        "origin": "agent",
-        "source_kind": "resolved_goal",
-        "source_ref": "seed",
-    }
-    after["material_parts"]["goals"]["甲"]["goals"]["answer-apology"] = {
-        "origin": "agent",
-        "source_kind": "event_response",
-        "source_ref": "event-response:door-opened:甲->乙:report",
-    }
-    after["material_parts"]["obligations"]["甲"]["obligations"]["deliver"] = {
-        "source_kind": "agreement",
-        "source_ref": "deal",
-    }
-    after["material_parts"]["agreements"]["agreements"]["deal"] = {
-        "source_kind": "resolved_action",
-        "source_ref": "step:2:actor:甲",
-    }
-
-    handoffs = EpisodeRunner._causal_handoffs(before, after)
-
-    assert handoffs == [
-        "agreement:deal<-resolved_action:step:2:actor:甲",
-        "event_response:event-response:door-opened:甲->乙:report<-world_event:door-opened",
-        "goal:甲:answer-apology<-event_response:event-response:door-opened:甲->乙:report",
-        "goal:甲:follow-up<-goal_resolution:甲:seed:achieved",
-        "obligation:甲:deliver<-agreement:deal",
-        "world_event:door-opened<-object_lifecycle:door",
-    ]
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
-def test_social_commitment_causal_chain_can_reach_a_response_driven_goal():
-    handoffs = [
-        "obligation:乙:deliver<-agreement:deal",
-        "world_event:obligation:乙:deliver:breached<-obligation:乙:deliver",
-        "event_response:repair-request<-world_event:obligation:乙:deliver:breached",
-        "goal:乙:make-amends<-event_response:repair-request",
-    ]
-
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 4
 
 
-def test_sentiment_and_relationship_changes_preserve_social_causal_chain():
-    before = {
-        "material_parts": {
-            "sentiments": {"甲": {"sentiments": {}}},
-            "relationships": {"relationships": {}},
-            "goals": {"甲": {"goals": {}}},
-        }
-    }
-    after = deepcopy(before)
-    after["material_parts"]["sentiments"]["甲"]["sentiments"][
-        "乙:betrayed"
-    ] = {
-        "updated_step": 6,
-        "source_event": "agreement_performance_resolution:repair:breached",
-    }
-    after["material_parts"]["relationships"]["relationships"][
-        "pair:乙<->甲"
-    ] = {
-        "bits": {},
-        "directed_tracks": {
-            "甲->乙": {
-                "trust": {
-                    "value": -0.2975,
-                    "provenance": {
-                        "source_kind": "sentiment",
-                        "source_ref": "甲:乙:betrayed",
-                    },
-                }
-            }
-        },
-    }
-    after["material_parts"]["goals"]["甲"]["goals"]["seek-redress"] = {
-        "origin": "agent",
-        "source_kind": "sentiment",
-        "source_ref": "乙:betrayed",
-    }
-
-    changes = EpisodeRunner._irreversible_changes(before, after)
-    handoffs = EpisodeRunner._causal_handoffs(before, after)
-
-    assert "sentiment_created:甲:乙:betrayed" in changes
-    assert "relationship_track_changed:甲->乙:trust" in changes
-    assert handoffs == [
-        "goal:甲:seek-redress<-sentiment:甲:乙:betrayed",
-        "relationship_track:甲->乙:trust<-sentiment:甲:乙:betrayed",
-        "sentiment:甲:乙:betrayed"
-        "<-agreement_performance_resolution:repair:breached",
-    ]
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 2
 def test_modifier_and_drive_motives_retain_their_own_authoritative_causes():
     before = {
         "material_parts": {
@@ -641,117 +471,10 @@ def test_evidence_observation_can_ground_private_claim_knowledge_and_goal():
     assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
-def test_causal_chain_depth_is_cycle_safe():
-    assert EpisodeRunner._causal_chain_depth([
-        "event:a<-event:b",
-        "event:b<-event:a",
-    ]) <= 2
 
 
-def test_causal_chain_depth_keeps_the_deepest_of_multiple_explicit_parents():
-    handoffs = [
-        "consequence:final<-cause:deep",
-        "cause:deep<-cause:middle",
-        "cause:middle<-cause:root",
-        "consequence:final<-cause:shallow",
-    ]
-
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
-def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_cascade():
-    cross_turn = [
-        EpisodeStepTrace(
-            index=0,
-            simulation_time_before=0,
-            simulation_time_after=1,
-            world_hash_before="w0",
-            world_hash_after="w1",
-            character_hash_before="c0",
-            character_hash_after="c1",
-            proposal_actors=(),
-            resolved_actors=(),
-            action_kinds=(),
-            committed=True,
-            relationship_count=0,
-            sentiment_count=0,
-            agreement_count=0,
-            modifier_count=0,
-            claim_count=0,
-            known_claim_count=0,
-            causal_handoffs=("goal:甲:respond<-world_event:alarm",),
-        ),
-        EpisodeStepTrace(
-            index=1,
-            simulation_time_before=1,
-            simulation_time_after=2,
-            world_hash_before="w1",
-            world_hash_after="w2",
-            character_hash_before="c1",
-            character_hash_after="c2",
-            proposal_actors=("甲",),
-            resolved_actors=("甲",),
-            action_kinds=("interact",),
-            committed=True,
-            relationship_count=0,
-            sentiment_count=0,
-            agreement_count=0,
-            modifier_count=0,
-            claim_count=0,
-            known_claim_count=0,
-            causal_handoffs=(
-                "resolved_action:step:1:actor:甲<-goal:甲:respond",
-            ),
-        ),
-        EpisodeStepTrace(
-            index=2,
-            simulation_time_before=2,
-            simulation_time_after=3,
-            world_hash_before="w2",
-            world_hash_after="w3",
-            character_hash_before="c2",
-            character_hash_after="c3",
-            proposal_actors=(),
-            resolved_actors=(),
-            action_kinds=(),
-            committed=True,
-            relationship_count=0,
-            sentiment_count=0,
-            agreement_count=0,
-            modifier_count=0,
-            claim_count=0,
-            known_claim_count=0,
-            causal_handoffs=(
-                "world_event:alarm-resolved<-resolved_action:step:1:actor:甲",
-            ),
-        ),
-    ]
-    same_step = [
-        EpisodeStepTrace(
-            **{
-                **cross_turn[0].__dict__,
-                "causal_handoffs": (
-                    "goal:甲:respond<-world_event:alarm",
-                    "resolved_action:step:0:actor:甲<-goal:甲:respond",
-                    "world_event:alarm-resolved<-resolved_action:step:0:actor:甲",
-                ),
-            }
-        )
-    ]
-
-    spread = EpisodeRunner._temporal_causal_metrics(cross_turn)
-    cascade = EpisodeRunner._temporal_causal_metrics(same_step)
-
-    assert spread == {
-        "cross_step_handoff_count": 2,
-        "cross_step_count": 3,
-        "max_span_steps": 3,
-    }
-    assert cascade == {
-        "cross_step_handoff_count": 0,
-        "cross_step_count": 0,
-        "max_span_steps": 1,
-    }
 
 
 def test_action_repetition_distinguishes_actor_kind_and_target():

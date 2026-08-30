@@ -42,13 +42,35 @@ class StoryEngineRequestHandler(BaseHTTPRequestHandler):
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
-        payload = self._read_json_body()
+        try:
+            payload = self._read_json_body()
+        except ValueError as exc:
+            self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+            return
 
         if parsed.path == "/api/step":
-            result = self.server.adapter.submit_turn(
-                command=str(payload.get("command", "")),
-                inject_event=str(payload.get("inject_event", "")),
-            )
+            command = payload.get("command", "")
+            inject_event = payload.get("inject_event", "")
+            if not isinstance(command, str):
+                self._send_json(
+                    {"error": "command must be a natural-language string"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            if not isinstance(inject_event, str):
+                self._send_json(
+                    {"error": "inject_event must be a natural-language string"},
+                    status=HTTPStatus.BAD_REQUEST,
+                )
+                return
+            try:
+                result = self.server.adapter.submit_turn(
+                    command=command,
+                    inject_event=inject_event,
+                )
+            except ValueError as exc:
+                self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
+                return
             self._send_json(result)
             return
 
@@ -73,9 +95,12 @@ class StoryEngineRequestHandler(BaseHTTPRequestHandler):
         if not body:
             return {}
         try:
-            return json.loads(body.decode("utf-8"))
-        except json.JSONDecodeError:
-            return {}
+            payload = json.loads(body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            raise ValueError("request body must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("request body must be a JSON object")
+        return payload
 
     def _serve_static(self, filename: str, content_type: str) -> None:
         path = STATIC_DIR / filename
@@ -123,5 +148,8 @@ def run_server(adapter: WebGameAdapter, host: str = "127.0.0.1", port: int = 800
     except KeyboardInterrupt:
         pass
     finally:
+        close = getattr(adapter, "close", None)
+        if callable(close):
+            close()
         server.server_close()
     return server

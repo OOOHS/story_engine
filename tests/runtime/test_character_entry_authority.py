@@ -3,7 +3,6 @@ from copy import deepcopy
 from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -162,7 +161,6 @@ def test_unauthorized_gm_spawn_is_ignored_without_losing_valid_action():
         )
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     context = {
         "intents": [
@@ -250,7 +248,6 @@ def test_injected_entry_materializes_body_and_registered_agent_once():
         )
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     entities = {"GameMaster": gm}
     registry = AgentRegistry()
@@ -323,7 +320,6 @@ def test_runner_carries_entry_capability_across_discrete_action_completion():
         )
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     runner = Runner(random_seed="entry-runner")
     runner.add_entity(gm)

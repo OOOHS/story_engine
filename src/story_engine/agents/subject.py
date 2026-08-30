@@ -1,11 +1,8 @@
 import hashlib
 import json
-import math
-import secrets
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, Iterable, Literal
 
-from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentPerception
 
 
@@ -16,8 +13,7 @@ SubjectMessageKind = Literal[
     "world_signal",
     "ledger_update",
     "ledger_retraction",
-    # A Host-queued, non-authoritative nudge (e.g. an unrealized plot
-    # thread trying to become salient). Never a fact and never a
+    # A Host-queued, non-authoritative nudge. Never a fact and never a
     # substitute for the hard proposal_actors gate: the subject may accept,
     # reinterpret, or ignore it outright.
     "director_signal",
@@ -365,194 +361,6 @@ class SubjectLedgerProjector:
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
-@dataclass(frozen=True)
-class IntentSignature:
-    """Internal semantics used to reject wording-only option diversity."""
-
-    motive_lens: str
-    strategy: str
-    stakes: tuple[str, ...] = ()
-
-    @classmethod
-    def from_value(cls, value: Any) -> "IntentSignature":
-        value = value if isinstance(value, dict) else {}
-        motive_lens = _text(value.get("motive_lens"), 80)
-        strategy = _text(value.get("strategy"), 120)
-        raw_stakes = value.get("stakes", [])
-        if not isinstance(raw_stakes, (list, tuple)):
-            raw_stakes = []
-        stakes = tuple(dict.fromkeys(
-            item
-            for raw in raw_stakes[:8]
-            if (item := _text(raw, 80))
-        ))
-        if not motive_lens:
-            raise ValueError("Hermes subject candidates require motive_lens")
-        if not strategy:
-            raise ValueError("Hermes subject candidates require strategy")
-        return cls(motive_lens=motive_lens, strategy=strategy, stakes=stakes)
-
-    def path_key(self, action: AgentAction) -> tuple[Any, ...]:
-        return (
-            self.strategy.casefold(),
-            tuple(item.casefold() for item in self.stakes),
-            action.kind,
-            action.target.casefold(),
-            action.affordance_id.casefold(),
-            action.claim_id.casefold(),
-            action.agreement_operation.casefold(),
-            action.agreement_id.casefold(),
-        )
-
-
-@dataclass(frozen=True)
-class SubjectActionOption:
-    option_id: str
-    action: AgentAction
-    signature: IntentSignature
-    utility: float = 0.0
-
-    @classmethod
-    def from_value(cls, value: Any, *, index: int) -> "SubjectActionOption":
-        if not isinstance(value, dict):
-            raise ValueError("Hermes subject candidate must be an object")
-        action = AgentAction.from_value(value.get("action", value), strict=True)
-        if not action.detail:
-            raise ValueError("Hermes subject candidate has no executable action")
-        signature_value = value.get("intent_signature", {})
-        if isinstance(signature_value, dict) and "motive_lens" not in signature_value:
-            signature_value = {
-                **signature_value,
-                "motive_lens": value.get("motive_lens", ""),
-            }
-        signature = IntentSignature.from_value(signature_value)
-        try:
-            utility = float(value.get("utility", 0.0))
-        except (TypeError, ValueError) as exc:
-            raise ValueError("Hermes subject candidate utility must be numeric") from exc
-        if not math.isfinite(utility):
-            raise ValueError("Hermes subject candidate utility must be finite")
-        option_id = _text(value.get("option_id"), 100) or f"option:{index}"
-        return cls(
-            option_id=option_id,
-            action=action,
-            signature=signature,
-            utility=max(-20.0, min(20.0, utility)),
-        )
-
-
-@dataclass(frozen=True)
-class SubjectChoice:
-    selected: SubjectActionOption
-    trace: Dict[str, Any] = field(default_factory=dict)
-
-
-class GumbelSubjectSampler:
-    """Actor-private true sampling with a replayable evaluation mode."""
-
-    def __init__(self, seed: int | str | None = None) -> None:
-        self._seed = str(seed if seed is not None else secrets.token_hex(32))
-        self.seed_mode = "configured" if seed is not None else "random"
-        self.seed_fingerprint = hashlib.sha256(
-            self._seed.encode("utf-8")
-        ).hexdigest()[:16]
-
-    def choose(
-        self,
-        options: Iterable[SubjectActionOption],
-        *,
-        decision_id: str,
-        temperature: float = 0.8,
-    ) -> SubjectChoice:
-        option_list = tuple(options)
-        if not option_list:
-            raise ValueError("Hermes subject sampling requires at least one option")
-        self._validate_diversity(option_list)
-        temperature = max(0.05, min(5.0, float(temperature)))
-        by_lens: Dict[str, list[SubjectActionOption]] = {}
-        for option in option_list:
-            by_lens.setdefault(option.signature.motive_lens, []).append(option)
-        lens_scores = []
-        for lens, lens_options in by_lens.items():
-            lens_utility = _log_mean_exp(item.utility for item in lens_options)
-            uniform = self._uniform(decision_id, "lens", lens)
-            gumbel = -math.log(-math.log(uniform))
-            lens_scores.append((lens, lens_utility + temperature * gumbel, uniform))
-        selected_lens, _, _ = max(
-            lens_scores,
-            key=lambda item: (item[1], item[0]),
-        )
-        scored = []
-        for option in by_lens[selected_lens]:
-            uniform = self._uniform(decision_id, "action", option.option_id)
-            gumbel = -math.log(-math.log(uniform))
-            sampled_score = option.utility + temperature * gumbel
-            scored.append((option, sampled_score, uniform))
-        selected, _, _ = max(
-            scored,
-            key=lambda item: (item[1], item[0].option_id),
-        )
-        return SubjectChoice(
-            selected=selected,
-            trace={
-                "decision_id": decision_id,
-                "method": "hierarchical_gumbel",
-                "seed_mode": self.seed_mode,
-                "seed_fingerprint": self.seed_fingerprint,
-                "temperature": temperature,
-                "selected_option_id": selected.option_id,
-                "selected_motive_lens": selected_lens,
-                "motive_lenses": [
-                    {
-                        "motive_lens": lens,
-                        "sampled_score": round(sampled_score, 12),
-                        "uniform_draw": round(uniform, 12),
-                    }
-                    for lens, sampled_score, uniform in lens_scores
-                ],
-                "options": [
-                    {
-                        "option_id": option.option_id,
-                        "motive_lens": option.signature.motive_lens,
-                        "strategy": option.signature.strategy,
-                        "stakes": list(option.signature.stakes),
-                        "action": option.action.to_dict(),
-                        "utility": option.utility,
-                        "sampled_score": round(sampled_score, 12),
-                        "uniform_draw": round(uniform, 12),
-                    }
-                    for option, sampled_score, uniform in scored
-                ],
-            },
-        )
-
-    def _uniform(self, *parts: object) -> float:
-        key = "|".join(str(part) for part in parts)
-        digest = hashlib.sha256(
-            f"{self._seed}|{key}".encode("utf-8")
-        ).digest()
-        integer = int.from_bytes(digest[:8], "big")
-        return min(1.0 - 1e-15, max(1e-15, (integer + 0.5) / float(1 << 64)))
-
-    @staticmethod
-    def _validate_diversity(options: tuple[SubjectActionOption, ...]) -> None:
-        option_ids = [item.option_id for item in options]
-        if len(set(option_ids)) != len(option_ids):
-            raise ValueError("Hermes subject candidate option_id values must be unique")
-        if len(options) == 1:
-            return
-        lenses = {item.signature.motive_lens.casefold() for item in options}
-        if len(lenses) < 2:
-            raise ValueError(
-                "Hermes subject candidates must activate at least two motive lenses"
-            )
-        path_keys = {item.signature.path_key(item.action) for item in options}
-        if len(path_keys) != len(options):
-            raise ValueError(
-                "Hermes subject candidates must represent distinct intent paths"
-            )
-
-
 def deliver_perception_messages(
     inbox: SubjectInbox,
     perception: AgentPerception,
@@ -681,13 +489,8 @@ def build_subject_wake_packet(
             ),
         },
         "response_contract": {
-            "direct": "Return one executable action when no deliberation is needed.",
-            "deliberation": (
-                "Otherwise return two or more candidates with option_id, utility, "
-                "motive_lens, intent_signature.strategy, intent_signature.stakes, "
-                "and action. The subject runtime samples internally and exposes "
-                "only the selected action to the Host."
-            ),
+            "direct": "Return exactly one executable action as a non-empty natural-language string.",
+            "deliberation": "Deliberate privately, then return exactly one action string.",
             "optional_registrations": (
                 "A top-level goal_requests list may contain at most one Host-verifiable "
                 "adopt/refine/abandon request. Do not return plan, focus, emotion, "
@@ -754,13 +557,3 @@ def _stable_message_id(prefix: str, step: int, index: int, value: Any) -> str:
 
 def _text(value: Any, limit: int) -> str:
     return " ".join(str(value or "").split()).strip()[:limit]
-
-
-def _log_mean_exp(values: Iterable[float]) -> float:
-    items = tuple(float(value) for value in values)
-    if not items:
-        return 0.0
-    maximum = max(items)
-    return maximum + math.log(
-        sum(math.exp(item - maximum) for item in items) / len(items)
-    )

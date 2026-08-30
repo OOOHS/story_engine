@@ -1,7 +1,6 @@
 from src.story_engine.components.contract_state import ContractState
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.obligation_state import ObligationState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.environment.world_transaction import WorldStateTransaction
 
@@ -50,7 +49,6 @@ def _result(actions=None, contract_updates=None, obligation_updates=None, lifecy
     return {
         "resolved_actions": actions or [],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": lifecycle or [],
@@ -113,7 +111,6 @@ def _accept():
 def _commit(scene, contracts, obligations, result, step, proposals):
     return WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=obligations,

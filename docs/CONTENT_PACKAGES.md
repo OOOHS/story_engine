@@ -32,7 +32,7 @@ python -m build --wheel --no-isolation \
 - `src/story_engine_content/bundled/`：可试玩的完整示例故事；应用必须显式选择，没有默认剧本。
 - `src/story_engine_content/evaluation/`：只用于验证通用引擎性质的最小种子，不作为产品故事；它与产品内容一样位于核心包之外。
 
-`src/story_engine/scenarios/` 只保留通用 `ScenarioConfig` schema。具体人物、地点、对白风格、秘密、Plot、Storylet 和初始关系不得放入这个目录。
+`src/story_engine/scenarios/` 只保留通用 `ScenarioConfig` schema。具体人物、地点、对白风格、秘密、宏剧情、Storylet 和初始关系不得放入这个目录。
 
 ## 选择一个故事
 
@@ -79,7 +79,7 @@ python web_main.py \
 
 - 初始地点、物品和公开/私有世界状态；
 - 角色身份、目标、需求、特质和 Agent runtime 配置；
-- 初始稀疏关系、Claim、Obligation、Agreement 与 Plot；
+- 初始稀疏关系、Claim、Obligation、Agreement 与 宏剧情；
 - 通用 Storylet、因果规则、时间安排和宿主可见性 schema。
 - 可选的 `narration.guidance` 与单回合文本上限；不声明时核心 Narrator 保持中立，不替内容选择节奏或题材腔调。
 

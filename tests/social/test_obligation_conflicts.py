@@ -1,7 +1,6 @@
 from src.story_engine.agents.scheduler import AgentScheduler
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.obligation_state import ObligationState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -68,8 +67,7 @@ def _analyze(scene, state, step=0):
         state,
         actor_name="信使",
         scene_state=scene,
-        plot_state=PlotState(),
-        current_step=step,
+                current_step=step,
     )
 
 
@@ -285,8 +283,7 @@ def test_near_conflict_wakes_background_agent_but_dormant_policy_still_wins():
         is_player=False,
         has_manual_override=False,
         scene_state=scene,
-        plot_state=PlotState(),
-    )
+            )
     dormant_activation = scheduler.activation_for(
         dormant,
         step=0,
@@ -296,8 +293,7 @@ def test_near_conflict_wakes_background_agent_but_dormant_policy_still_wins():
         is_player=False,
         has_manual_override=False,
         scene_state=scene,
-        plot_state=PlotState(),
-    )
+            )
 
     assert activation.active is True
     assert activation.scope == "background"
@@ -324,8 +320,7 @@ def test_far_conflict_does_not_force_background_inference_before_horizon():
         messenger,
         0,
         scene_state=scene,
-        plot_state=PlotState(),
-    )
+            )
 
     assert reason == ""
 
@@ -343,7 +338,6 @@ def test_model_cannot_rewrite_engine_conflict_wakeup_horizon():
             "world_objects": {},
             "actor_states": {},
         },
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [],
@@ -353,7 +347,6 @@ def test_model_cannot_rewrite_engine_conflict_wakeup_horizon():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
     )
@@ -374,7 +367,6 @@ def test_conflict_refresh_disappears_after_authoritative_fulfillment():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl())
     gm.add_component(scene)
-    gm.add_component(PlotState())
     messenger = Entity("信使")
     messenger.add_component(state)
     context = {"clock": type("Clock", (), {"current_step": 0})()}

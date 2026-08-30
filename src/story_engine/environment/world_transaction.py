@@ -108,7 +108,6 @@ class WorldStateTransaction:
         "world_version",
         "consumed_character_entry_authorizations",
         "consumed_storylets",
-        "consumed_plot_rules",
     }
 
     def __init__(self) -> None:
@@ -124,7 +123,6 @@ class WorldStateTransaction:
     def commit(
         self,
         scene_state: Any,
-        plot_state: Any,
         drama_state: Any,
         result: Dict[str, Any],
         relationship_book: Any = None,
@@ -135,20 +133,12 @@ class WorldStateTransaction:
         proposal_actors: set[str] | None = None,
         contract_state: Any = None,
         agreement_book: Any = None,
-        consumed_storylet_ids: List[str] | None = None,
         emergent_meter_budget: int = 0,
     ) -> TransactionResult:
         # ``contract_state`` is retained as a compatibility boundary for older
         # callers.  New runtime code passes the transaction-scoped AgreementBook.
         if agreement_book is not None:
             contract_state = agreement_book
-        # ``plot_state`` and ``consumed_storylet_ids`` are accepted only for
-        # call-site compatibility. Plot clocks, storylet consumption, new
-        # plot_beat_proposals, and director_signals are no longer
-        # staged/committed here: they are narrative derivations of
-        # already-committed world facts, produced by NarrativeDirector and
-        # settled by ``CausalPlotEngine.settle`` after this transaction
-        # succeeds, not rehearsed against a guess of what it will produce.
         errors: List[str] = []
         updates = result.get("state_updates", {})
         self._validate_scene_updates(scene_state, updates, errors)
@@ -377,7 +367,6 @@ class WorldStateTransaction:
             "world_objects": {},
             "actor_states": {},
         }
-        sanitized["plot_updates"] = []
         sanitized["relationship_updates"] = []
         sanitized["social_impacts"] = []
         sanitized["modifier_updates"] = []
@@ -389,7 +378,6 @@ class WorldStateTransaction:
         sanitized["drive_updates"] = []
         sanitized["drive_creations"] = []
         sanitized["director_signals"] = []
-        sanitized["plot_beat_proposals"] = []
         sanitized["obligation_updates"] = []
         sanitized["contract_updates"] = []
         sanitized["agreement_updates"] = []

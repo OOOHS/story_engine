@@ -6,6 +6,24 @@ ActionKind = Literal["observe", "move", "interact", "communicate", "wait"]
 ACTION_KINDS = {"observe", "move", "interact", "communicate", "wait"}
 
 
+def require_natural_language(value: Any, *, field: str = "action") -> str:
+    """Validate an external action boundary.
+
+    Structured action objects are an internal Host representation only. Player
+    and Hermes proposals must cross the boundary as explicit natural language.
+    """
+    if not isinstance(value, str):
+        raise ValueError(f"{field} must be a natural-language string")
+    text = " ".join(value.split()).strip()
+    if not text:
+        raise ValueError(f"{field} must be a non-empty natural-language string")
+    return text
+
+
+def parse_natural_language_action(value: Any, *, field: str = "action") -> "AgentAction":
+    return AgentAction.from_value(require_natural_language(value, field=field))
+
+
 @dataclass(frozen=True)
 class AgentAction:
     """One coarse external action with natural-language parameters.

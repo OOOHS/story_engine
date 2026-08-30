@@ -10,9 +10,14 @@ from src.story_engine.agents import (
     HermesLocalProcessConfig,
     default_hermes_runtime_factories,
     default_local_hermes_runtime_factories,
+    default_offline_runtime_factories,
 )
 from src.story_engine.session import (
     ConsoleDriver,
+    PLAY_PROFILES,
+    bind_play_profile,
+    compile_scenario_seed,
+    compile_scenario_seed_file,
     create_session,
     load_scenario_reference,
 )
@@ -34,7 +39,24 @@ def parse_args(argv=None):
         "--scenario-ref",
         help="External ScenarioConfig object/factory as module.path:attribute.",
     )
+    source.add_argument(
+        "--seed",
+        help=(
+            "Author-facing seed text or JSON/YAML document; it is compiled "
+            "into a validated ScenarioConfig before startup."
+        ),
+    )
+    source.add_argument(
+        "--seed-file",
+        help="UTF-8 file containing author-facing seed text or JSON/YAML.",
+    )
     parser.add_argument("--title", default="Story Engine · Console")
+    parser.add_argument(
+        "--profile",
+        choices=PLAY_PROFILES,
+        default="production",
+        help="Explicit startup profile; offline is deterministic and model-free.",
+    )
     parser.add_argument(
         "--hermes-transport",
         choices=("docker", "local"),
@@ -51,11 +73,15 @@ def parse_args(argv=None):
 def main(argv=None):
     args = parse_args(argv)
     load_dotenv()
-    scenario = (
-        load_scenario_reference(args.scenario_ref)
-        if args.scenario_ref
-        else load_bundled_scenario(args.scenario)
-    )
+    if args.scenario_ref:
+        scenario = load_scenario_reference(args.scenario_ref)
+    elif args.seed is not None:
+        scenario = compile_scenario_seed(args.seed)
+    elif args.seed_file:
+        scenario = compile_scenario_seed_file(args.seed_file)
+    else:
+        scenario = load_bundled_scenario(args.scenario)
+    scenario = bind_play_profile(scenario, args.profile)
     if args.hermes_transport == "local":
         project_entrypoint = Path(__file__).resolve().parent / "docker" / "hermes-story" / "entrypoint.py"
         project_vendor_root = project_entrypoint.parent / "hermes-agent"
@@ -69,9 +95,17 @@ def main(argv=None):
             ),
             working_directory=args.hermes_working_directory,
         )
-        factories = default_local_hermes_runtime_factories(local_config)
+        factories = (
+            default_offline_runtime_factories()
+            if args.profile == "offline"
+            else default_local_hermes_runtime_factories(local_config)
+        )
     else:
-        factories = default_hermes_runtime_factories(HermesContainerConfig())
+        factories = (
+            default_offline_runtime_factories()
+            if args.profile == "offline"
+            else default_hermes_runtime_factories(HermesContainerConfig())
+        )
     session = create_session(scenario, agent_runtime_factories=factories)
     driver = ConsoleDriver(session, title=args.title)
     driver.run()

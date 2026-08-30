@@ -42,8 +42,12 @@ class WebGameAdapter:
             return self._build_state_payload()
 
     def submit_turn(self, command: str = "", inject_event: str = "") -> Dict[str, Any]:
-        command = (command or "").strip()
-        inject_event = (inject_event or "").strip()
+        if not isinstance(command, str):
+            raise ValueError("command must be a natural-language string")
+        if not isinstance(inject_event, str):
+            raise ValueError("inject_event must be a natural-language string")
+        command = command.strip()
+        inject_event = inject_event.strip()
 
         with self._lock:
             if self._session.delivery_pending:
@@ -145,7 +149,18 @@ class WebGameAdapter:
             self._reset_locked()
             return self._build_state_payload()
 
+    def close(self) -> None:
+        """Release the current session and its persistent agent runtimes."""
+
+        with self._lock:
+            session = getattr(self, "_session", None)
+            if session is not None:
+                session.close()
+
     def _reset_locked(self) -> None:
+        previous = getattr(self, "_session", None)
+        if previous is not None:
+            previous.close()
         output = io.StringIO()
         with redirect_stdout(output):
             self._session = create_session(
@@ -306,15 +321,6 @@ class WebGameAdapter:
         if not scene:
             return {}
         return copy.deepcopy(scene.get_snapshot())
-
-    def _get_plot_snapshot(self) -> Dict[str, Any]:
-        gm = self._get_gm_entity()
-        if not gm:
-            return {}
-        plot_state = gm.get_component("PlotState")
-        if not plot_state:
-            return {}
-        return copy.deepcopy(plot_state.get_snapshot())
 
     def _get_drama_snapshot(self) -> Dict[str, Any]:
         gm = self._get_gm_entity()

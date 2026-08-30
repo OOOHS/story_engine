@@ -5,9 +5,6 @@ from src.story_engine.scenarios.config import (
     StoryletConfig,
     StateCondition,
     DramaConfig,
-    PlotEntityConfig,
-    PlotStageConfig,
-    PlotRuleConfig,
     NeedConfig,
     ObligationConfig,
     TraitConfig,
@@ -90,7 +87,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
             priority=80,
             one_shot=True,
             tags=["clue", "harbor"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["harbor"],
             conditions=[
                 StateCondition(scope="actor", target="托马斯·韦伯", path="fear", operator="gte", value=2),
@@ -116,11 +113,10 @@ cthulhu_arkham_scenario = ScenarioConfig(
             priority=60,
             one_shot=False,
             tags=["pressure", "harbor"],
-            situation_kinds=["plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["harbor"],
             conditions=[
                 StateCondition(scope="world_object", target="码头仓库", path="state", operator="eq", value="sealed"),
-                StateCondition(scope="plot", target="harbor_ritual", path="clock", operator="gte", value=1),
             ],
         ),
     ],
@@ -131,87 +127,6 @@ cthulhu_arkham_scenario = ScenarioConfig(
         crisis_threshold=0.30,
         recovery_bias=0.05,
     ),
-    plot_entities=[
-        PlotEntityConfig(
-            plot_id="harbor_ritual",
-            title="港口仪式",
-            description="阿卡姆港外缘的某个隐秘团体正在为不祥仪式做准备。",
-            clock=0,
-            max_clock=4,
-            current_stage=0,
-            tags=["cult", "harbor"],
-            stages=[
-                PlotStageConfig(
-                    label="潜流",
-                    summary="失踪与耳语刚开始连成线索。",
-                    pressure_hint="让失踪案与码头仓库的传闻开始互相印证。",
-                ),
-                PlotStageConfig(
-                    label="预兆",
-                    summary="更多人开始做同样的怪梦，码头附近出现仪式痕迹。",
-                    pressure_hint="用梦境、符号或见不得光的搬运活动提升不安。",
-                ),
-                PlotStageConfig(
-                    label="逼近",
-                    summary="邪教行动变得更冒险，调查者可能被盯上。",
-                    pressure_hint="让调查者感到自己已被某种力量注意到。",
-                ),
-                PlotStageConfig(
-                    label="开门",
-                    summary="仪式接近完成，现实与不可名状之物的边界变薄。",
-                    pressure_hint="兑现一次高压危机，但仍保持暗示感。",
-                ),
-            ],
-        ),
-        PlotEntityConfig(
-            plot_id="forbidden_tome",
-            title="禁书余波",
-            description="某部不该被翻开的典籍正在悄悄影响知情者。",
-            clock=0,
-            max_clock=3,
-            current_stage=0,
-            tags=["book", "sanity"],
-            stages=[
-                PlotStageConfig(
-                    label="封存",
-                    summary="禁书仍被隐藏，只有零碎耳语流出。",
-                    pressure_hint="用只言片语暗示图书馆里有更危险的东西。",
-                ),
-                PlotStageConfig(
-                    label="泄露",
-                    summary="禁书的片段内容已经开始扩散并污染梦境。",
-                    pressure_hint="当玩家接近真相时，优先以梦境或怪异引文制造代价。",
-                ),
-                PlotStageConfig(
-                    label="侵蚀",
-                    summary="知情者的理智和判断力持续下滑。",
-                    pressure_hint="让与禁书相关的线索附带明确的精神代价。",
-                ),
-            ],
-        ),
-    ],
-    plot_rules=[
-        PlotRuleConfig(
-            rule_id="investigator_reaches_warehouse",
-            plot_id="harbor_ritual",
-            conditions=[
-                StateCondition(scope="actor", target="调查员", path="location", operator="eq", value="码头仓库"),
-            ],
-            advance=1,
-            one_shot=True,
-            reason="调查员亲自抵达仓库，使港口失踪线与仪式线发生直接因果接触。",
-        ),
-        PlotRuleConfig(
-            rule_id="forbidden_shelf_revealed",
-            plot_id="forbidden_tome",
-            conditions=[
-                StateCondition(scope="world_object", target="私人图书馆", path="forbidden_shelf", operator="eq", value="revealed"),
-            ],
-            advance=1,
-            one_shot=True,
-            reason="禁书书架已经被实际揭露，禁书影响从传闻进入可接触状态。",
-        ),
-    ],
     characters=[
         CharacterConfig(
             name="托马斯·韦伯",
@@ -290,15 +205,6 @@ cthulhu_arkham_scenario = ScenarioConfig(
                     grace_steps=1,
                     wake_before_steps=2,
                     pressure_need="查明真相",
-                    completion_conditions=[
-                        StateCondition(
-                            scope="plot",
-                            target="harbor_ritual",
-                            path="clock",
-                            operator="gte",
-                            value=1,
-                        )
-                    ],
                 )
             ],
             is_player=True,

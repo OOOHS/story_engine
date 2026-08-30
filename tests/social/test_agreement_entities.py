@@ -5,7 +5,6 @@ from pydantic import Field
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.environment.agreement_offers import AgreementOfferEngine
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -37,7 +36,6 @@ def _result(actor, updates):
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": [],
@@ -94,7 +92,6 @@ def _world():
     gm = Entity("GameMaster")
     gm.add_component(control)
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     return gm, scene, control
 

@@ -15,7 +15,7 @@ class ObligationSystem(System):
     def update(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
         clock = context.get("clock")
         step = clock.current_step if clock else 0
-        scene_state, plot_state = self._world_components(entities)
+        scene_state = self._world_components(entities)
         transitions = {}
         conflicts = {}
         for name, entity in entities.items():
@@ -27,7 +27,6 @@ class ObligationSystem(System):
                 step,
                 drive_state=drive,
                 scene_state=scene_state,
-                plot_state=plot_state,
             )
             if changed:
                 transitions[name] = changed
@@ -35,7 +34,6 @@ class ObligationSystem(System):
                 obligations,
                 actor_name=name,
                 scene_state=scene_state,
-                plot_state=plot_state,
                 current_step=step,
             )
             if current_conflicts:
@@ -47,8 +45,5 @@ class ObligationSystem(System):
     def _world_components(entities: Dict[str, Entity]):
         for entity in entities.values():
             if entity.get_component("SimulationControl"):
-                return (
-                    entity.get_component("SceneState"),
-                    entity.get_component("PlotState"),
-                )
-        return None, None
+                return entity.get_component("SceneState")
+        return None

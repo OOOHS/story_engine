@@ -26,7 +26,6 @@ class AgentScheduler:
         is_player: bool,
         has_manual_override: bool,
         scene_state: Any = None,
-        plot_state: Any = None,
         agreement_registry: Any = None,
     ) -> AgentActivation:
         controller = entity.get_component("AgentController")
@@ -86,7 +85,6 @@ class AgentScheduler:
             entity,
             step,
             scene_state=scene_state,
-            plot_state=plot_state,
         )
         if policy in {"auto", "background"} and urgent_conflict:
             return AgentActivation(
@@ -306,7 +304,6 @@ class AgentScheduler:
         step: int,
         *,
         scene_state: Any = None,
-        plot_state: Any = None,
     ) -> str:
         state = entity.get_component("ObligationState")
         if not state or not scene_state:
@@ -323,7 +320,6 @@ class AgentScheduler:
             state,
             actor_name=entity.name,
             scene_state=scene_state,
-            plot_state=plot_state,
             current_step=step,
         )
         if not conflicts:

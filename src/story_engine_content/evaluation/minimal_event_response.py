@@ -170,7 +170,6 @@ class SimulationControl(Component):
                 "world_objects": {},
                 "actor_states": actor_updates,
             },
-            "plot_updates": [],
             "relationship_updates": [],
             "social_impacts": social_impacts,
             "modifier_updates": [],

@@ -105,7 +105,6 @@ class ObligationState(Component):
         step: int,
         drive_state: Any = None,
         scene_state: Any = None,
-        plot_state: Any = None,
     ) -> List[Dict[str, Any]]:
         transitions = []
         for record in self.obligations.values():
@@ -134,7 +133,7 @@ class ObligationState(Component):
                 record.completion_conditions
                 and scene_state
                 and all(
-                    scene_state.matches_condition(condition, plot_state=plot_state)
+                    scene_state.matches_condition(condition)
                     for condition in record.completion_conditions
                 )
             ):

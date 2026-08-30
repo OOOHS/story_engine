@@ -132,7 +132,6 @@ def test_prompt_size_comparison():
         "situations": {},
         "timeline": {},
         "director_packet": {},
-        "plot_snapshot": {},
         "intents": [],
         "legality": {}
     }
@@ -162,7 +161,7 @@ def test_prompt_size_comparison():
     print("\n数据包对比:")
     print("  原始: player_pov, spatial_layout, social, storylet_pressure,")
     print("        conflict, motive_pressure, reaction_context, intent_focus,")
-    print("        situations, timeline, director_packet, plot_snapshot,")
+    print("        situations, timeline, director_packet,")
     print("        intents, legality, simulation_contract")
     print("  简化: scene_context, pressure_context, intents, state_snapshot, legality")
 

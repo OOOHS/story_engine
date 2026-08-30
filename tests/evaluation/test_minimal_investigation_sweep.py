@@ -8,15 +8,6 @@ from src.story_engine.components.host_rule_simulation import (
 )
 
 
-def test_minimal_investigation_seed_has_no_storylet_or_core_story_dependency():
-    scenario = build_minimal_investigation_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
-    assert len(scenario.characters) == 2
-    assert len(scenario.claims) == 1
-    assert all(character.agent_runtime == "investigation-policy" for character in scenario.characters)
 
 
 def test_real_multi_seed_investigation_sweep_meets_emergence_floor():

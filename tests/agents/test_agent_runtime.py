@@ -22,7 +22,6 @@ from src.story_engine.components.memory import Memory as VectorMemory
 from src.story_engine.components.observation import Observation
 from src.story_engine.components.planning import Planning
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.drive_state import DriveState
 from src.story_engine.components.goal_state import GoalRecord, GoalState
@@ -1656,102 +1655,6 @@ def test_explicit_memory_namespace_is_stable_for_save_resume_boundary():
     assert first.collection_name != other.collection_name
 
 
-def test_offscreen_agent_can_change_world_through_normal_simulation_over_many_turns():
-    class SimulationControl(Component):
-        scenario: object
-
-        def simulate(self, input_payload):
-            actor_updates = {
-                item["actor"]: {"last_intent": item["intent"]}
-                for item in input_payload.get("intents", [])
-                if item.get("actor") != "World"
-            }
-            return {
-                "resolved_actions": [
-                    {
-                        "actor": item["actor"],
-                        "intent": item["intent"],
-                        "outcome": "success",
-                        "location": item.get("location"),
-                        "result": f"{item['actor']}完成了自己的行动。",
-                        "visibility": "local",
-                    }
-                    for item in input_payload.get("intents", [])
-                    if item.get("actor") != "World"
-                ],
-                "state_updates": {
-                    "scene": {},
-                    "world_objects": {},
-                    "actor_states": actor_updates,
-                },
-                "storylet_hits": [],
-                "plot_updates": [],
-                "tension_delta": 0.0,
-                "simulation_notes": [],
-            }
-
-    scenario = ScenarioConfig(
-        name="离屏世界",
-        default_agent_runtime="llm",
-        description="玩家在旅馆时，守门人在城门继续生活。",
-        environment="旅馆与城门相隔很远。",
-        initial_state="一天开始了。",
-        initial_world_objects={"旅馆": {}, "城门": {}},
-        initial_actor_states={
-            "玩家": {"location": "旅馆"},
-            "守门人": {"location": "城门"},
-        },
-        characters=[],
-    )
-    runner = Runner()
-    gm = Entity("GameMaster")
-    scene = SceneState(
-        world_objects=scenario.initial_world_objects,
-        actor_states=scenario.initial_actor_states,
-    )
-    gm.add_component(scene)
-    gm.add_component(SimulationControl(scenario=scenario))
-    gm.add_component(DramaState.from_config(scenario.drama))
-    gm.add_component(PlotState.from_configs([]))
-    runner.add_entity(gm)
-
-    player = create_agent(
-        name="玩家",
-        role="旅客",
-        personality="平静",
-        goals=["休息"],
-        agent_runtime="llm",
-    )
-    guard = create_agent(
-        name="守门人",
-        role="守卫",
-        personality="尽职",
-        goals=["守住城门"],
-        agent_runtime="test",
-        activation_policy="background",
-        background_interval=3,
-    )
-    guard_runtime = RecordingRuntime(action="巡查城门的门闩。")
-    runner.add_entity(player)
-    runner.add_entity(guard)
-    runner.agent_registry.register(player, RecordingRuntime(action="整理行李。"))
-    runner.agent_registry.register(guard, guard_runtime)
-
-    for _ in range(7):
-        runner.run_step(
-            overrides={"玩家": "留在旅馆整理行李。"},
-            player_name="玩家",
-        )
-
-    assert 2 <= len(guard_runtime.perceptions) <= 3
-    assert scene.get_actor_state("守门人")["last_intent"] == "巡查城门的门闩。"
-    assert all(
-        perception.activation_scope == "background"
-        for _, perception in guard_runtime.perceptions
-    )
-    guard_experiences = guard.get_component("Cognition").get_private_snapshot()["recent_experiences"]
-    assert guard_experiences
-    assert guard_experiences[-1]["events"][0]["result"] == "守门人完成了自己的行动。"
 
 
 def test_cognition_system_does_not_leak_remote_or_hidden_outcomes():

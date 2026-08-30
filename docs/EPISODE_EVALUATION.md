@@ -28,11 +28,11 @@ report = EpisodeRunner().run(
 )
 ```
 
-完结资格只由权威状态推导：已有的可验证 Goal 已结算、没有活动 Obligation、没有待接受 Agreement 或待结算 performance、没有尚未出席/错过/取消的 Timeline commitment、没有可自动处理的活动 NavigationProblem、动作队列为空，并且没有尚未交付给可自动运行角色策略的 WorldEvent 或 event response；内容需要时还可要求 Plot 完结。默认不强迫内容包预写至少一个可验证 Goal，因此纯世界种子可以在所有自然生长的线程真正平息后结束；传统任务式评测可用 `require_goal_anchor=True` 或 launcher 的 `--require-goal-anchor` 明确要求人工目标锚点。每个 autonomous、非 dormant 的角色还必须至少真正获得过一次决策机会；`AgentController.decision_count` 是可回滚的 Host 状态，离屏角色仍按错峰 schedule 运行，但 closure 不会抢在其第一次背景 turn 前发生。章节式审计若确实允许忽略尚未运行的远端角色，可使用 `require_all_autonomous_agents_exercised=False` 或 `--allow-unexercised-agents`。显式 dormant/autonomy-disabled 角色的旧 pending attention 和 NavigationProblem 会单独计入诊断，但不会永久阻塞 closure，因为它只能由人工恢复；新事件仍进入其 belief/experience，却不会越过策略创建自动 interrupt。临界 Drive need 只有在角色当前 POV 中存在 Host 已验证、available 且确实降低同一 need 的对象能力时才阻塞 closure；普通压力漂移、当前没有结构化解决办法的压力和 dormant 角色的压力只进入诊断，避免永久卡死。章节式截断可用 `require_no_actionable_critical_needs=False` 或 `--allow-actionable-critical-needs-closure` 放宽。资格必须连续保持 `stable_steps`，且默认这些步骤不能继续产生 `scene / plot / relationship / agreement / obligation / goal / knowledge / navigation / claim / world_event` 结构变化；最终目标刚结算、物品刚转手或角色仍在形成新 Claim knowledge 的那一步不会被误算作安静尾声。持续 Drive 漂移、记忆归档等低层变化不单独阻塞；章节式评估若有意在重大变化后立即截断，可设置 `require_stable_material_state=False` 或 launcher 的 `--allow-material-change-closure`。这避免把“一件大事刚发生但当事人还没反应”“对方刚道歉但接收者尚未获得决策机会”“角色刚发现道路中断但还没应对”“眼前有食物却仍处于临界饥饿”“场景种子中明确安排的仪式还没开始”或一轮短暂无事误判成结局。Agent 与 GM 都不能输出 `story_complete=true` 来绕过这些条件。
+完结资格只由权威状态推导：已有的可验证 Goal 已结算、没有活动 Obligation、没有待接受 Agreement 或待结算 performance、没有尚未出席/错过/取消的 Timeline commitment、没有可自动处理的活动 NavigationProblem、动作队列为空，并且没有尚未交付给可自动运行角色策略的 WorldEvent 或 event response。默认不强迫内容包预写至少一个可验证 Goal，因此纯世界种子可以在所有自然生长的线程真正平息后结束；传统任务式评测可用 `require_goal_anchor=True` 或 launcher 的 `--require-goal-anchor` 明确要求人工目标锚点。每个 autonomous、非 dormant 的角色还必须至少真正获得过一次决策机会；`AgentController.decision_count` 是可回滚的 Host 状态，离屏角色仍按错峰 schedule 运行，但 closure 不会抢在其第一次背景 turn 前发生。章节式审计若确实允许忽略尚未运行的远端角色，可使用 `require_all_autonomous_agents_exercised=False` 或 `--allow-unexercised-agents`。显式 dormant/autonomy-disabled 角色的旧 pending attention 和 NavigationProblem 会单独计入诊断，但不会永久阻塞 closure，因为它只能由人工恢复；新事件仍进入其 belief/experience，却不会越过策略创建自动 interrupt。临界 Drive need 只有在角色当前 POV 中存在 Host 已验证、available 且确实降低同一 need 的对象能力时才阻塞 closure；普通压力漂移、当前没有结构化解决办法的压力和 dormant 角色的压力只进入诊断，避免永久卡死。章节式截断可用 `require_no_actionable_critical_needs=False` 或 `--allow-actionable-critical-needs-closure` 放宽。资格必须连续保持 `stable_steps`，且默认这些步骤不能继续产生 `scene / relationship / agreement / obligation / goal / knowledge / navigation / claim / world_event` 结构变化；最终目标刚结算、物品刚转手或角色仍在形成新 Claim knowledge 的那一步不会被误算作安静尾声。持续 Drive 漂移、记忆归档等低层变化不单独阻塞；章节式评估若有意在重大变化后立即截断，可设置 `require_stable_material_state=False` 或 launcher 的 `--allow-material-change-closure`。这避免把“一件大事刚发生但当事人还没反应”“对方刚道歉但接收者尚未获得决策机会”“角色刚发现道路中断但还没应对”“眼前有食物却仍处于临界饥饿”或一轮短暂无事误判成结局。Agent 与 GM 都不能输出 `story_complete=true` 来绕过这些条件。
 
 Episode 完结不等于世界关闭。它只是说明本次评估已经形成一个可停止的叙事边界；同一个 Session 仍可继续运行，角色也可以保留感谢、怨恨、伤痛等未消退状态。未传 `closure_policy` 时，运行器仍精确执行 `steps` 轮。
 
-每个 step 还保存最多 12,000 字符的 `narrative_text`。它只取 RenderingSystem 已经完成最小权限投影后的玩家可见 narration，不保存 Agent thought、private_result、完整 GM packet、隐藏关系值或 Storylet/Plot director 信息。这样 Episode JSON 可以同时用于结构审计和人工/外部模型的文本质量评审，而不需要重新运行世界或读取后台状态。
+每个 step 还保存最多 12,000 字符的 `narrative_text`。它只取 RenderingSystem 已经完成最小权限投影后的玩家可见 narration，不保存 Agent thought、private_result、完整 GM packet、隐藏关系值或 Storylet/Director 信息。这样 Episode JSON 可以同时用于结构审计和人工/外部模型的文本质量评审，而不需要重新运行世界或读取后台状态。
 
 每步记录：
 
@@ -45,10 +45,10 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 - 客观 Claim Entity 数量与所有角色当前持有的 Claim knowledge 数量；
 - 客观 WorldEvent Entity 数量，以及本轮新增的不可逆事件引用；
 - 排除内部版本号后的实质状态变化种类；
-- 物品归属、角色/物品出现消失、Plot 阶段、义务与 Agreement 生命周期等不可逆变化；
+- 物品归属、角色/物品出现消失、义务与 Agreement 生命周期等不可逆变化；
 - 宿主因果规则命中、相邻行动响应链和角色动作画像；
 - 被宿主策略选中的行动是否确实获得目标相关贡献；
-- 候选集的安全摘要：runtime/environment 候选数量、runtime 动作类别与非空目标数量、选中来源和动作类别，以及所选方案是否得到结构化动机或主观连续性支持；
+- 角色决策的安全摘要：实际提交的动作类别、显式目标与 runtime 来源；不记录角色内部候选、效用或随机抽样细节；
 - 权威性违规。
 - 当前宿主完结资格与阻塞原因。
 
@@ -61,7 +61,7 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 - Relation/Agreement Entity 不能进入 AgentRegistry；
 - Scene 中每个行为角色必须同时拥有 Entity、AgentController 和 live runtime；
 - live runtime 缺失、概率检查错误、Sentiment 或 WorldEvent 发布错误会成为 Episode violation；
-- Intent 的 `policy_candidate_id` 必须与该角色本轮提交收据上的行动一致，确保交给 GM 结算的意图就是角色实际提交的那一个。
+- 每个 runtime intent 都必须带有一份 `runtime_committed` 收据；收据中的动作必须与交给 GM 结算的自然语言 intent 一致。
 
 质量标记不是“故事好不好”的自动裁判，而是低成本退化报警：
 
@@ -82,7 +82,6 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 
 额外指标包括：
 
-- `causal_transition_steps`：宿主因果规则实际触发的轮数；
 - `causal_handoff_steps/count`：本轮新增多少条带权威 provenance 的后果承接边，例如 `agreement <- resolved_action`、`obligation <- agreement`、`world_event <- resolved_action/host_transition/obligation`、`event_response <- world_event`、`sentiment <- resolved_action/agreement performance`、`relationship track <- sentiment`、`goal_resolution <- goal`、`agent goal <- goal_resolution/world_event/event_response/sentiment/navigation_problem`；resolved Goal 使用带 actor/id/status 的结算事件节点，而不是长期存在的 Goal 实体，因此“上一轮完成旧目标、下一轮长出后续目标”会被正确识别为跨 step 因果；
 - `motive_handoff_count` / `motivated_action_count`：有多少条已提交的行动被角色自己说明了动机。宿主不再选择角色的行动，因此也无法重建“她为什么这么做”；这些边只来自角色自报的 `motive_refs`，且必须先通过 InputSystem 对照她实际持有的 Goal、Obligation、Sentiment、Drive need 校验。引用她并不持有的东西会被丢弃而不是采信，评估器也不会从行动文案反猜动机；
 - `decision_count` / `stated_motive_count` / `rejected_motive_ref_count`：本 Episode 有多少次角色决策、其中多少条附带了通过校验的动机自述、以及多少条动机引用因为角色并不持有而被驳回。驳回数持续偏高说明 runtime 在编造自己的内部状态；

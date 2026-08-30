@@ -114,11 +114,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="Allow closure while an autonomous Agent has visible critical-need relief.",
     )
     parser.add_argument(
-        "--require-plot-closure",
-        action="store_true",
-        help="Also require every Plot clock to reach its terminal value.",
-    )
-    parser.add_argument(
         "--quiet",
         action="store_true",
         help="Suppress per-system episode console output; artifacts remain complete.",
@@ -162,7 +157,6 @@ def main(argv: list[str] | None = None) -> int:
                 require_no_actionable_critical_needs=not bool(
                     args.allow_actionable_critical_needs_closure
                 ),
-                require_resolved_plots=bool(args.require_plot_closure),
             )
             if args.stop_on_closure
             else None

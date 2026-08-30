@@ -7,7 +7,6 @@ from src.story_engine.core.entity import Entity
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.drive_state import DriveState
 from src.story_engine.components.obligation_state import ObligationState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.scenarios.config import StateCondition
 from src.story_engine.environment.world_transaction import WorldStateTransaction
@@ -65,7 +64,6 @@ def _base_result():
     return {
         "resolved_actions": [],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [],
@@ -238,7 +236,6 @@ def test_resolved_promise_creates_private_deadline_obligation_atomically():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"学徒": drive},
@@ -283,7 +280,6 @@ def test_fulfillment_requires_action_evidence_and_checkpoint_restores_status():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"学徒": drive},
@@ -325,7 +321,6 @@ def test_model_cannot_declare_breach_or_fulfillment_without_evidence():
 
     breach_outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         breach,
         drive_states={"学徒": drive},
@@ -334,7 +329,6 @@ def test_model_cannot_declare_breach_or_fulfillment_without_evidence():
     )
     unsupported_outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         unsupported,
         drive_states={"学徒": drive},
@@ -376,7 +370,6 @@ def test_remote_hidden_assignment_cannot_create_telepathic_obligation():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"学徒": drive},
@@ -458,7 +451,6 @@ def test_simulation_system_commits_dynamic_obligation_to_actor_component():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     apprentice = create_agent(
         "学徒",

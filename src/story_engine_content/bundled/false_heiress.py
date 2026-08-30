@@ -7,9 +7,6 @@ from src.story_engine.scenarios.config import (
     DramaConfig,
     ConflictConfig,
     ConflictTemplateConfig,
-    PlotEntityConfig,
-    PlotStageConfig,
-    PlotRuleConfig,
     NeedConfig,
     ObligationConfig,
     RelationshipConfig,
@@ -375,7 +372,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=95,
             one_shot=False,
             tags=["family", "bias"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["family", "bias"],
             beat=StoryBeatConfig(
                 beat_type="cold_reception",
@@ -398,7 +395,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=97,
             one_shot=False,
             tags=["trap", "social", "white_lotus"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["trap", "white_lotus"],
             beat=StoryBeatConfig(
                 beat_type="white_lotus",
@@ -421,7 +418,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=98,
             one_shot=False,
             tags=["dinner", "bias", "public"],
-            situation_kinds=["frontstage", "commitment", "plot_pressure"],
+            situation_kinds=["frontstage", "commitment"],
             situation_tags=["dinner", "bias", "public"],
             beat=StoryBeatConfig(
                 beat_type="seating_slight",
@@ -444,7 +441,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=96,
             one_shot=False,
             tags=["bias", "pressure", "family"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["family", "bias", "pressure"],
             beat=StoryBeatConfig(
                 beat_type="family_closes_ranks",
@@ -457,7 +454,6 @@ false_heiress_scenario = ScenarioConfig(
             ),
             conditions=[
                 StateCondition(scope="scene", path="scene_flags.day_phase", operator="in", value=["dinner", "after_dinner"]),
-                StateCondition(scope="plot", target="framing_game", path="clock", operator="gte", value=1),
             ],
         ),
         StoryletConfig(
@@ -466,7 +462,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=94,
             one_shot=False,
             tags=["trap", "object", "public"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["trap", "public"],
             beat=StoryBeatConfig(
                 beat_type="small_object_frame",
@@ -502,7 +498,6 @@ false_heiress_scenario = ScenarioConfig(
             ),
             conditions=[
                 StateCondition(scope="scene", path="scene_flags.day_phase", operator="in", value=["pre_dinner", "dinner"]),
-                StateCondition(scope="plot", target="household_bias", path="clock", operator="gte", value=1),
             ],
         ),
         StoryletConfig(
@@ -533,12 +528,11 @@ false_heiress_scenario = ScenarioConfig(
             priority=78,
             one_shot=True,
             tags=["clue", "servant"],
-            situation_kinds=["plot_pressure", "frontstage"],
+            situation_kinds=["frontstage"],
             situation_tags=["truth", "night", "study"],
             conditions=[
                 StateCondition(scope="scene", path="scene_flags.day_phase", operator="in", value=["after_dinner", "night"]),
                 StateCondition(scope="actor", target="林见微", path="location", operator="in", value=["二楼走廊", "客房", "书房"]),
-                StateCondition(scope="plot", target="buried_birth_secret", path="clock", operator="gte", value=1),
             ],
         ),
         StoryletConfig(
@@ -547,7 +541,7 @@ false_heiress_scenario = ScenarioConfig(
             priority=90,
             one_shot=False,
             tags=["engagement", "bias", "public"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["engagement", "public"],
             beat=StoryBeatConfig(
                 beat_type="engagement_pressure",
@@ -560,7 +554,6 @@ false_heiress_scenario = ScenarioConfig(
             ),
             conditions=[
                 StateCondition(scope="scene", path="scene_flags.day_phase", operator="in", value=["dinner", "after_dinner"]),
-                StateCondition(scope="plot", target="engagement_leverage", path="clock", operator="gte", value=1),
             ],
         ),
         StoryletConfig(
@@ -569,12 +562,11 @@ false_heiress_scenario = ScenarioConfig(
             priority=80,
             one_shot=False,
             tags=["night", "truth", "study"],
-            situation_kinds=["frontstage", "plot_pressure"],
+            situation_kinds=["frontstage"],
             situation_tags=["night", "truth", "study"],
             conditions=[
                 StateCondition(scope="scene", path="scene_flags.day_phase", operator="eq", value="night"),
                 StateCondition(scope="actor", target="林见微", path="location", operator="in", value=["二楼走廊", "书房"]),
-                StateCondition(scope="plot", target="buried_birth_secret", path="clock", operator="gte", value=1),
             ],
         ),
     ],
@@ -686,149 +678,6 @@ false_heiress_scenario = ScenarioConfig(
             preferred_actors=["陆承泽"],
             tags=["engagement_pressure", "public", "bias"],
             min_step=1,
-        ),
-    ],
-    plot_entities=[
-        PlotEntityConfig(
-            plot_id="household_bias",
-            title="整屋子的偏心",
-            description="沈家上下嘴上讲体面，实际却在一次次站位中默认偏向沈昭宁。",
-            clock=2,
-            max_clock=4,
-            current_stage=0,
-            tags=["family", "bias"],
-            stages=[
-                PlotStageConfig(
-                    label="默认",
-                    summary="所有人都下意识把沈昭宁当自己人，把玩家当客人。",
-                    pressure_hint="用座位、称呼、谁被先照顾来体现偏心。",
-                ),
-                PlotStageConfig(
-                    label="护短",
-                    summary="当冲突出现时，家人会先替沈昭宁解释。",
-                    pressure_hint="让父母、哥哥或未婚夫优先质疑玩家的动机。",
-                ),
-                PlotStageConfig(
-                    label="失衡",
-                    summary="偏心开始不再只是态度，而会影响资源、信任和解释权。",
-                    pressure_hint="让玩家切身感到自己即便占理，也不一定有人听。",
-                ),
-                PlotStageConfig(
-                    label="反噬",
-                    summary="这种偏心终于把某个更大的真相推向台前。",
-                    pressure_hint="让一次看似维护体面的偏帮，暴露家里更深的裂缝。",
-                ),
-            ],
-        ),
-        PlotEntityConfig(
-            plot_id="framing_game",
-            title="白莲花设局",
-            description="沈昭宁不会明着发难，她更习惯把示好、委屈和误会拧成对自己有利的局面。",
-            clock=2,
-            max_clock=4,
-            current_stage=0,
-            tags=["trap", "white_lotus"],
-            stages=[
-                PlotStageConfig(
-                    label="铺垫",
-                    summary="她先用温柔和懂事占住道德高地。",
-                    pressure_hint="让她先示好，再借一个细节显得自己被误解或受委屈。",
-                ),
-                PlotStageConfig(
-                    label="借势",
-                    summary="她开始学会借父母、哥哥和未婚夫的偏心完成设局。",
-                    pressure_hint="让别人的护短替她把局做完整，不必自己说重话。",
-                ),
-                PlotStageConfig(
-                    label="反咬",
-                    summary="玩家越解释，越容易在众人眼里显得咄咄逼人。",
-                    pressure_hint="让玩家的合理反应也可能被转译成失态。",
-                ),
-                PlotStageConfig(
-                    label="翻车",
-                    summary="设局越来越密，终有一次会留下破绽。",
-                    pressure_hint="保留一些可供玩家反制的细小漏洞，不要让陷害无懈可击。",
-                ),
-            ],
-        ),
-        PlotEntityConfig(
-            plot_id="buried_birth_secret",
-            title="被埋住的身世细节",
-            description="关于当年抱错或调换的细节，并没有随着认亲尘埃落定。",
-            clock=0,
-            max_clock=3,
-            current_stage=0,
-            tags=["truth", "document"],
-            stages=[
-                PlotStageConfig(
-                    label="噤声",
-                    summary="家里默认认亲结果已定，不想再追问旧事。",
-                    pressure_hint="让书房、旧文件、旧医院和年份成为不好碰的话题。",
-                ),
-                PlotStageConfig(
-                    label="松动",
-                    summary="一些细节开始互相对不上。",
-                    pressure_hint="让周姨、旧物、照片或某句话露出缝隙。",
-                ),
-                PlotStageConfig(
-                    label="逼近",
-                    summary="真相逼近，但说出真相未必会让玩家得到公平。",
-                    pressure_hint="让玩家意识到真相之外，仍有关系和立场的代价。",
-                ),
-            ],
-        ),
-        PlotEntityConfig(
-            plot_id="engagement_leverage",
-            title="被借走的旧婚约立场",
-            description="陆承泽与沈昭宁多年旧情未断，这段关系不仅影响站队，也会被反过来当成压制玩家的社会工具。",
-            clock=1,
-            max_clock=4,
-            current_stage=0,
-            tags=["engagement", "status", "public"],
-            stages=[
-                PlotStageConfig(
-                    label="余温",
-                    summary="旧婚约虽然名义上尴尬，却还在无形地给沈昭宁撑场面。",
-                    pressure_hint="让陆承泽的熟悉感和维护姿态本身成为一种偏心。",
-                ),
-                PlotStageConfig(
-                    label="借口",
-                    summary="家里开始把这段旧关系当成合理照顾沈昭宁的借口。",
-                    pressure_hint="让别人以体谅、旧情和局面复杂为由，要求玩家退一步。",
-                ),
-                PlotStageConfig(
-                    label="错位",
-                    summary="旧婚约带来的站位越来越不像私事，而开始影响玩家的声誉和解释权。",
-                    pressure_hint="让公开场合里谁替谁说话，变成一把能割人的软刀子。",
-                ),
-                PlotStageConfig(
-                    label="松裂",
-                    summary="这层默认的旧情关系终于出现裂缝，某个人开始意识到自己一直站错了边。",
-                    pressure_hint="保留一个能让玩家撬动立场的破口，但不要来得太容易。",
-                ),
-            ],
-        ),
-    ],
-    plot_rules=[
-        PlotRuleConfig(
-            rule_id="player_enters_family_dinner",
-            plot_id="household_bias",
-            conditions=[
-                StateCondition(scope="actor", target="林见微", path="location", operator="eq", value="餐厅"),
-            ],
-            advance=1,
-            one_shot=True,
-            reason="林见微实际进入家宴场景，家庭偏心从背景关系进入公开站位。",
-        ),
-        PlotRuleConfig(
-            rule_id="birth_secret_study_access",
-            plot_id="buried_birth_secret",
-            conditions=[
-                StateCondition(scope="actor", target="林见微", path="location", operator="eq", value="书房"),
-            ],
-            advance=1,
-            one_shot=True,
-            reason="林见微实际进入书房，旧文件与出生秘密获得被发现的现实机会。",
         ),
     ],
     characters=[

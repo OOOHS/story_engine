@@ -17,7 +17,6 @@ class ClaimSystem(System):
         transitions, errors = registry.advance_to(
             step=clock.current_step if clock else 0,
             scene_state=self._component(entities, "SceneState"),
-            plot_state=self._component(entities, "PlotState"),
         )
         context["claim_transitions"] = transitions
         context["claim_errors"] = errors

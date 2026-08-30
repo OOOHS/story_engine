@@ -5,7 +5,6 @@ from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.drive_state import DriveState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.environment.world_transaction import WorldStateTransaction
 from src.story_engine.motivation import NeedDynamics
@@ -82,7 +81,6 @@ def _use_result():
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [
             {
@@ -136,7 +134,6 @@ def test_object_use_consumes_one_resource_and_relieves_need_atomically():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _use_result(),
         drive_states={"旅人": drive},
@@ -168,7 +165,6 @@ def test_using_last_resource_removes_it_from_authoritative_world():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _use_result(),
         drive_states={"旅人": drive},
@@ -189,7 +185,6 @@ def test_invalid_affordance_effect_rolls_back_resource_and_drive():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _use_result(),
         drive_states={"旅人": drive},
@@ -311,7 +306,6 @@ def test_simulation_system_commits_resource_use_and_private_need_effect_together
     scene = _resource_scene(quantity=2)
     gm.add_component(SimulationControl(scripted_result=_use_result()))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     traveler = create_agent(
         "旅人",
@@ -353,7 +347,6 @@ def test_simulation_system_reads_emergent_meter_budget_from_scenario():
         )
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     traveler = create_agent(
         "旅人",
@@ -390,7 +383,6 @@ def test_evidence_backed_action_can_change_abstract_need_without_public_leakage(
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [
@@ -407,7 +399,6 @@ def test_evidence_backed_action_can_change_abstract_need_without_public_leakage(
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -454,7 +445,6 @@ def test_moving_actor_keeps_drive_impact_observed_at_origin():
             "world_objects": {},
             "actor_states": {"旅人": {"location": "走廊"}},
         },
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [
@@ -471,7 +461,6 @@ def test_moving_actor_keeps_drive_impact_observed_at_origin():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -493,7 +482,6 @@ def test_unsupported_drive_update_rejects_other_world_changes_too():
             "world_objects": {},
             "actor_states": {},
         },
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [
@@ -510,7 +498,6 @@ def test_unsupported_drive_update_rejects_other_world_changes_too():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -536,7 +523,6 @@ def test_drive_creation_within_budget_starts_at_zero_pressure():
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_creations": [
@@ -554,7 +540,6 @@ def test_drive_creation_within_budget_starts_at_zero_pressure():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -577,7 +562,6 @@ def test_drive_creation_over_budget_rejects_whole_batch():
             {"actor": "旅人", "outcome": "success", "location": "营地", "result": "x"}
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_creations": [
@@ -588,7 +572,6 @@ def test_drive_creation_over_budget_rejects_whole_batch():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -609,7 +592,6 @@ def test_drive_creation_cannot_shadow_an_existing_need_name():
             {"actor": "旅人", "outcome": "success", "location": "营地", "result": "x"}
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_creations": [
@@ -620,7 +602,6 @@ def test_drive_creation_cannot_shadow_an_existing_need_name():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -638,7 +619,6 @@ def test_drive_creation_without_supporting_action_is_rejected():
     result = {
         "resolved_actions": [],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_creations": [
@@ -649,7 +629,6 @@ def test_drive_creation_without_supporting_action_is_rejected():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},
@@ -680,7 +659,6 @@ def test_remote_hidden_action_cannot_telepathically_change_private_drive():
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": [],
         "drive_updates": [
@@ -697,7 +675,6 @@ def test_remote_hidden_action_cannot_telepathically_change_private_drive():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"旅人": drive},

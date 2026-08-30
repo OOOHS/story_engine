@@ -104,7 +104,7 @@ class SceneState(Component):
         suggestion: str,
         *,
         current_step: int,
-        source_plot_id: str = "",
+        source_ref: str = "",
         tags: Optional[list] = None,
         expires_after_steps: int = 3,
     ) -> bool:
@@ -119,7 +119,7 @@ class SceneState(Component):
         pending.append(
             {
                 "suggestion": suggestion[:280],
-                "source_plot_id": str(source_plot_id or ""),
+                "source_ref": str(source_ref or ""),
                 "tags": [str(tag) for tag in (tags or [])][:6],
                 "queued_step": int(current_step),
                 "expires_after_steps": max(1, int(expires_after_steps)),
@@ -630,15 +630,13 @@ class SceneState(Component):
             current = current.get(part)
         return current
 
-    def _resolve_scope(self, scope: str, target: Optional[str], plot_state: Optional[Any] = None) -> Dict[str, Any]:
+    def _resolve_scope(self, scope: str, target: Optional[str]) -> Dict[str, Any]:
         if scope == "scene":
             return self.get_snapshot()
         if scope == "world_object" and target:
             return self.get_object_state(target)
         if scope == "actor" and target:
             return self.get_actor_state(target)
-        if scope == "plot" and plot_state and target:
-            return plot_state.get_snapshot().get(target, {})
         return {}
 
     @staticmethod
@@ -669,7 +667,7 @@ class SceneState(Component):
             return False
         return False
 
-    def matches_condition(self, condition: Any, plot_state: Optional[Any] = None) -> bool:
+    def matches_condition(self, condition: Any) -> bool:
         if isinstance(condition, dict):
             scope = condition.get("scope", "scene")
             target = condition.get("target")
@@ -682,7 +680,7 @@ class SceneState(Component):
             path = condition.path
             operator = condition.operator
             expected = condition.value
-        source = self._resolve_scope(scope, target, plot_state=plot_state)
+        source = self._resolve_scope(scope, target)
         actual = self._get_nested_value(source, path)
         return self._compare_value(actual, operator, expected)
 

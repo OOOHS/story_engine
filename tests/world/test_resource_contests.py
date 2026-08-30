@@ -5,7 +5,6 @@ from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.drive_state import DriveState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -95,7 +94,6 @@ def _result(operations, actors=None):
             for actor in actors
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": operations,
@@ -129,7 +127,6 @@ def test_last_unit_has_stable_winner_and_loser_does_not_roll_back_transaction():
 
         outcome = WorldStateTransaction().commit(
             scene,
-            PlotState(),
             DramaState(),
             resolved,
             drive_states=drives,
@@ -261,7 +258,6 @@ def test_authoritative_transaction_rejects_exclusive_claims_that_bypass_resolver
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         raw,
         proposal_actors={"甲", "乙"},
@@ -284,14 +280,12 @@ def test_authoritative_transaction_allows_shareable_or_fully_supplied_direct_use
 
     shareable = WorldStateTransaction().commit(
         shareable_scene,
-        PlotState(),
         DramaState(),
         _result([_use("甲", "inspect"), _use("乙", "inspect")]),
         proposal_actors={"甲", "乙"},
     )
     supplied = WorldStateTransaction().commit(
         supplied_scene,
-        PlotState(),
         DramaState(),
         _result([_use("甲"), _use("乙")]),
         drive_states={"甲": _drive(), "乙": _drive()},
@@ -326,7 +320,6 @@ def test_authoritative_transaction_rejects_conflicting_visibility_without_arbitr
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         raw,
         proposal_actors={"甲", "乙"},
@@ -366,7 +359,6 @@ def test_conflicting_container_state_claims_have_one_stable_winner():
     resolved = _resolved(scene, _result(operations))
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         resolved,
         proposal_actors={"甲", "乙"},
@@ -402,7 +394,6 @@ def test_same_container_state_claim_is_shareable_and_authoritatively_valid():
     resolved = _resolved(scene, _result(operations))
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         resolved,
         proposal_actors={"甲", "乙"},
@@ -429,7 +420,6 @@ def test_missing_capability_rejects_use_and_rolls_back_need_effect():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"甲": drive},
@@ -458,7 +448,6 @@ def test_capability_must_exist_before_the_turn_not_be_granted_by_same_result():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         proposal_actors={"甲"},
@@ -496,7 +485,6 @@ def test_owner_requirement_is_authoritative_and_opportunity_explains_unavailabil
     result = _result([_use("甲", "unlock")], actors=["甲"])
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states={"甲": _drive()},
@@ -607,7 +595,6 @@ def test_simulation_system_resolves_contest_before_authoritative_transaction():
         SimulationControl(scripted_result=_result([_use("甲"), _use("乙")]))
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     actors = {}
     for name in ("甲", "乙"):
@@ -638,7 +625,6 @@ def test_host_materializes_selected_affordance_when_semantic_gm_omits_operation(
         SimulationControl(scripted_result=_result([], actors=["甲"]))
     )
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     actor = Entity("甲")
     actor.add_component(_drive())

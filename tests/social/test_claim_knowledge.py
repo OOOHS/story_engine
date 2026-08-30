@@ -2,7 +2,6 @@ from types import SimpleNamespace
 
 from src.story_engine.agents.types import AgentPerception
 from src.story_engine.components.knowledge_state import KnowledgeState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
 from src.story_engine.knowledge import ClaimRegistry
@@ -43,7 +42,6 @@ def _world():
     )
     gm = Entity("GameMaster")
     gm.add_component(scene)
-    gm.add_component(PlotState())
     first = Entity("甲")
     first.add_component(KnowledgeState())
     second = Entity("乙")

@@ -9,12 +9,6 @@ from src.story_engine_content.evaluation.minimal_event_response import (
 )
 
 
-def test_event_response_seed_has_no_storylet_or_plot_dependency():
-    scenario = build_minimal_event_response_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
 
 
 def test_objective_event_grows_verified_social_and_spatial_response_chain():

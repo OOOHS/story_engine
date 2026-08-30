@@ -276,15 +276,7 @@ class ObligationDynamics:
             errors.append(f"{prefix} obligation forbids delegation: {obligation_id}")
         elif (
             record.completion_conditions
-            and all(
-                scene_state.matches_condition(condition)
-                for condition in record.completion_conditions
-                if condition.get("scope") != "plot"
-            )
-            and not any(
-                condition.get("scope") == "plot"
-                for condition in record.completion_conditions
-            )
+            and all(scene_state.matches_condition(condition) for condition in record.completion_conditions)
         ):
             errors.append(f"{prefix} obligation is already satisfied: {obligation_id}")
         if target_state is not None:

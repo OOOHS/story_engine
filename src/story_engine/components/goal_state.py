@@ -96,7 +96,6 @@ class GoalState(Component):
         *,
         step: int,
         scene_state: Any,
-        plot_state: Any = None,
         condition_matcher: Any = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         transitions: List[Dict[str, Any]] = []
@@ -108,9 +107,7 @@ class GoalState(Component):
                 continue
             try:
                 matcher = condition_matcher or (
-                    lambda condition: scene_state.matches_condition(
-                        condition, plot_state=plot_state
-                    )
+                    lambda condition: scene_state.matches_condition(condition)
                 )
                 completed = bool(record.completion_conditions) and all(
                     matcher(condition) for condition in record.completion_conditions

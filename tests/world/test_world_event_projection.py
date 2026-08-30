@@ -3,7 +3,6 @@ from copy import deepcopy
 
 from src.story_engine.components.obligation_state import ObligationState
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -347,7 +346,6 @@ def test_unchanged_object_property_does_not_create_transition_event():
 def test_simulation_derives_object_change_ledger_and_overwrites_forged_ledger():
     entities, scene = _world()
     gm = entities["GameMaster"]
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     gm.add_component(
         SimulationControl(

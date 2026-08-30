@@ -1,10 +1,8 @@
 import json
 from typing import Any, Callable, Dict, Protocol
 
-from src.story_engine.agents.actions import AgentAction
+from src.story_engine.agents.actions import parse_natural_language_action
 from src.story_engine.agents.subject import (
-    GumbelSubjectSampler,
-    SubjectActionOption,
     SubjectInbox,
     SubjectLedgerProjector,
     build_subject_wake_packet,
@@ -43,7 +41,6 @@ class HermesCharacterAgent:
         self._conversations: Dict[str, HermesConversation] = {}
         self._inboxes: Dict[str, SubjectInbox] = {}
         self._ledger_projectors: Dict[str, SubjectLedgerProjector] = {}
-        self._samplers: Dict[str, GumbelSubjectSampler] = {}
         self._bootstrapped: set[str] = set()
         self._turn_counts: Dict[str, int] = {}
         self._decision_ledgers: Dict[str, list[Dict[str, Any]]] = {}
@@ -125,56 +122,21 @@ class HermesCharacterAgent:
             raise ValueError("agent response is not valid decision JSON") from exc
         if not isinstance(data, dict):
             raise ValueError("agent decision JSON must be an object")
-        raw_candidates = data.get("candidates", [])
-        if isinstance(raw_candidates, list) and raw_candidates:
-            options = tuple(
-                SubjectActionOption.from_value(item, index=index)
-                for index, item in enumerate(raw_candidates[:8])
-            )
-            if len(options) < 2:
-                raise ValueError(
-                    "Hermes subject deliberation requires at least two candidates; "
-                    "return a direct action when only one path is reasonable"
-                )
-            count = self._turn_counts.get(entity.id, 0) + 1
-            self._turn_counts[entity.id] = count
-            decision_id = f"{entity.id}:{int(perception.step)}:{count}"
-            sampler = self._samplers.get(entity.id)
-            if sampler is None:
-                configured_seed = self._config.get("character_seed")
-                sampler = GumbelSubjectSampler(configured_seed)
-                self._samplers[entity.id] = sampler
-            choice = sampler.choose(
-                options,
-                decision_id=decision_id,
-                temperature=float(
-                    self._config.get("character_temperature", 0.8) or 0.8
-                ),
-            )
-            ledger = self._decision_ledgers.setdefault(entity.id, [])
-            ledger.append(choice.trace)
-            del ledger[:-100]
-            action = choice.selected.action
-            return AgentDecision(
-                action=action.detail,
-                action_spec=action,
-                thought="",
-                metadata=self._subject_metadata(data),
-            )
-
-        action = AgentAction.from_value(data.get("action"), strict=True)
-        if not action.detail:
-            raise ValueError("Hermes subject returned no executable action")
+        if "candidates" in data:
+            raise ValueError("Hermes subject response no longer accepts candidates")
+        raw_action = data.get("action")
+        if not isinstance(raw_action, str) or not raw_action.strip():
+            raise ValueError("Hermes subject action must be a non-empty natural-language string")
+        action = parse_natural_language_action(raw_action, field="Hermes subject action")
         count = self._turn_counts.get(entity.id, 0) + 1
         self._turn_counts[entity.id] = count
         self._decision_ledgers.setdefault(entity.id, []).append({
             "decision_id": f"{entity.id}:{int(perception.step)}:{count}",
-            "method": "direct",
-            "selected_action": action.to_dict(),
+            "method": "runtime_committed",
+            "action": raw_action.strip(),
         })
         return AgentDecision(
             action=action.detail,
-            action_spec=action,
             thought="",
             metadata=self._subject_metadata(data),
         )

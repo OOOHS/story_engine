@@ -9,14 +9,6 @@ from src.story_engine_content.evaluation.minimal_service import (
 )
 
 
-def test_minimal_service_seed_has_no_storylet_or_plot_script():
-    scenario = build_minimal_service_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
-    assert len(scenario.characters) == 2
-    assert all(character.agent_runtime == "service-policy" for character in scenario.characters)
 
 
 def test_service_episode_can_breach_deliver_late_refund_and_settle_compensation():

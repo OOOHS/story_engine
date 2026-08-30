@@ -20,7 +20,6 @@ class ObligationConflictAnalyzer:
         *,
         actor_name: str,
         scene_state: Any,
-        plot_state: Any = None,
         current_step: int = 0,
     ) -> List[Dict[str, Any]]:
         if not obligation_state or not scene_state or not actor_name:
@@ -36,7 +35,7 @@ class ObligationConflictAnalyzer:
             effective_status = obligation_state.effective_status(record, current_step)
             if effective_status in self.TERMINAL_STATUSES:
                 continue
-            if self._is_already_satisfied(record, scene_state, plot_state):
+            if self._is_already_satisfied(record, scene_state):
                 continue
             locations = self._required_locations(
                 record,
@@ -226,11 +225,11 @@ class ObligationConflictAnalyzer:
         return locations
 
     @staticmethod
-    def _is_already_satisfied(record: Any, scene_state: Any, plot_state: Any) -> bool:
+    def _is_already_satisfied(record: Any, scene_state: Any) -> bool:
         return bool(
             record.completion_conditions
             and all(
-                scene_state.matches_condition(condition, plot_state=plot_state)
+                scene_state.matches_condition(condition)
                 for condition in record.completion_conditions
             )
         )

@@ -3,7 +3,6 @@ from pydantic import Field
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.drive_state import DriveState
 from src.story_engine.components.obligation_state import ObligationState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -63,7 +62,6 @@ def _base_result(actions=None, updates=None):
     return {
         "resolved_actions": actions or [],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": [],
@@ -142,7 +140,6 @@ def test_dynamic_obligation_can_have_authoritative_completion_condition():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -176,7 +173,6 @@ def test_dynamic_condition_can_track_a_currently_visible_object_delivery():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _base_result(actions=[_action("甲")], updates=[update]),
         obligation_states=states,
@@ -192,7 +188,7 @@ def test_dynamic_condition_can_track_a_currently_visible_object_delivery():
     ]
 
 
-def test_dynamic_conditions_cannot_reference_hidden_objects_or_plot_state():
+def test_dynamic_conditions_cannot_reference_hidden_objects():
     scene = _scene()
     states = _empty_states()
     hidden = _create_update("expose_secret", "北站")
@@ -205,41 +201,17 @@ def test_dynamic_conditions_cannot_reference_hidden_objects_or_plot_state():
             "value": "甲",
         }
     ]
-    plot = _create_update("advance_plot", "北站")
-    plot["completion_conditions"] = [
-        {
-            "scope": "plot",
-            "target": "secret_plot",
-            "path": "clock",
-            "operator": "gte",
-            "value": 1,
-        }
-    ]
-
     hidden_outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _base_result(actions=[_action("甲")], updates=[hidden]),
         obligation_states=states,
         current_step=0,
         proposal_actors={"甲"},
     )
-    plot_outcome = WorldStateTransaction().commit(
-        scene,
-        PlotState(),
-        DramaState(),
-        _base_result(actions=[_action("甲")], updates=[plot]),
-        obligation_states=states,
-        current_step=0,
-        proposal_actors={"甲"},
-    )
-
     assert hidden_outcome.committed is False
-    assert plot_outcome.committed is False
     assert states["甲"].obligations == {}
     assert any("not visible to debtor" in error for error in hidden_outcome.errors)
-    assert any("unsupported dynamic scope" in error for error in plot_outcome.errors)
 
 
 def test_runtime_created_obligations_can_generate_real_conflict():
@@ -255,7 +227,6 @@ def test_runtime_created_obligations_can_generate_real_conflict():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -299,7 +270,6 @@ def test_delegation_moves_active_duty_with_lineage_and_rewrites_debtor_condition
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         drive_states=drives,
@@ -347,7 +317,6 @@ def test_delegation_requires_positive_observable_actions_from_both_parties():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -383,7 +352,6 @@ def test_forbidden_obligation_cannot_be_delegated_even_with_bilateral_consent():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -412,7 +380,6 @@ def test_creditor_consent_policy_requires_creditor_proposal_action_and_approval(
     }
     missing = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _base_result(actions=[_action("甲"), _action("乙")], updates=[update]),
         obligation_states=states,
@@ -423,7 +390,6 @@ def test_creditor_consent_policy_requires_creditor_proposal_action_and_approval(
     approved_update = {**update, "approved_by": "委托人"}
     approved = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _base_result(
             actions=[_action("甲"), _action("乙"), _action("委托人", "委托人批准")],
@@ -479,7 +445,6 @@ def test_delegation_cannot_leak_hidden_completion_object_to_new_debtor():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -512,7 +477,6 @@ def test_resolver_cannot_invent_delegate_consent_without_agent_proposal():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -553,7 +517,6 @@ def test_remote_or_hidden_acceptance_cannot_transfer_private_duty():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -586,7 +549,6 @@ def test_delegation_checkpoint_restores_both_obligation_components():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -637,7 +599,6 @@ def test_delegation_can_resolve_one_actors_schedule_conflict():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -679,7 +640,6 @@ def test_delegated_history_never_becomes_breached_again():
     )
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=states,
@@ -714,7 +674,6 @@ def test_simulation_system_passes_current_agent_proposals_into_delegation_bounda
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     alice = Entity("甲")
     alice.add_component(_initial_obligation())

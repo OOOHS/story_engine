@@ -9,14 +9,6 @@ from src.story_engine_content.evaluation.minimal_delivery_route import (
 )
 
 
-def test_delivery_route_seed_has_no_authored_narrative_or_agreement_template():
-    scenario = build_minimal_delivery_route_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
-    assert scenario.agreement_offer_templates == []
-    assert len(scenario.initial_world_objects) == 5
 
 
 def test_agents_form_and_fulfill_paid_cross_location_delivery_from_world_state():

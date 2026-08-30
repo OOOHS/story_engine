@@ -30,7 +30,7 @@ class DramaState(Component):
         self.tension = min(1.0, max(0.0, self.tension + delta))
         return self.tension
 
-    def build_directive(self, active_plot_pressures: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def build_directive(self) -> Dict[str, Any]:
         directive = "stay_course"
         instruction = "保持因果推进，不要凭空制造戏剧。"
 
@@ -43,10 +43,6 @@ class DramaState(Component):
         elif self.tension < self.target_min:
             directive = "raise_pressure"
             instruction = "隐藏风险具有较高显著性；角色是否触发仍由其行动和处境决定。"
-
-        pressure_hints = [p["pressure_hint"] for p in active_plot_pressures if p.get("pressure_hint")]
-        if pressure_hints:
-            instruction += " 以下长线压力可作为后果解释线索，而非强制事件：" + "；".join(pressure_hints)
 
         self.last_directive = directive
         self.recent_forces.append(directive)

@@ -11,13 +11,6 @@ from src.story_engine.components.host_rule_simulation import (
 )
 
 
-def test_goal_growth_seed_has_no_storylet_or_plot_dependency():
-    scenario = build_minimal_goal_growth_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
-    assert len(scenario.characters) == 1
 
 
 def test_resolved_seed_goal_grows_a_followup_before_episode_closes():

@@ -7,7 +7,6 @@ from src.story_engine.agents.scheduler import AgentScheduler
 from src.story_engine.components.contract_state import ContractState
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.obligation_state import ObligationState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -15,8 +14,6 @@ from src.story_engine.environment.world_transaction import WorldStateTransaction
 from src.story_engine.environment.agreement_offers import AgreementOfferEngine
 from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.scenarios.config import (
-    PlotEntityConfig,
-    PlotRuleConfig,
     ScenarioConfig,
     StateCondition,
 )
@@ -88,7 +85,6 @@ def _result(actions=None, updates=None):
     return {
         "resolved_actions": actions or [],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": [],
@@ -175,7 +171,6 @@ def _commit(
 ):
     return WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
         obligation_states=obligations or {},
@@ -954,109 +949,6 @@ def test_near_expiry_offer_wakes_background_party_but_not_dormant():
     assert dormant_activation.reason == "policy_dormant"
 
 
-def test_simulation_system_persists_offer_across_steps_and_settles_later_acceptance():
-    scene = _scene()
-    relation_registry = SocialRelationRegistry()
-    agreement_registry = AgreementRegistry(relation_registry)
-    plots = PlotState.from_configs(
-        [
-            PlotEntityConfig(
-                plot_id="contract_key",
-                title="契约钥匙",
-                description="甲通过跨回合契约取得钥匙",
-                max_clock=2,
-            )
-        ]
-    )
-    scenario = ScenarioConfig(
-        name="契约因果",
-        default_agent_runtime="llm",
-        description="跨回合接受推动剧情",
-        environment="集市",
-        initial_state="报价尚未接受",
-        plot_rules=[
-            PlotRuleConfig(
-                rule_id="contract_delivers_key",
-                plot_id="contract_key",
-                conditions=[
-                    StateCondition(
-                        scope="world_object",
-                        target="乙的钥匙",
-                        path="owner",
-                        operator="eq",
-                        value="甲",
-                    )
-                ],
-                advance=1,
-            )
-        ],
-    )
-    control = SimulationControl(
-        scripted_result=_result(actions=[_action("甲")], updates=[_offer()]),
-        scenario=scenario,
-    )
-    gm = Entity("GameMaster")
-    gm.add_component(control)
-    gm.add_component(scene)
-    gm.add_component(plots)
-    gm.add_component(DramaState())
-    entities = {"GameMaster": gm, "甲": Entity("甲"), "乙": Entity("乙")}
-
-    proposal = AgentAction(
-        "communicate",
-        "提出令牌换钥匙",
-        "乙",
-        agreement_operation="propose",
-        agreement_give_refs=("甲的令牌",),
-        agreement_request_refs=("乙的钥匙",),
-    )
-    first_context = {
-        "clock": type("Clock", (), {"current_step": 0})(),
-        "intents": [{
-            "actor": "甲",
-            "intent": proposal.detail,
-            "action_kind": "communicate",
-            "action_target": "乙",
-            "action_agreement_operation": "propose",
-            "action_agreement_id": AgreementOfferEngine.asset_offer_id(
-                "甲", "乙", ["甲的令牌"], ["乙的钥匙"], 0
-            ),
-            "action_agreement_template_id": "",
-            "action_agreement_give_refs": ["甲的令牌"],
-            "action_agreement_request_refs": ["乙的钥匙"],
-        }],
-        "agreement_registry": agreement_registry,
-        "relation_registry": relation_registry,
-    }
-    SimulationSystem().update(entities, first_context)
-
-    assert first_context["state_transaction"]["committed"] is True
-    agreement_id = first_context["agreement_action_traces"][0]["agreement_id"]
-    assert agreement_registry.to_book().agreements[agreement_id].status == "pending"
-    assert scene.get_object_state("乙的钥匙")["owner"] == "乙"
-
-    control.scripted_result = _result(
-        actions=[_action("乙")],
-        updates=[_response("accept", "乙")],
-    )
-    second_context = {
-        "clock": type("Clock", (), {"current_step": 1})(),
-        "intents": [{
-            "actor": "乙", "intent": "接受令牌换钥匙",
-            "action_kind": "communicate", "action_target": "甲",
-            "action_agreement_operation": "accept",
-            "action_agreement_id": agreement_id,
-        }],
-        "agreement_registry": agreement_registry,
-        "relation_registry": relation_registry,
-    }
-    SimulationSystem().update(entities, second_context)
-
-    assert second_context["state_transaction"]["committed"] is True
-    assert agreement_registry.to_book().agreements[agreement_id].status == "settled"
-    assert scene.get_object_state("甲的令牌")["owner"] == "乙"
-    assert scene.get_object_state("乙的钥匙")["owner"] == "甲"
-    assert plots.plots["contract_key"]["clock"] == 1
 
 
 def test_model_cannot_forge_contract_settlement_or_authorization_fields():

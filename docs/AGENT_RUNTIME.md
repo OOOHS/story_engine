@@ -215,7 +215,7 @@ Session，但外部模型若非确定性，replay mismatch 应被视为证据而
 Launcher 在创建任何 Session 前执行一次 `docker image inspect` 预检。镜像缺失
 或 daemon 不可用时整个任务立即失败，不会让每个 seed、每个角色分别重复撞同一
 基础设施错误。Hermes envelope 先验证 `protocol_version/agent_id/content`，随后 `content` 还必须是 JSON object，并且至少含
-一个可执行 action 或一组 subject deliberation candidates；普通解释文字、空对象或残缺协议会 fail closed，不能
+一个包含非空自然语言 `action` 的决策对象；普通解释文字、空对象、候选数组或残缺协议都会 fail closed，不能
 被通用自然语言 fallback 猜成 `interact`。这种 Input 阶段异常会回滚整步，保留
 尚未确认的事件注意力；EpisodeRunner 记录一次 `authoritative_step_failed` 后立即
 停止，避免重复付费、重复调用和把基础设施失败统计成角色停滞。
@@ -291,9 +291,9 @@ Timeline 结算的 provenance 同时保留 commitment、Host clock 与真实位�
 
 这些 Event 的 source 不再重复 object id 或 actor name 充当“原因”。移动与已经通过生命周期证据校验的拿取、放下、开关、使用和销毁指向对应 `resolved_action:step/actor`；普通对象属性差分只有在 Host ledger 精确找到以该对象为 target 的正向行动时才指向 action batch。没有精确行动来源的 Host edit、拓扑或公共环境转换保留各自的 Host transition id，不把同轮无关 Agent 猜成原因。
 
-角色主导不仅依靠“GM 不得凭空增加 actor”这一条 prompt。SimulationSystem 在调用任何语义 resolver 前会从输入契约中物理移除 Storylet、Conflict、Drama directive、Plot snapshot、Situation、reaction pressure 与 motive pressure；社会上下文也会剥离 `bias / framing_style / territorial` 等导演字段。完整 packet 仍留在 Host context 供机会检测、Episode 评估和事后归因，但 GM 看不到它们，不能为了满足一个幕后节拍改变既有 proposal 的结算方向。
+角色主导不仅依靠“GM 不得凭空增加 actor”这一条 prompt。SimulationSystem 在调用任何语义 resolver 前会从输入契约中物理移除 Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 与 motive pressure；社会上下文也会剥离 `bias / framing_style / territorial` 等导演字段。完整 packet 仍留在 Host context 供机会检测、Episode 评估和事后归因，但 GM 看不到它们，不能为了满足一个幕后节拍改变既有 proposal 的结算方向。
 
-这条隔离跨越长期记忆。GameMaster 的 `Memory` 只保存已提交行动及其权威事务后果，不归档完整 Timeline、Host 随机检查、私有 Goal/Modifier 诊断、Plot pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
+这条隔离跨越长期记忆。GameMaster 的 `Memory` 只保存已提交行动及其权威事务后果，不归档完整 Timeline、Host 随机检查、私有 Goal/Modifier 诊断、宏剧情 pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
 
 动作完成批次中的移动使用逐角色观察窗口。SimulationSystem 在事务前保存每个角色的原位置，在提交后与新位置组成 `{origin, destination}`；CognitionSystem 只把发生在这两个端点的非 hidden 行动视为本轮可观察。未移动者仍只有单一地点，动态出生角色只有出生地点。这个窗口只解决离散提交顺序造成的观察丢失，不提供沿途全知，也不会让角色看到第三处事件。
 
@@ -307,7 +307,7 @@ WorldEventSystem 使用同一窗口派生对象状态、物品操作、交换和
 
 Agent 可以为已知事件提出 `resolution_kind=communicate_event` 的普通告知目标，或使用 `respond_to_event + resolution_response` 表达 explain、apologize、accuse、request、forgive、acknowledge。`resolution_target` 都必须是当前可见接收者。GoalSystem 在 Event Entity 上编译隐藏的 communication/response 证据锁；CognitionSystem 只在真实 committed communicate、同场、发送者确知事件且目标一致时写入 `WorldEventResponses`。因此 Agent/GM 不能用普通互动、伪造 statement 或一段回顾性叙述让目标完成。response 只是客观行为类别，不会把“道歉”自动写成“对方原谅”，也不会把“指控”自动写成 Claim 真值；接收者的 Sentiment、判断与后续行动仍保持私有。首次 response 会生成稳定 attention id 并进入接收者的 `pending_event_responses`；即使接收者早已知道原 event，离屏 Agent 仍会以 `event_response:<id>` 获得一次决策。perception 成功交付后宿主确认消费，重复的同类同向回应不会无限唤醒。
 
-权衡属于角色自己。Hermes 可以在明显只有一个合理意图时直接返回 action；需要权衡时在 runtime 内部返回 candidates，每项必须带不同 `motive_lens`、结构化 `intent_signature`、有限 utility 与 executable action。`HermesCharacterAgent` 先用角色私有随机源在 motive lens 间做 Gumbel-Max，再在选中 lens 的动作间做第二次 Gumbel-Max，然后只把一个 action 交给 Host。宿主永远看不到这个候选分布，也不再对任何 runtime 做二次抽样：`commit_runtime_action` 只是把角色已经决定的行动记成 `runtime_committed` 收据。配置 `character_seed` 时可复现评测；未配置时生成随机 subject seed，私有 ledger 只记录 fingerprint、draw、lens、option 与选择，不向世界或其他角色公开候选。
+权衡属于角色自己。Hermes 在自己的长程上下文和记忆中完成观察、权衡与随机性，然后只返回一条非空自然语言 action。Host 不接收候选、动机透镜或 utility，也不做二次抽样；`commit_runtime_action` 只记录已经提交的行动收据。玩家和 Hermes 共用同一个自然语言动作边界，Host 再将其解析为内部 Action IR 并负责合法性与世界结算。
 
 宿主既然不选择角色的行动，也就无法重建“她为什么这么做”。因此动机只能由角色自己陈述：decision 可以附带最多四个 `motive_refs`，接受 `{"kind":"goal","ref":"<goal_id>"}` 以及 `obligation` / `sentiment` / `drive_need` 引用。`InputSystem` 对照她当前实际持有的 `GoalState`、Obligation snapshot、`SentimentState` 和 Drive need 校验每一条：引用她并不持有的东西会被丢弃并进入 `agent_motive_ref_rejections` 审计，而不是被采信。这些引用只表示她认为自己为什么这么做，不能创建动机、提供概率、证明行动成功或完成 Goal/Obligation。不陈述动机是合法的，代价只是这一步在因果图里没有动机父边。
 
@@ -323,9 +323,9 @@ Episode 只为实际提交、且角色自己给出了通过校验的动机的行
 
 Runtime 可以依据 `private_sentiments` 理解“为什么我刚刚对乙感到受伤或怀疑”，但不能自行写持续时间、效用权重或长期关系值。Simulation 的 `social_impacts` 必须引用 affected 亲自可观察的已提交 source 行动；SentimentSystem 在宿主副本上原子创建/积累感受，随后让固定目录中的少量效果沉淀到 affected→source Relationship Tracks。宿主会忽略模型自报的 `source_event`，以已验证 action 节点替换；Agreement 的权威履约 transition 则引用独立的 performance resolution。Track provenance 指回 actor-qualified Sentiment，因而审计层可以保留完整社会后果链。
 
-语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates`、`plot_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。已有 Plot 的钟只能由候选世界状态触发 `CausalPlotEngine`；GM 可用 `plot_beat_proposals` 登记带条件的新剧情点，但不能直接写 clock。长期关系只能由宿主社会规则沉淀。
+语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。Storylet 只由已提交世界状态满足条件时进入机会层，长期关系只能由宿主社会规则沉淀。
 
-Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系、Plot、Agreement、Obligation 和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
+Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系、宏剧情、Agreement、Obligation 和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
 
 若 auto/background 角色自己的私有 need pressure 达到该 meter 的 critical threshold，调度器会跳过普通错峰等待并以 `critical_need:<name>` 原因唤醒一次后台决策。这个判断只读取角色自己的 DriveState，不公开给玩家或其他 agent；显式 `dormant` 角色不会被需求压力自动唤醒。
 
@@ -413,13 +413,13 @@ Simulation 完成后，`CognitionSystem` 会把结构化结果归档为角色经
 
 初始角色遵守同一个存在性边界。Session bootstrap 要求 `ScenarioConfig.characters` 与 `initial_actor_states` 一一对应，每个角色身体还必须位于内容包已经声明的 location；不能用 actor state 创建无 Agent 的群众，也不能声明一个没有世界身体的“幽灵 Agent”。`AgentRegistry.register()` 自身拒绝没有 `AgentController` 的 Entity；Input 也不再接受“只有 registry 绑定”的兼容角色。只要 Runner 中存在 `SceneState`，每个正式 step 前都会审计 `Scene actor ↔ ECS Entity + AgentController ↔ live AgentRegistry runtime`，不依赖是否由标准 Scenario loader 创建。任一绑定丢失时整步在时间和宿主修改之前 fail closed，而不是让 GM、旧工作流或另一个 runtime 临时代演。
 
-授权通过后仍必须经过 `CharacterLifecycle`。它先准备一个尚未发布的 Entity，把角色身体和一次性授权消费记录放进候选世界并参与同轮因果校验，世界事务成功后才创建和确认 live runtime 注册。若 runtime factory 或注册过程失败，注册表、ECS Entity、授权 ledger 以及 Scene/Plot/Drama/Relationship 都会通过 checkpoint 回滚，Rendering 只会看到一次被拒绝的结算。模型不能通过 spawn 请求选择任意 runtime 或宿主工具权限，且默认最多生成六个动态人物。
+授权通过后仍必须经过 `CharacterLifecycle`。它先准备一个尚未发布的 Entity，把角色身体和一次性授权消费记录放进候选世界并参与同轮因果校验，世界事务成功后才创建和确认 live runtime 注册。若 runtime factory 或注册过程失败，注册表、ECS Entity、授权 ledger 以及 Scene/宏剧情/Drama/Relationship 都会通过 checkpoint 回滚，Rendering 只会看到一次被拒绝的结算。模型不能通过 spawn 请求选择任意 runtime 或宿主工具权限，且默认最多生成六个动态人物。
 
 CharacterLifecycle 不再提供可被旧调用者直接使用的 `spawn()` compatibility wrapper。唯一发布路径是 `prepare` 生成未发布计划、`WorldStateTransaction` 在候选世界中 `stage`、提交后 `finalize`；finalize 要求宿主提供真实注册回调和 live AgentRegistry，并在把 Entity 暴露给 session 前验证 runtime 已登记。旧 `NarrativeSystem`、`NarrativeControl` 和 `AgentActionSystem` 已从代码与系统导出中删除，不能再通过一段 GM narration 绕过 Agent proposal 或权威事务创建角色。
 
 InputSystem 没有 Persona fallback。自动角色只有在 AgentRegistry 中存在 live runtime 时才能形成 proposal；缺失 runtime 会在 activation trace 中标记 `missing_agent_runtime` 并跳过该角色，而不是调用另一套 prompt。ConflictDirector 和 StoryletEngine 同样没有代演权限：它们只生成 advisory pressure/opportunity packet。本轮无人选择兑现时不会留下 unrealized 欠账，更不能从内容模板直接构造某个 NPC 的 resolved action。Storylet 是否发生由宿主在行动后识别，GM 不能自报 hit。
 
-Agent proposal 的结算结果还必须通过 `WorldStateTransaction`。模型不能通过普通 `state_updates` 隐式创造新角色、对象、未知地点或未知 plot；有形对象必须经过 `WorldObjectLifecycle`，且创建、拾取、转交、隐藏和销毁都需要已结算行动与同场证据。事务失败时，agent 的行动可以被记录为一次无效结算，但不会产生玩家可见的虚假世界事实。
+Agent proposal 的结算结果还必须通过 `WorldStateTransaction`。模型不能通过普通 `state_updates` 隐式创造新角色、对象、未知地点或未知 剧情；有形对象必须经过 `WorldObjectLifecycle`，且创建、拾取、转交、隐藏和销毁都需要已结算行动与同场证据。事务失败时，agent 的行动可以被记录为一次无效结算，但不会产生玩家可见的虚假世界事实。
 
 事务还逐条核对 `resolved_actions.actor` 与本轮 proposal actor 集合。除 engine-injected `World` 事件外，没有 proposal 的角色不能出现在结算 action 中；因此即使 Simulation 模型从导演模板里擅自挑选了某个 NPC，结果也会在权威提交边界被拒绝。这条检查独立于 prompt，适用于默认 LLM、Hermes 或未来任何 resolver。
 
@@ -445,7 +445,7 @@ performance 的 fulfilled/breached/cancelled 不是 Agreement 自己凭空改变
 
 托管的因果身份使用稳定 custody id，而不是只使用 agreement id。入托节点来自 Agreement settlement；释放或退款节点同时引用 held custody lot 与触发它的 performance resolution，随后 escrow WorldEvent 以 `agreement_escrow_resolution:<agreement>:<custody>:<status>` 为来源。这样“哪笔资产被退回”与“因为哪项服务违约而退回”都能重放审计。
 
-`AgentPerception.private_goals` 提供角色自己的 GoalState：active 目标仍参与行动策略，achieved/failed 目标只作为私有历史。普通自然语言目标无需条件即可驱动候选行为，但不能由 Agent 自评完成；可选 `goal_specs` 的完成/失败条件只在宿主 `GoalSystem` 中对权威 Scene/Plot 状态求值。Agent 只知道某个目标是否存在证据规则，不会收到精确条件表达式。
+`AgentPerception.private_goals` 提供角色自己的 GoalState：active 目标仍参与行动策略，achieved/failed 目标只作为私有历史。普通自然语言目标无需条件即可驱动候选行为，但不能由 Agent 自评完成；可选 `goal_specs` 的完成/失败条件只在宿主 `GoalSystem` 中对权威 Scene/宏剧情 状态求值。Agent 只知道某个目标是否存在证据规则，不会收到精确条件表达式。
 
 Agent-grown goal 可以通过 `goal_requests refine` 把先前开放的追求具体化。只允许 `origin=agent`、仍 active 且尚无任何结算条件的目标；Agent 提交真实 goal id 和当前 POV 支持的 resolution 模板，Host 重新验证地点、对象、人物、能力或关系并编译隐藏条件。已有条件锁、作者目标和终态目标都不能重写，因此 refine 是“后来找到可执行办法”，不是借模型修改胜利条件。角色也可以主动 `abandon` 自己创建且仍 active 的目标，并提供自然语言理由；Host 保留 abandoned 历史和 resolution step。这样目标既能从事件开放生长，又能在新机会出现后转成可完成链路，或在角色判断代价、风险与意义改变时自然收束。
 
@@ -465,11 +465,11 @@ Claim knowledge 的 Episode provenance 只从这些已提交字段构造。主�
 
 DriveState 为每个 need 保留最多 24 条宿主 provenance：对象使用和显式更新指向行动，义务压力指向 Obligation，自然漂移指向 clock。该 ledger 不进入角色的 `private_drives`；它让 Episode 可以把 `cause -> DriveNeed -> selected action` 接成真实链，并随事务 checkpoint 一起回滚。
 
-动态承诺、任务指派、履约、解除和责任转交使用 `obligation_updates`，遵循相同的行动证据与可观察性原则。动态 create 的完成条件被限制为 debtor 自己的地点，或 debtor 当前可见对象的 location/owner/hidden 等安全权威字段，不能借任务描述泄漏秘密 Plot 或隐藏对象。模型不能输出 breach；`ObligationSystem` 只根据世界 step、grace window 和权威 completion conditions 判定到期、违约或自动完成。这样一个角色“说自己做完了”与世界中“任务确实完成了”保持严格区分。
+动态承诺、任务指派、履约、解除和责任转交使用 `obligation_updates`，遵循相同的行动证据与可观察性原则。动态 create 的完成条件被限制为 debtor 自己的地点，或 debtor 当前可见对象的 location/owner/hidden 等安全权威字段，不能借任务描述泄漏秘密 宏剧情 或隐藏对象。模型不能输出 breach；`ObligationSystem` 只根据世界 step、grace window 和权威 completion conditions 判定到期、违约或自动完成。这样一个角色“说自己做完了”与世界中“任务确实完成了”保持严格区分。
 
 Obligation 的因果来源同样不由运行时填写。内容初始义务由 Host 标记为 `scenario`；Agreement service 结算创建的义务指向 agreement id；普通动态创建指向已经通过行动证据校验的 step/actor batch；delegation 指向原 actor-qualified Obligation。即使 Agent/GM 在 update 中附带自定义 `source_kind/source_ref`，事务也会丢弃它们并写入宿主派生值。
 
-Delegation 是多方 Agent 协议。义务的 `delegation_policy` 可以是 `forbidden`、`bilateral` 或 `creditor_consent`：bilateral 要求旧 debtor 和新 delegate 同地点、双方本轮都实际提交 proposal、双方都产生非 hidden 的正向 resolved action，并由结构化 update 明确 `accepted_by == delegate`；creditor_consent 在 creditor 是第三方时进一步要求其同场 proposal/action 与 `approved_by == creditor`。完成条件引用的对象必须对 delegate 可见，Plot、scene、其他角色或隐藏对象条件不会借委托泄漏。成功后旧记录保留为 `delegated` 历史，新记录保存 `delegated_from`、原期限、policy 和完成条件；原 debtor 的位置条件会改写为新承担者。缺少任一必要 proposal、接受/批准行动、同场事实或目标 ObligationState 时，整个世界事务回滚。
+Delegation 是多方 Agent 协议。义务的 `delegation_policy` 可以是 `forbidden`、`bilateral` 或 `creditor_consent`：bilateral 要求旧 debtor 和新 delegate 同地点、双方本轮都实际提交 proposal、双方都产生非 hidden 的正向 resolved action，并由结构化 update 明确 `accepted_by == delegate`；creditor_consent 在 creditor 是第三方时进一步要求其同场 proposal/action 与 `approved_by == creditor`。完成条件引用的对象必须对 delegate 可见，宏剧情、scene、其他角色或隐藏对象条件不会借委托泄漏。成功后旧记录保留为 `delegated` 历史，新记录保存 `delegated_from`、原期限、policy 和完成条件；原 debtor 的位置条件会改写为新承担者。缺少任一必要 proposal、接受/批准行动、同场事实或目标 ObligationState 时，整个世界事务回滚。
 
 ## 内容与引擎的边界
 
@@ -484,7 +484,7 @@ Delegation 是多方 Agent 协议。义务的 `delegation_policy` 可以是 `for
 
 - 角色身份、目标和初始私有状态；
 - 世界对象与关系状态；
-- 通用 schema 表达的 storylets / situations / plots；
+- 通用 schema 表达的 storylets / situations / 剧情s；
 - 可复用、题材无关的规则或策略插件。
 
 如果一个效果只能靠在 `InputSystem` 或 `SimulationSystem` 中写角色姓名才能实现，说明抽象仍然失败。
