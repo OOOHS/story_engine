@@ -23,7 +23,6 @@ class AgentScheduler:
         is_player: bool,
         has_manual_override: bool,
         scene_state: Any = None,
-        plot_state: Any = None,
     ) -> AgentActivation:
         controller = entity.get_component("AgentController")
         if has_manual_override:

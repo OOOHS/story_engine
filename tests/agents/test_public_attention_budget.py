@@ -1,7 +1,6 @@
 from types import SimpleNamespace
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.world_transaction import WorldStateTransaction
@@ -237,7 +236,6 @@ def test_semantic_state_updates_cannot_rewrite_public_attention_budget():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         result,
     )

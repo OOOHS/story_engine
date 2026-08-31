@@ -104,7 +104,6 @@ class ClaimRegistry:
         *,
         step: int,
         scene_state: Any,
-        plot_state: Any = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         transitions = []
         errors = []
@@ -115,11 +114,11 @@ class ClaimRegistry:
                 continue
             try:
                 is_true = bool(conditions.truth_conditions) and all(
-                    scene_state.matches_condition(condition, plot_state=plot_state)
+                    scene_state.matches_condition(condition)
                     for condition in conditions.truth_conditions
                 )
                 is_false = bool(conditions.false_conditions) and all(
-                    scene_state.matches_condition(condition, plot_state=plot_state)
+                    scene_state.matches_condition(condition)
                     for condition in conditions.false_conditions
                 )
             except (TypeError, ValueError) as exc:

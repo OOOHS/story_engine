@@ -118,7 +118,7 @@ def test_prompt_structure():
     print("\n简化前 (15+ 个数据包):")
     print("  player_pov, spatial_layout, social, storylet_pressure,")
     print("  conflict, motive_pressure, reaction_context, intent_focus,")
-    print("  situations, timeline, director_packet, plot_snapshot,")
+    print("  situations, timeline, director_packet,")
     print("  simulation_contract, intents, legality")
 
     print("\n简化后 (5 个数据包):")

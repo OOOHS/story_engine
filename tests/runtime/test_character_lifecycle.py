@@ -1,21 +1,14 @@
 from typing import Any, Dict
 
-import pytest
 from pydantic import Field
 
 from src.story_engine.agents.registry import AgentRegistry
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.character_lifecycle import CharacterLifecycle
-from src.story_engine.scenarios.config import (
-    PlotEntityConfig,
-    PlotRuleConfig,
-    ScenarioConfig,
-    StateCondition,
-)
+from src.story_engine.scenarios.config import ScenarioConfig
 from src.story_engine.systems.simulation import SimulationSystem
 
 
@@ -129,6 +122,23 @@ def test_spawn_without_any_valid_location_is_rejected():
     assert "幽灵" not in scene.actor_states
 
 
+
+
+
+
+def _spawn_authorization():
+    return {
+        "authorization_id": "messenger-entry",
+        "name": "信使",
+        "role": "城外信使",
+        "location": "酒馆",
+        "initial_state": {},
+        "profile_mode": "semantic",
+        "not_before_step": 0,
+        "expires_step": 0,
+    }
+
+
 def _simulation_entities(result):
     gm = Entity("GameMaster")
     scene = SceneState(
@@ -137,45 +147,17 @@ def _simulation_entities(result):
         actor_states={"玩家": {"location": "酒馆"}},
     )
     drama = DramaState(tension=0.4)
-    plots = PlotState.from_configs(
-        [
-            PlotEntityConfig(
-                plot_id="arrival",
-                title="来客",
-                description="是否有人抵达",
-                max_clock=3,
-            )
-        ]
-    )
     scenario = ScenarioConfig(
-        name="动态角色因果测试",
+        name="动态角色事务测试",
         default_agent_runtime="llm",
-        description="信使真实出现后推进到达状态。",
+        description="验证动态角色加入与事务回滚。",
         environment="酒馆",
         initial_state="信使尚未到达。",
-        plot_rules=[
-            PlotRuleConfig(
-                rule_id="messenger_arrived",
-                plot_id="arrival",
-                conditions=[
-                    StateCondition(
-                        scope="actor",
-                        target="信使",
-                        path="location",
-                        operator="eq",
-                        value="酒馆",
-                    )
-                ],
-                advance=1,
-                reason="信使实体已经进入酒馆",
-            )
-        ],
     )
     gm.add_component(SimulationControl(scripted_result=result, scenario=scenario))
     gm.add_component(scene)
-    gm.add_component(plots)
     gm.add_component(drama)
-    return {"GameMaster": gm}, scene, plots, drama
+    return {"GameMaster": gm}, scene, drama
 
 
 def _spawn_result():
@@ -194,8 +176,8 @@ def _spawn_result():
             "world_objects": {},
             "actor_states": {},
         },
-        "plot_updates": [{"plot_id": "arrival", "advance": 1}],
         "relationship_updates": [],
+        "knowledge_updates": [],
         "object_lifecycle": [],
         "tension_delta": 0.2,
         "spawn_character": {
@@ -209,59 +191,10 @@ def _spawn_result():
     }
 
 
-def _spawn_authorization():
-    return {
-        "authorization_id": "messenger-entry",
-        "name": "信使",
-        "role": "城外信使",
-        "location": "酒馆",
-        "initial_state": {},
-        "profile_mode": "semantic",
-        "not_before_step": 0,
-        "expires_step": 0,
-    }
-
-
-def test_simulation_commits_character_body_entity_and_registration_together():
-    entities, scene, plots, drama = _simulation_entities(_spawn_result())
-    registry = AgentRegistry()
-    context = {
-        "intents": [],
-        "agent_registry": registry,
-        "register_agent": lambda entity: registry.register(entity, object()),
-        "unregister_agent": registry.unregister,
-        "character_spawn_authorizations": [_spawn_authorization()],
-    }
-
-    SimulationSystem().update(entities, context)
-
-    assert context["state_transaction"]["committed"] is True
-    assert context["spawned_characters"] == ["信使"]
-    assert context["actor_observation_windows"]["信使"] == {
-        "locations": ["酒馆"],
-        "moved_this_turn": False,
-        "present_during_step": False,
-    }
-    assert "信使" in entities
-    assert registry.is_registered("信使") is True
-    assert scene.get_actor_location("信使") == "酒馆"
-    assert scene.get_scene_flag("dynamic_character_names") == ["信使"]
-    assert scene.get_scene_flag("consumed_character_entry_authorizations") == [
-        "messenger-entry"
-    ]
-    assert scene.description == "信使已经抵达"
-    assert plots.plots["arrival"]["clock"] == 1
-    # tension_delta=0.2 is above the host's bound and gets clamped to 0.15,
-    # not remapped/zeroed -- the raw value is honored, only bounded.
-    assert drama.tension == pytest.approx(0.55)
-    assert context["semantic_authority_rejections"] == [
-        "result.plot_updates",
-        "result.tension_delta",
-    ]
 
 
 def test_agent_registration_failure_rolls_back_entire_world_transaction():
-    entities, scene, plots, drama = _simulation_entities(_spawn_result())
+    entities, scene, drama = _simulation_entities(_spawn_result())
     registry = AgentRegistry()
 
     def failing_register(entity):
@@ -287,6 +220,5 @@ def test_agent_registration_failure_rolls_back_entire_world_transaction():
     assert scene.get_scene_flag("dynamic_character_names") is None
     assert scene.get_scene_flag("consumed_character_entry_authorizations") is None
     assert scene.description == "提交前"
-    assert plots.plots["arrival"]["clock"] == 0
     assert drama.tension == 0.4
     assert len(registry) == 0

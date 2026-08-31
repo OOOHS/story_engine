@@ -3,7 +3,6 @@ from copy import deepcopy
 from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -53,7 +52,6 @@ def _entities(result):
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result, scenario=_scenario()))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     return {"GameMaster": gm}, scene
 

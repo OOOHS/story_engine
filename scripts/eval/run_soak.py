@@ -38,7 +38,6 @@ def build_parser():
     parser.add_argument("--sample-every", type=int, default=10)
     parser.add_argument("--closure-stable-steps", type=int, default=2)
     parser.add_argument("--closure-minimum-steps", type=int, default=0)
-    parser.add_argument("--require-plot-closure", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--output", required=True)
     return parser
@@ -60,7 +59,6 @@ def main(argv=None):
         closure_policy=EpisodeClosurePolicy(
             stable_steps=args.closure_stable_steps,
             minimum_steps=args.closure_minimum_steps,
-            require_resolved_plots=bool(args.require_plot_closure),
         ),
         quiet=bool(args.quiet),
     )

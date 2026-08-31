@@ -10,12 +10,6 @@ from src.story_engine_content.evaluation.minimal_navigation_recovery import (
 )
 
 
-def test_navigation_recovery_seed_has_no_authored_narrative_dependency():
-    scenario = build_minimal_navigation_recovery_scenario()
-
-    assert scenario.storylets == []
-    assert scenario.plot_entities == []
-    assert scenario.plot_rules == []
 
 
 def test_stale_route_grows_a_recovery_goal_and_reaches_stable_closure():

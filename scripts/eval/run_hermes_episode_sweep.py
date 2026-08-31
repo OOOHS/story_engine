@@ -184,7 +184,6 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Allow closure while an autonomous Agent has visible critical-need relief.",
     )
-    parser.add_argument("--require-plot-closure", action="store_true")
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--metadata", action="append", default=[])
     return parser
@@ -271,7 +270,6 @@ def main(argv: list[str] | None = None) -> int:
                 require_no_actionable_critical_needs=not bool(
                     args.allow_actionable_critical_needs_closure
                 ),
-                require_resolved_plots=bool(args.require_plot_closure),
             )
             if args.stop_on_closure
             else None

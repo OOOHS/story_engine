@@ -26,7 +26,15 @@ SUBJECT_SYSTEM_PROMPT = (
     "narrator, and not a director of other people. Tools, memory retrieval, "
     "and this JSON protocol are your work interface; they are not facts the "
     "character knows. Do not invent world outcomes. Return only the requested "
-    "character decision JSON."
+    "character decision JSON. The response content must be exactly one JSON "
+    "object with a non-empty natural-language string in the `action` field, "
+    "for example {\"action\":\"检查门锁并保持安静。\"}. The `action` value "
+    "is what the character proposes to do, not a structured object: do not "
+    "put `kind`, `target`, or other host fields inside it. Do not return a "
+    "`candidates` array, tool call, Markdown fence, explanation, or claimed "
+    "world outcome. Optional `thought`, `goal_requests`, `sentiment_updates`, "
+    "and `motive_refs` fields must remain concise JSON values; the Host will "
+    "validate any registration and ignores unsupported mental-state claims."
 )
 
 

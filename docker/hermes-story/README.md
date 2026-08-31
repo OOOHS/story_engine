@@ -1,11 +1,15 @@
 # Hermes Story Runtime
 
-This directory is the project-owned thin shell. Place the unmodified Hermes
-vendor snapshot at `docker/hermes-story/hermes-agent/` before building:
+This directory contains the project-owned thin shell and the Hermes vendor
+snapshot at `docker/hermes-story/hermes-agent/`. Rebuild the image with:
 
 ```bash
 docker build -t hermes-story:latest docker/hermes-story
 ```
+
+The vendor source is distributed under its upstream MIT license; see
+`hermes-agent/LICENSE`. Tests and Python bytecode caches are intentionally not
+copied into this image source tree.
 
 The Dockerfile installs that snapshot into the isolated `/opt/story-venv`
 environment. This is compatible with Hermes base images whose system Python is
@@ -43,14 +47,11 @@ The response envelope is strict and actor-bound:
 Exactly one envelope is allowed. The Host rejects missing/duplicate markers,
 unsupported versions, mismatched agent ids, empty content and oversized stdout;
 it does not accept legacy `final_response` aliases or infer an action from logs.
-Hermes may return one direct executable action when it judges that no real
-deliberation is needed. The thin-shell system prompt assigns Hermes to
+Hermes must return exactly one executable `action` as a non-empty
+natural-language string. The thin-shell system prompt assigns Hermes to
 *operate* that character's next action from persona and evidence; it does
-not ask the model to inhabit the character in the first person. Otherwise its content contains at least two genuinely
-distinct internal `candidates`, each with a `motive_lens`, structured
-`intent_signature`, finite utility and executable action. The project-owned
-Hermes adapter samples those candidates privately in two stages (lens, then
-action) and exposes only the selected action to the Host. World legality,
+not ask the model to inhabit the character in the first person. Hermes keeps
+deliberation and any randomness inside its own long-lived context. World legality,
 duration, resource conflicts, probability checks and authoritative settlement
 remain Host-owned.
 
@@ -81,7 +82,7 @@ It never imports vendor Hermes or reads `.env`.
 
 Before creating any Episode it performs one image inspection. Missing images
 fail once instead of once per seed. Marker content must be a JSON decision with
-an executable action or valid internal candidates; prose and empty JSON fail closed and never
+one non-empty natural-language action; prose, candidate arrays and empty JSON fail closed and never
 become inferred story actions.
 
 The repository launcher bind-mounts the project-owned `entrypoint.py` and

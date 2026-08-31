@@ -3,7 +3,6 @@ from copy import deepcopy
 from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.simulation_control import (
     SimulationControl as EngineSimulationControl,
@@ -330,7 +329,6 @@ def test_simulation_system_rolls_branch_before_authoritative_transaction():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=_result()))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     context = {
         "clock": type("Clock", (), {"current_step": 2})(),
@@ -359,7 +357,6 @@ def test_simulation_system_audits_and_strips_uncertain_location_bypass():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     context = {
         "clock": type("Clock", (), {"current_step": 2})(),
@@ -389,7 +386,6 @@ def test_invalid_selected_branch_is_rejected_atomically():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     context = {
         "clock": type("Clock", (), {"current_step": 2})(),

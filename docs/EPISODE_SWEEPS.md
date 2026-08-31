@@ -55,7 +55,7 @@ python scripts/eval/run_episode_sweep.py \
 
 `--quiet` 只压制每个 System 的控制台进度文本，完整 Episode trace、错误和 summary 仍会写入 artifacts；大规模 sweep 建议启用。
 
-`--stop-on-closure` 启用宿主审计的自然停止。`--closure-minimum-steps` 可要求至少运行若干轮，`--require-plot-closure` 可把未完成 Plot 也列为阻塞项。默认允许没有手工可验证 Goal 的纯世界种子在动态线程平息后结束；任务式基准可加 `--require-goal-anchor`，要求内容至少提供一个 Host 可验证的 Goal。默认还会等待每个 autonomous、非 dormant Agent 至少完成一次决策，并要求连续 closure steps 不再产生新的结构化世界/社会/知识变化；避免错峰离屏角色尚未参与、或调查仍在改变人物认知时提前收束。章节式评测可分别用 `--allow-unexercised-agents` 和 `--allow-material-change-closure` 放宽这两项。未启用自然停止时，每个 Episode 仍跑满 `--steps`。
+`--stop-on-closure` 启用宿主审计的自然停止。`--closure-minimum-steps` 可要求至少运行若干轮。默认允许没有手工可验证 Goal 的纯世界种子在动态线程平息后结束；任务式基准可加 `--require-goal-anchor`，要求内容至少提供一个 Host 可验证的 Goal。默认还会等待每个 autonomous、非 dormant Agent 至少完成一次决策，并要求连续 closure steps 不再产生新的结构化世界/社会/知识变化；避免错峰离屏角色尚未参与、或调查仍在改变人物认知时提前收束。章节式评测可分别用 `--allow-unexercised-agents` 和 `--allow-material-change-closure` 放宽这两项。未启用自然停止时，每个 Episode 仍跑满 `--steps`。
 
 ## Artifacts 协议
 
@@ -121,7 +121,7 @@ Launcher 默认只报告质量标记：权限正确但结构退化的 Sweep 仍�
 
 ## 内置最小调查回归种子
 
-`src.story_engine_content.evaluation.minimal_investigation:create_minimal_investigation_session` 提供一个只用于组合回归的内容包：两名 Agent、一本可争夺账册、一个秘密 Claim、相反的可验证 Goal，没有 Storylet、Plot 或核心人物专属代码，也没有故事专用 Simulation resolver。账册争夺使用 `engine:take`，主动调查由通用 EvidenceObservationResolver 从 Claim-Evidence 边派生，保管人的否认通过结构化 Claim communication proposal 表达，整个案例运行在 HostRuleSimulationControl 上。
+`src.story_engine_content.evaluation.minimal_investigation:create_minimal_investigation_session` 提供一个只用于组合回归的内容包：两名 Agent、一本可争夺账册、一个秘密 Claim、相反的可验证 Goal，没有 Storylet 或核心人物专属代码，也没有故事专用 Simulation resolver。账册争夺使用 `engine:take`，主动调查由通用 EvidenceObservationResolver 从 Claim-Evidence 边派生，保管人的否认通过结构化 Claim communication proposal 表达，整个案例运行在 HostRuleSimulationControl 上。
 
 ```bash
 python scripts/eval/run_episode_sweep.py \
@@ -149,7 +149,7 @@ python scripts/eval/run_episode_sweep.py \
 
 `src.story_engine_content.evaluation.minimal_goal_growth:create_minimal_goal_growth_session` 验证故事不会在第一个目标结算后机械停止。该 seed 使用通用 `HostRuleSimulationControl`，没有故事专用 Simulation resolver：旅人通过环境自动派生的 `engine:take` 取得钥匙后，从宿主已确认的 resolved Goal 自主形成“带着钥匙离开房间”的新目标；宿主核验来源、生成 id 和 priority，并把 `reach_location` 编译为隐藏的权威条件。合法移动由空间图确定性结算；角色实际抵达走廊后目标 achieved，Episode 经过稳定窗口才自然收束。
 
-这个内容包没有 Storylet 或 Plot，固定验证：
+这个内容包没有 Storylet，固定验证：
 
 - Agent 不能伪造 goal source 或 actor；
 - 初始 Goal 结算后的下一轮仍有机会形成后续目标；

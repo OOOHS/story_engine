@@ -13,7 +13,6 @@ class EpisodeClosurePolicy:
     require_goal_anchor: bool = False
     require_no_active_verifiable_goals: bool = True
     require_empty_action_queue: bool = True
-    require_resolved_plots: bool = False
     require_no_active_agent_goals: bool = True
     require_no_active_navigation_problems: bool = True
     require_no_active_timeline_commitments: bool = True
@@ -32,7 +31,6 @@ class EpisodeClosurePolicy:
                 self.require_no_active_verifiable_goals
             ),
             require_empty_action_queue=bool(self.require_empty_action_queue),
-            require_resolved_plots=bool(self.require_resolved_plots),
             require_no_active_agent_goals=bool(
                 self.require_no_active_agent_goals
             ),
@@ -78,7 +76,6 @@ class EpisodeClosureEvaluator:
 
     CLOSURE_MATERIAL_KINDS = frozenset({
         "scene",
-        "plots",
         "relationships",
         "goals",
         "knowledge",
@@ -264,19 +261,6 @@ class EpisodeClosureEvaluator:
         if policy.require_empty_action_queue and pending_actions:
             blockers.append("pending_actions")
 
-        unresolved_plots = 0
-        for entity in runner.entities.values():
-            plot_state = entity.get_component("PlotState")
-            if plot_state is None:
-                continue
-            unresolved_plots += sum(
-                int(plot.get("clock", 0) or 0)
-                < int(plot.get("max_clock", 0) or 0)
-                for plot in plot_state.plots.values()
-            )
-        if policy.require_resolved_plots and unresolved_plots:
-            blockers.append("unresolved_plots")
-
         return EpisodeClosureStatus(
             eligible=not blockers,
             blockers=tuple(blockers),
@@ -298,7 +282,6 @@ class EpisodeClosureEvaluator:
                     dormant_actionable_critical_needs
                 ),
                 "pending_action_count": pending_actions,
-                "unresolved_plot_count": unresolved_plots,
                 "material_change_kinds": list(current_material_changes),
             },
         )

@@ -52,7 +52,7 @@ Ledger message 是证据或约束，不是心理命令。`goal_registration` 不
 
 Hermes 对 Host 只输出：
 
-1. 一个最终 action。内部 candidates 只由 Hermes adapter 私下采样，宿主看不到也不重排；
+1. 一个最终 action。Hermes 在自己的长程上下文中完成候选生成、权衡和随机性，宿主看不到中间候选，也不重排；
 2. 可选的一个 `goal_requests` 登记请求，用于让 Host 编译完成证据、安排 wakeup 或审计进度；
 3. 可选的 `sentiment_updates`：她现在对某人的感受。这是她自己的账目，不是登记请求——GM 最没有资格代她决定这件事；
 4. 可选的 `motive_refs`：这一步是为了她自己的哪个目标、感受或需求。宿主既然不替她选行动，就无法重建理由，只能由她说。

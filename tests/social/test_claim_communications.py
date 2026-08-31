@@ -5,7 +5,6 @@ from src.story_engine.components.host_rule_simulation import (
     HostRuleSimulationControl,
 )
 from src.story_engine.components.knowledge_state import KnowledgeState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
 from src.story_engine.knowledge import ClaimRegistry
@@ -165,7 +164,6 @@ def test_claim_reference_crosses_simulation_and_private_knowledge_boundary():
     )
     gm = Entity("GameMaster")
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     gm.add_component(HostRuleSimulationControl(llm_config={}))
     first = Entity("甲")

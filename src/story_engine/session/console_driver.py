@@ -58,6 +58,8 @@ class ConsoleDriver:
                 self._report_step_result(result)
         except KeyboardInterrupt:
             print("\n模拟被用户停止。")
+        finally:
+            self.session.close()
 
     def _resolve_main_player(self) -> Optional[str]:
         player_name = self.session.player_character_name

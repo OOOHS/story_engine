@@ -10,7 +10,6 @@ from src.story_engine.environment.world_transaction import (
 )
 from src.story_engine.narrative import (
     ConflictDirector,
-    CausalPlotEngine,
     StoryletEngine,
     TimelineEngine,
 )
@@ -46,7 +45,6 @@ class SimulationSystem(System):
         self.transaction = WorldStateTransaction()
         self.proposals = ProposalArbiter()
         self.resource_contests = ResourceContestResolver()
-        self.causal_plots = CausalPlotEngine()
         self.uncertain_outcomes = UncertainOutcomeResolver()
         self.affordance_actions = AffordanceActionResolver()
         self.evidence_observations = EvidenceObservationResolver()
@@ -64,7 +62,6 @@ class SimulationSystem(System):
 
             scene_state = entity.get_component("SceneState")
             drama_state = entity.get_component("DramaState")
-            plot_state = entity.get_component("PlotState")
             relation_registry = context.get("relation_registry")
             relation_before = relation_registry.snapshot() if relation_registry else None
             relationship_book = (
@@ -89,7 +86,6 @@ class SimulationSystem(System):
             )
             situation_packet = self._refresh_situations(
                 scene_state=scene_state,
-                plot_state=plot_state,
                 player_name=player_name,
                 player_pov=player_pov,
                 timeline_packet=timeline_packet,
@@ -101,7 +97,6 @@ class SimulationSystem(System):
             )
             active_storylets = self._resolve_storylets(
                 scene_state,
-                plot_state,
                 scenario,
                 situation_packet=situation_packet,
             )
@@ -147,10 +142,7 @@ class SimulationSystem(System):
                 intents=context.get("intents", []),
                 entities=entities,
             )
-            if plot_state and hasattr(plot_state, "decay_idle_threads"):
-                plot_state.decay_idle_threads(current_step)
-            plot_packets = plot_state.get_pressure_packets() if plot_state else []
-            director_packet = drama_state.build_directive(plot_packets) if drama_state else {}
+            director_packet = drama_state.build_directive() if drama_state else {}
             conflict_packet = self._build_conflict_packet(
                 scene_state=scene_state,
                 scenario=scenario,
@@ -182,7 +174,6 @@ class SimulationSystem(System):
                 "character_entry_authorizations": list(
                     context.get("character_spawn_authorizations", [])
                 ),
-                "plot_threads": plot_packets,
                 "storylet_opportunities": self._build_storylet_opportunities(
                     active_storylets
                 ),
@@ -369,7 +360,6 @@ class SimulationSystem(System):
             else:
                 transaction_result = self.transaction.commit(
                     scene_state=scene_state,
-                    plot_state=plot_state,
                     drama_state=drama_state,
                     result=result,
                     relationship_book=relationship_book,
@@ -414,18 +404,13 @@ class SimulationSystem(System):
                             False,
                             [f"relationship publication rolled back: {exc}"],
                         )
-                if (
-                    transaction_result.committed
-                    and scene_state is not None
-                    and plot_state is not None
-                ):
+                if transaction_result.committed and scene_state is not None:
                     result["storylet_hits"] = self.storylets.detect_hits(
                         active_storylets, result
                     )
                     consumed_storylet_ids = self.storylets.consumable_hits(
                         scenario,
                         result["storylet_hits"],
-                        active_storylets=active_storylets,
                     )
                     narrative_director = entity.get_component("NarrativeDirector")
                     if narrative_director is not None:
@@ -433,20 +418,17 @@ class SimulationSystem(System):
                             narrative_director,
                             scene_state=scene_state,
                             result=result,
-                            plot_packets=plot_packets,
                             director_packet=director_packet,
                             active_storylets=active_storylets,
                             current_step=current_step,
                             context=context,
                         )
-                    self.causal_plots.settle(
-                        scene_state=scene_state,
-                        plot_state=plot_state,
-                        scenario=scenario,
-                        result=result,
-                        consumed_storylet_ids=consumed_storylet_ids,
-                        current_step=current_step,
-                    )
+                    if consumed_storylet_ids:
+                        consumed = list(scene_state.get_scene_flag("consumed_storylets", []) or [])
+                        for storylet_id in consumed_storylet_ids:
+                            if storylet_id not in consumed:
+                                consumed.append(storylet_id)
+                        scene_state.update_scene_flags({"consumed_storylets": consumed})
                 if not transaction_result.committed:
                     result = self.transaction.sanitize_rejected_result(
                         result,
@@ -504,7 +486,6 @@ class SimulationSystem(System):
                 )
                 situation_packet = self._refresh_situations(
                     scene_state=scene_state,
-                    plot_state=plot_state,
                     player_name=player_name,
                     player_pov=player_pov,
                     timeline_packet=timeline_packet,
@@ -930,7 +911,6 @@ class SimulationSystem(System):
     def _refresh_situations(
         self,
         scene_state: Any,
-        plot_state: Any,
         player_name: Any,
         player_pov: Dict[str, Any],
         timeline_packet: Dict[str, Any],
@@ -938,7 +918,6 @@ class SimulationSystem(System):
     ) -> Dict[str, Any]:
         return self.storylets.refresh_situations(
             scene_state=scene_state,
-            plot_state=plot_state,
             player_name=player_name,
             player_pov=player_pov,
             timeline_packet=timeline_packet,
@@ -980,9 +959,6 @@ class SimulationSystem(System):
         timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
         return self.storylets._aftermath(player_name, timeline_packet)
-
-    def _build_plot_situations(self, plot_state: Any, current_step: int) -> List[Dict[str, Any]]:
-        return self.storylets._plots(plot_state, current_step)
 
     def _collect_situation_tags(
         self,
@@ -1038,7 +1014,6 @@ class SimulationSystem(System):
                     "intent": item.get("intent", ""),
                     "tags": list(item.get("tags", [])),
                     "kind": item.get("kind") or "",
-                    "plot_id": item.get("plot_id") or "",
                     "preferred_actors": list(beat.get("preferred_actors", [])),
                     "target_actor": beat.get("target_actor"),
                     "stake": beat.get("stake", ""),
@@ -1053,7 +1028,6 @@ class SimulationSystem(System):
         *,
         scene_state: Any,
         result: Dict[str, Any],
-        plot_packets: List[Dict[str, Any]],
         director_packet: Dict[str, Any],
         active_storylets: List[Dict[str, Any]],
         current_step: int,
@@ -1075,7 +1049,6 @@ class SimulationSystem(System):
                     "tension_delta": result.get("tension_delta", 0.0),
                     "conflict_level": result.get("conflict_level", "none"),
                 },
-                "plot_threads": plot_packets,
                 "storylet_opportunities": self._build_storylet_opportunities(
                     active_storylets
                 ),
@@ -1096,7 +1069,6 @@ class SimulationSystem(System):
         context.setdefault("semantic_authority_rejections", []).extend(
             filtered.rejected_writes
         )
-        result["plot_beat_proposals"] = filtered.result.get("plot_beat_proposals", [])
         director_signals = filtered.result.get("director_signals", [])
         result["director_signals"] = director_signals
         for signal in director_signals:
@@ -1109,7 +1081,7 @@ class SimulationSystem(System):
                 actor,
                 str(signal.get("suggestion", "")),
                 current_step=int(current_step),
-                source_plot_id=str(signal.get("source_plot_id", "")),
+                source_ref=str(signal.get("source_ref", "")),
                 tags=list(signal.get("tags", []) or []),
             )
 
@@ -1220,13 +1192,11 @@ class SimulationSystem(System):
     def _resolve_storylets(
         self,
         scene_state: Any,
-        plot_state: Any,
         scenario: Any,
         situation_packet: Dict[str, Any] = None,
     ) -> List[Dict[str, Any]]:
         return self.storylets.resolve(
             scene_state=scene_state,
-            plot_state=plot_state,
             scenario=scenario,
             situation_packet=situation_packet,
         )

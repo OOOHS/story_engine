@@ -6,7 +6,7 @@ class StateCondition(BaseModel):
     """
     A structured lock against the authoritative world state.
     """
-    scope: Literal["scene", "world_object", "actor", "plot"] = "scene"
+    scope: Literal["scene", "world_object", "actor"] = "scene"
     target: Optional[str] = None
     path: str
     operator: Literal[
@@ -113,42 +113,6 @@ class ConflictTemplateConfig(BaseModel):
     preferred_actors: List[str] = Field(default_factory=list)
     tags: List[str] = Field(default_factory=list)
     min_step: int = 0
-
-
-class PlotStageConfig(BaseModel):
-    """
-    One visible/hidden phase of a long-running plot entity.
-    """
-    label: str
-    summary: str
-    pressure_hint: str = ""
-
-
-class PlotEntityConfig(BaseModel):
-    """
-    A long-running macro conflict represented as a clocked entity.
-    """
-    plot_id: str
-    title: str
-    description: str
-    clock: int = 0
-    max_clock: int = 4
-    current_stage: int = 0
-    stages: List[PlotStageConfig] = Field(default_factory=list)
-    tags: List[str] = Field(default_factory=list)
-
-
-class PlotRuleConfig(BaseModel):
-    """A deterministic causal edge from authoritative state to a plot clock."""
-
-    rule_id: str
-    plot_id: str
-    conditions: List[StateCondition] = Field(default_factory=list)
-    advance: int = 0
-    stage_shift: int = 0
-    one_shot: bool = True
-    priority: int = 0
-    reason: str = ""
 
 
 class NeedConfig(BaseModel):
@@ -261,6 +225,15 @@ class ScenarioConfig(BaseModel):
     # truth for what backs a dynamically-spawned character; there is no
     # default, matching the no-silent-fallback policy for authored characters.
     default_agent_runtime: str
+    # Application-selected semantic/rendering profile. ``llm`` is the
+    # production path; ``rules`` is an explicit deterministic offline profile
+    # for bootstrap smoke tests and local development. It is never an outage
+    # fallback.
+    simulation_mode: Literal["llm", "rules"] = "llm"
+    narration_mode: Literal["llm", "rules"] = "llm"
+    # Post-commit narrative enrichment is opt-in because it may incur another
+    # model call and is not required for authoritative simulation.
+    narrative_director_enabled: bool = False
     physics_profile: str = "mundane"
     # When non-empty, these fully replace LegalityEngine's built-in
     # "mundane" keyword table for this scenario's physics_profile: content
@@ -285,11 +258,6 @@ class ScenarioConfig(BaseModel):
     drama: DramaConfig = Field(default_factory=DramaConfig)
     conflict: ConflictConfig = Field(default_factory=ConflictConfig)
     conflict_templates: List[ConflictTemplateConfig] = Field(default_factory=list)
-    plot_entities: List[PlotEntityConfig] = Field(default_factory=list)
-    plot_rules: List[PlotRuleConfig] = Field(default_factory=list)
-    causal_plot_max_triggers_per_turn: int = Field(default=3, ge=1, le=20)
-    causal_plot_max_total_advance: int = Field(default=3, ge=0, le=20)
-
     # 场景预定义角色
     characters: List[CharacterConfig] = Field(default_factory=list)
 

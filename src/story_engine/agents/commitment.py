@@ -9,10 +9,9 @@ made. Legality, duration, resource contests, uncertainty and authoritative
 settlement all remain Host-owned, but they act on the committed action; they
 do not replace it.
 
-The receipt keeps the same shape the audit layer already expects for
-runtime-committed decisions (``mode="runtime_committed"``), so evaluation
-code that only explains Host-sampled choices degrades to "nothing to
-explain" rather than special-casing.
+The receipt records only the committed action. Candidate identifiers and
+candidate arrays are deliberately absent because this boundary no longer
+supports Host-visible alternatives.
 """
 
 from dataclasses import dataclass
@@ -37,15 +36,7 @@ def commit_runtime_action(decision: AgentDecision) -> RuntimeCommitment:
         action=action,
         trace={
             "mode": "runtime_committed",
-            "selected_candidate_id": "runtime:0",
-            "selected_action": action.to_dict(),
-            "candidates": [
-                {
-                    "candidate_id": "runtime:0",
-                    "source": "runtime",
-                    "action": action.to_dict(),
-                }
-            ],
+            "committed_action": action.to_dict(),
         },
     )
 

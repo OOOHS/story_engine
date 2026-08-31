@@ -1,5 +1,11 @@
 from src.story_engine.core.entity import Entity
-from .actions import ACTION_KINDS, ActionKind, AgentAction
+from .actions import (
+    ACTION_KINDS,
+    ActionKind,
+    AgentAction,
+    parse_natural_language_action,
+    require_natural_language,
+)
 from .hermes_runtime import HermesCharacterAgent, HermesConversation
 from .hermes_container import (
     HermesContainerConfig,
@@ -21,12 +27,9 @@ from .commitment import (
 )
 from .registry import AgentRegistry, RegisteredAgent
 from .runtime import CharacterAgentRuntime, runtime_owns_subjective_state
+from .offline_runtime import OfflineCharacterRuntime, default_offline_runtime_factories
 from .scheduler import AgentScheduler
 from .subject import (
-    GumbelSubjectSampler,
-    IntentSignature,
-    SubjectActionOption,
-    SubjectChoice,
     SubjectInbox,
     SubjectLedgerProjector,
     SubjectMessage,
@@ -43,12 +46,16 @@ __all__ = [
     "ACTION_KINDS",
     "ActionKind",
     "AgentAction",
+    "parse_natural_language_action",
+    "require_natural_language",
     "AgentDecision",
     "AgentPerception",
     "AgentRegistry",
     "AgentScheduler",
     "CharacterAgentRuntime",
     "runtime_owns_subjective_state",
+    "OfflineCharacterRuntime",
+    "default_offline_runtime_factories",
     "HermesCharacterAgent",
     "HermesContainerConfig",
     "HermesContainerConversation",
@@ -65,10 +72,6 @@ __all__ = [
     "commit_runtime_action",
     "repetition_signature",
     "repetition_target",
-    "GumbelSubjectSampler",
-    "IntentSignature",
-    "SubjectActionOption",
-    "SubjectChoice",
     "SubjectInbox",
     "SubjectLedgerProjector",
     "SubjectMessage",

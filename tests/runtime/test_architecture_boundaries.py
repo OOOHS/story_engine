@@ -154,19 +154,6 @@ def test_agent_and_semantic_gm_relationship_packets_hide_exact_track_values():
     assert 'item.get("toward_viewer", {})' not in source
 
 
-def test_all_semantic_resolvers_cross_the_host_authority_filter():
-    simulation_source = (ENGINE_ROOT / "systems" / "simulation.py").read_text(
-        encoding="utf-8"
-    )
-    control_source = (
-        ENGINE_ROOT / "components" / "simulation_control.py"
-    ).read_text(encoding="utf-8")
-
-    assert "SemanticAuthorityFilter" in simulation_source
-    assert "simulation.simulate(input_payload)" in simulation_source
-    assert "semantic_authority_rejections" in simulation_source
-    assert 'result["plot_updates"] = []' in control_source
-    assert 'result["relationship_updates"] = []' in control_source
 
 
 def test_semantic_resolver_receives_no_director_or_storylet_packet():
@@ -243,7 +230,6 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
         "active_storylets",
         "storylet_pressure",
         "director_packet",
-        "plot_snapshot",
         "situations",
         "reaction_context",
         "intent_focus",

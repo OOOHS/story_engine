@@ -471,7 +471,6 @@ def test_launcher_helpers_parse_factory_seeds_and_metadata():
             "--allow-unexercised-agents",
             "--allow-material-change-closure",
             "--allow-actionable-critical-needs-closure",
-            "--require-plot-closure",
             "--strict-quality",
         ]
     )
@@ -504,4 +503,3 @@ def test_launcher_helpers_parse_factory_seeds_and_metadata():
     assert args.allow_unexercised_agents is True
     assert args.allow_material_change_closure is True
     assert args.allow_actionable_critical_needs_closure is True
-    assert args.require_plot_closure is True

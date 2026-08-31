@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
-from src.story_engine.agents.actions import AgentAction
+from src.story_engine.agents.actions import AgentAction, parse_natural_language_action
 
 
 @dataclass(frozen=True)
@@ -46,8 +46,7 @@ class AgentPerception:
     current_plan: str = ""
     visible_proposals: List[Dict[str, Any]] = field(default_factory=list)
     world_signals: List[Dict[str, Any]] = field(default_factory=list)
-    # Soft, non-authoritative suggestions queued by the Host (e.g. from an
-    # unrealized plot thread). Never a proposal, never validated against
+    # Soft, non-authoritative suggestions queued by the Host. Never a proposal, never validated against
     # proposal_actors -- purely advisory inbox content the character may
     # act on, reinterpret, or ignore.
     director_signals: List[Dict[str, Any]] = field(default_factory=list)
@@ -130,7 +129,12 @@ class AgentDecision:
     action: str
     thought: str = ""
     metadata: Dict[str, Any] = field(default_factory=dict)
+    # Host-internal parsed IR. External Hermes/player boundaries must provide
+    # ``action`` as natural language and never submit this field.
     action_spec: AgentAction | None = None
-
     def normalized_action(self) -> AgentAction:
-        return self.action_spec or AgentAction.from_value(self.action)
+        if self.action_spec is not None:
+            if not isinstance(self.action_spec, AgentAction):
+                raise ValueError("agent decision action_spec must be Host-internal AgentAction")
+            return self.action_spec
+        return parse_natural_language_action(self.action, field="agent decision action")

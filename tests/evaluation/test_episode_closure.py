@@ -9,7 +9,6 @@ from src.story_engine.components.navigation_state import (
     NavigationProblem,
     NavigationState,
 )
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.evaluation import (
@@ -43,11 +42,10 @@ class _ActionQueue:
 
 def _closure_session(*, goal_state=None, cognition=None,
                      controller=None, navigation_state=None,
-                     pending_actions=None, plot_state=None,
+                     pending_actions=None,
                      scene_state=None, drive_state=None):
     entity = _Entity(
         GoalState=goal_state,
-        PlotState=plot_state,
         Cognition=cognition,
         AgentController=controller,
         NavigationState=navigation_state,
@@ -61,34 +59,8 @@ def _closure_session(*, goal_state=None, cognition=None,
     return SimpleNamespace(runner=runner)
 
 
-def test_closure_evaluator_reports_authoritative_blockers():
-    goals = GoalState.from_initial(
-        structured=[
-            {
-                "goal_id": "g",
-                "title": "完成任务",
-                "completion_conditions": [{"scope": "scene", "path": "done"}],
-            }
-        ]
-    )
-    plots = PlotState(plots={"p": {"clock": 1, "max_clock": 3}})
-    session = _closure_session(
-        goal_state=goals,
-        pending_actions=[{"event_id": "future"}],
-        plot_state=plots,
-    )
 
-    status = EpisodeClosureEvaluator().evaluate(
-        session,
-        EpisodeClosurePolicy(require_resolved_plots=True),
-    )
 
-    assert status.eligible is False
-    assert set(status.blockers) == {
-        "active_verifiable_goals",
-        "pending_actions",
-        "unresolved_plots",
-    }
 
 
 def test_emergent_seed_can_close_without_an_authored_goal_anchor_by_default():
@@ -217,6 +189,8 @@ def test_pure_world_seed_reaches_stable_closure_without_authored_goal_rules():
     scenario = ScenarioConfig(
         name="无任务锚点世界种子",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="角色只有自然语言动机，没有手工完成条件。",
         environment="安静房间",
         initial_state="暂时没有新的事件。",
@@ -259,6 +233,8 @@ def test_episode_cannot_close_while_agent_ignores_visible_critical_relief():
     scenario = ScenarioConfig(
         name="临界需求闭合审计",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="角色持续忽略眼前可用的食物。",
         environment="厨房",
         initial_state="旅人非常饥饿，面包就在眼前。",
@@ -353,6 +329,8 @@ def test_closure_waits_for_staggered_offscreen_agents_to_participate():
     scenario = ScenarioConfig(
         name="离屏角色首次参与",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="故事不能在错峰背景角色第一次决策前结束。",
         environment="玩家在房间，守卫在远处城门。",
         initial_state="两地暂时都很安静。",

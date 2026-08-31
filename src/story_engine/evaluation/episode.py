@@ -34,7 +34,6 @@ class EpisodeStepTrace:
     material_change_kinds: tuple[str, ...] = ()
     irreversible_changes: tuple[str, ...] = ()
     causal_handoffs: tuple[str, ...] = ()
-    causal_rule_ids: tuple[str, ...] = ()
     goal_engaged_actors: tuple[str, ...] = ()
     deciding_actors: tuple[str, ...] = ()
     goal_continuation_actors: tuple[str, ...] = ()
@@ -201,13 +200,6 @@ class EpisodeRunner:
                     material_change_kinds=tuple(material_change_kinds),
                     irreversible_changes=tuple(irreversible_changes),
                     causal_handoffs=tuple(causal_handoffs),
-                    causal_rule_ids=tuple(
-                        str(rule_id)
-                        for rule_id in context.get("simulation_result", {}).get(
-                            "causal_plot_rules", []
-                        )
-                        if str(rule_id).strip()
-                    ),
                     goal_engaged_actors=tuple(goal_engaged_actors),
                     deciding_actors=tuple(deciding_actors),
                     goal_continuation_actors=tuple(goal_continuation_actors),
@@ -291,7 +283,6 @@ class EpisodeRunner:
         irreversible_change_steps = sum(
             bool(trace.irreversible_changes) for trace in traces
         )
-        causal_transition_steps = sum(bool(trace.causal_rule_ids) for trace in traces)
         goal_engagement_steps = sum(bool(trace.goal_engaged_actors) for trace in traces)
         goal_continuation_steps = sum(
             bool(trace.goal_continuation_actors) for trace in traces
@@ -534,7 +525,6 @@ class EpisodeRunner:
                 "irreversible_change_count": sum(
                     len(trace.irreversible_changes) for trace in traces
                 ),
-                "causal_transition_steps": causal_transition_steps,
                 "causal_handoff_steps": causal_handoff_steps,
                 "causal_handoff_count": len(causal_handoffs),
                 "motive_handoff_count": len(policy_motive_handoffs),
@@ -723,23 +713,6 @@ class EpisodeRunner:
             violations.append(f"claim_knowledge_error:{error}")
         for error in context.get("world_event_errors", []) or []:
             violations.append(f"world_event_error:{error}")
-        policy_traces = context.get("policy_traces", {})
-        for intent in context.get("intents", []) or []:
-            if not isinstance(intent, dict):
-                continue
-            actor = str(intent.get("actor", "")).strip()
-            candidate_id = str(intent.get("policy_candidate_id", "")).strip()
-            if not actor or not candidate_id:
-                continue
-            if actor not in policy_traces:
-                # A long-running action may complete from an earlier proposal
-                # while the actor is busy and therefore has no new policy trace.
-                continue
-            selected = str(
-                policy_traces.get(actor, {}).get("selected_candidate_id", "")
-            ).strip()
-            if selected != candidate_id:
-                violations.append(f"policy_trace_mismatch:{actor}")
         registry = session.runner.relation_registry
         agent_registry = session.runner.agent_registry
         scene = next(
@@ -777,14 +750,6 @@ class EpisodeRunner:
                 entity.get_component("SceneState")
                 for entity in runner.entities.values()
                 if entity.get_component("SceneState") is not None
-            ),
-            None,
-        )
-        plots = next(
-            (
-                entity.get_component("PlotState")
-                for entity in runner.entities.values()
-                if entity.get_component("PlotState") is not None
             ),
             None,
         )
@@ -885,7 +850,6 @@ class EpisodeRunner:
             characters[name] = components
         world_payload = {
             "scene": scene.get_snapshot() if scene else {},
-            "plots": plots.get_snapshot() if plots else {},
             "relationships": relationship_book.model_dump(mode="json"),
             "world_events": world_events,
         }
@@ -942,7 +906,6 @@ class EpisodeRunner:
         claim_catalog = runner.claim_registry.gm_catalog()
         material_parts = {
             "scene": material_scene,
-            "plots": plots.get_snapshot() if plots else {},
             "relationships": relationship_book.model_dump(mode="json"),
             "drives": drives,
             "cognitions": cognitions,
@@ -986,7 +949,6 @@ class EpisodeRunner:
             name
             for name in (
                 "scene",
-                "plots",
                 "relationships",
                 "drives",
                 "cognitions",
@@ -1030,21 +992,6 @@ class EpisodeRunner:
             for field_name in ("owner", "container"):
                 if old.get(field_name) != new.get(field_name):
                     changes.append(f"object_{field_name}_changed:{name}")
-
-        before_plots = before_parts.get("plots", {})
-        after_plots = after_parts.get("plots", {})
-        for plot_id in sorted(set(before_plots).intersection(after_plots)):
-            old = before_plots[plot_id]
-            new = after_plots[plot_id]
-            if int(new.get("current_stage", 0) or 0) != int(
-                old.get("current_stage", 0) or 0
-            ):
-                changes.append(f"plot_stage_changed:{plot_id}")
-            old_clock = int(old.get("clock", 0) or 0)
-            new_clock = int(new.get("clock", 0) or 0)
-            max_clock = int(new.get("max_clock", 0) or 0)
-            if new_clock >= max_clock > old_clock:
-                changes.append(f"plot_completed:{plot_id}")
 
         before_goals = before_parts.get("goals", {})
         after_goals = after_parts.get("goals", {})

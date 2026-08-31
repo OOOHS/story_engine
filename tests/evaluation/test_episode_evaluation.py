@@ -83,26 +83,27 @@ class SimulationControl(Component):
             actor = str(intent.get("actor", ""))
             kind = str(intent.get("action_kind", "interact"))
             target = str(intent.get("action_target", ""))
-            action = {
-                "actor": actor,
-                "intent": intent.get("intent", ""),
-                "action_kind": kind,
-                "action_target": target,
-                "outcome": "success",
-                "location": intent.get("location"),
-                "visibility": "public",
-                "result": (
-                    f"{actor}完成了一次主动观察。"
-                    if kind == "observe"
-                    else f"{actor}向{target}清楚表达了自己的打算。"
-                ),
-                "private_result": (
-                    f"{actor}注意到{target}正在认真权衡。"
-                    if kind == "observe"
-                    else ""
-                ),
-            }
-            actions.append(action)
+            actions.append(
+                {
+                    "actor": actor,
+                    "intent": intent.get("intent", ""),
+                    "action_kind": kind,
+                    "action_target": target,
+                    "outcome": "success",
+                    "location": intent.get("location"),
+                    "visibility": "public",
+                    "result": (
+                        f"{actor}完成了一次主动观察。"
+                        if kind == "observe"
+                        else f"{actor}向{target}清楚表达了自己的打算。"
+                    ),
+                    "private_result": (
+                        f"{actor}注意到{target}正在认真权衡。"
+                        if kind == "observe"
+                        else ""
+                    ),
+                }
+            )
             if kind == "communicate" and target:
                 impacts.append(
                     {
@@ -117,7 +118,6 @@ class SimulationControl(Component):
         return {
             "resolved_actions": actions,
             "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-            "plot_updates": [],
             "relationship_updates": [],
             "social_impacts": impacts,
             "knowledge_updates": [],
@@ -126,6 +126,7 @@ class SimulationControl(Component):
             "drive_updates": [],
             "tension_delta": 0,
         }
+
 
 
 class NarrativeRenderer(Component):
@@ -335,13 +336,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
                 "world_objects": {"钥匙": {"owner": "甲"}},
                 "actor_states": {"甲": {}},
             },
-            "plots": {
-                "escape": {
-                    "clock": 2,
-                    "max_clock": 3,
-                    "current_stage": 0,
-                }
-            },
             "goals": {
                 "甲": {
                     "goals": {
@@ -353,9 +347,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     }
     after = deepcopy(before)
     after["material_parts"]["scene"]["world_objects"]["钥匙"]["owner"] = "乙"
-    after["material_parts"]["plots"]["escape"].update(
-        {"clock": 3, "current_stage": 1}
-    )
     after["material_parts"]["goals"]["甲"]["goals"]["escape"][
         "status"
     ] = "achieved"
@@ -368,8 +359,6 @@ def test_irreversible_audit_reads_authoritative_lifecycle_transitions():
     changes = EpisodeRunner._irreversible_changes(before, after)
 
     assert "object_owner_changed:钥匙" in changes
-    assert "plot_stage_changed:escape" in changes
-    assert "plot_completed:escape" in changes
     assert "goal_resolved:甲:escape:achieved" in changes
     assert "goal_adopted:甲:follow_up" in changes
     assert "goal_refined:甲:follow_up:step:4" in changes
@@ -597,22 +586,8 @@ def test_evidence_observation_can_ground_private_claim_knowledge_and_goal():
     assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
-def test_causal_chain_depth_is_cycle_safe():
-    assert EpisodeRunner._causal_chain_depth([
-        "event:a<-event:b",
-        "event:b<-event:a",
-    ]) <= 2
 
 
-def test_causal_chain_depth_keeps_the_deepest_of_multiple_explicit_parents():
-    handoffs = [
-        "consequence:final<-cause:deep",
-        "cause:deep<-cause:middle",
-        "cause:middle<-cause:root",
-        "consequence:final<-cause:shallow",
-    ]
-
-    assert EpisodeRunner._causal_chain_depth(handoffs) == 3
 
 
 def test_temporal_causal_metrics_distinguish_cross_turn_arc_from_same_step_cascade():

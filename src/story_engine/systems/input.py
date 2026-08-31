@@ -7,7 +7,7 @@ from src.story_engine.agents import (
     AgentScheduler,
     runtime_owns_subjective_state,
 )
-from src.story_engine.agents.actions import AgentAction
+from src.story_engine.agents.actions import AgentAction, parse_natural_language_action
 from src.story_engine.agents.commitment import (
     commit_runtime_action,
     repetition_signature,
@@ -19,6 +19,7 @@ from src.story_engine.narrative import TimelineEngine
 from src.story_engine.environment.physical_affordances import (
     PhysicalAffordanceEngine,
 )
+from src.story_engine.common.action_target import bind_action_target
 from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 
@@ -41,7 +42,6 @@ class InputSystem(System):
         dispatcher = context.get("dispatcher")
         intents_buffer = context.setdefault("intents", [])
         scene_state = self._get_scene_state(entities)
-        plot_state = self._get_plot_state(entities)
         player_name = context.get("player_name")
         agent_registry = context.get("agent_registry")
         action_queue = context.get("action_queue")
@@ -133,7 +133,6 @@ class InputSystem(System):
                 is_player=is_player,
                 has_manual_override=name in overrides,
                 scene_state=scene_state,
-                plot_state=plot_state,
             )
             activation_trace[name] = {
                 "active": activation.active,
@@ -155,7 +154,9 @@ class InputSystem(System):
                     name
                 ] = perception.manual_decision_context()
                 self._acknowledge_perception_attention(entity, perception)
-                manual_action = AgentAction.from_value(overrides[name])
+                manual_action = parse_natural_language_action(
+                    overrides[name], field=f"manual action for {name}"
+                )
                 intent = manual_action.detail
                 action_spec = manual_action
                 source = "manual"
@@ -262,7 +263,27 @@ class InputSystem(System):
                 continue
 
             if action_spec is None:
-                action_spec = AgentAction.from_value(intent)
+                action_spec = parse_natural_language_action(intent, field=f"action for {name}")
+
+            target_binding = bind_action_target(
+                action_spec,
+                actor_name=name,
+                perception=perception,
+            )
+            action_spec = target_binding.action
+            if target_binding.status in {"ambiguous", "absent"} and action_spec.kind in {
+                "move",
+                "interact",
+                "communicate",
+            }:
+                context.setdefault("action_target_bindings", []).append(
+                    {
+                        "actor": name,
+                        "status": target_binding.status,
+                        "candidates": list(target_binding.candidates),
+                        "detail": action_spec.detail,
+                    }
+                )
 
             action_payload = action_spec.to_dict()
             affordance_id = self._validated_affordance_reference(
@@ -360,9 +381,6 @@ class InputSystem(System):
                     if scene_state
                     else 0
                 ),
-                "policy_candidate_id": context.get("policy_traces", {})
-                .get(name, {})
-                .get("selected_candidate_id", ""),
             }
             intents_buffer.append(intent_record)
             if dispatcher:
@@ -1034,17 +1052,6 @@ class InputSystem(System):
             if entity.get_component("SimulationControl"):
                 return entity.get_component("SceneState")
         return None
-
-    def _get_plot_state(self, entities: Dict[str, Entity]):
-        for entity in entities.values():
-            if entity.get_component("SimulationControl"):
-                return entity.get_component("PlotState")
-        return None
-
-    @staticmethod
-    def _get_plot_state_from_scene(scene_state: Any):
-        entity = getattr(scene_state, "entity", None)
-        return entity.get_component("PlotState") if entity else None
 
     def _order_entities(self, entities: Dict[str, Entity], player_name: Any):
         ordered = list(entities.items())

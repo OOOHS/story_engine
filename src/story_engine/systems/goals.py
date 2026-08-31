@@ -9,7 +9,6 @@ class GoalSystem(System):
 
     def update(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
         scene_state = self._get_scene_state(entities)
-        plot_state = self._get_plot_state(entities)
         clock = context.get("clock")
         step = clock.current_step if clock else 0
         transitions = []
@@ -44,7 +43,6 @@ class GoalSystem(System):
             actor_transitions, actor_errors = state.advance_to(
                 step=step,
                 scene_state=scene_state,
-                plot_state=plot_state,
                 condition_matcher=lambda condition, actor=actor, entity=entity: (
                     self._matches_authoritative_condition(
                         actor=actor,
@@ -52,7 +50,6 @@ class GoalSystem(System):
                         entities=entities,
                         condition=condition,
                         scene_state=scene_state,
-                        plot_state=plot_state,
                         context=context,
                     )
                 ),
@@ -527,14 +524,13 @@ class GoalSystem(System):
         entities: Dict[str, Entity],
         condition: Dict[str, Any],
         scene_state: Any,
-        plot_state: Any,
         context: Dict[str, Any],
     ) -> bool:
         scope = str(condition.get("scope", "scene"))
-        if scope in {"scene", "world_object", "actor", "plot"}:
+        if scope in {"scene", "world_object", "actor"}:
             return bool(
                 scene_state
-                and scene_state.matches_condition(condition, plot_state=plot_state)
+                and scene_state.matches_condition(condition)
             )
         target = str(condition.get("target", ""))
         if scope == "knowledge":
@@ -756,14 +752,6 @@ class GoalSystem(System):
     def _get_scene_state(entities: Dict[str, Entity]) -> Any:
         for entity in entities.values():
             state = entity.get_component("SceneState")
-            if state is not None:
-                return state
-        return None
-
-    @staticmethod
-    def _get_plot_state(entities: Dict[str, Entity]) -> Any:
-        for entity in entities.values():
-            state = entity.get_component("PlotState")
             if state is not None:
                 return state
         return None

@@ -80,7 +80,7 @@ class SimulationControl(Component):
 10. **不替宿主掷骰**：规则和当前事实足以确定的行动直接写 resolved_actions；真正存在不确定性的物理或观察行动只能写 uncertain_outcomes，同时给出成功/失败两个候选事实分支。你只能选择固定 difficulty 和所需 capability，不能输出概率、随机数、数值 modifier，不能同时把该 actor 写进 resolved_actions
 11. **临时 Modifier 不是万能状态**：只有本轮已提交行动确实让角色形成疲惫、专注、受伤后的谨慎等临时非社交行为影响时，才可从 `modifier_catalog` 选择 kind。物理事实仍写 SceneState，针对某人的感受仍写 social_impacts；持续时间、叠加、权重和到期由宿主决定
 12. **客观事实与角色知识分离**：`claim_catalog` 是 GM 可用的客观命题目录，但角色只能通过有效主动观察发现已连接且可见的 evidence，或由同场知情角色通过 communicate 传播 Claim。WorldEvent 同样只能由直接或自身见证者使用真实 event_id 转述；宿主从事件实体读取原始 statement，不能借 event_id 改写事件内容。不能把 truth_status、宿主条件、未发现的证据或未获知事件写进角色知识
-13. **结构性写权由宿主管理，数值幅度由你直接给**：不要输出 relationship_updates 或 plot_updates——长期关系轨道由宿主固定映射沉淀；已有 Plot 的钟只能由已提交世界事实触发因果规则，不能直接写 plot_updates 或编造 clock；要不要开新剧情线、登记新剧情点或给某个角色投递提示，不是你的职责，由结算之后的叙事导演决定。但短期社会反应（social_impacts/modifier_updates 的 magnitude）、Drive 变化（drive_updates 的 delta）、新压力条的漂移与临界值（drive_creations 的 drift_per_turn/critical_threshold）、以及场景张力（tension_delta），都由你按情境给出具体浮点数；宿主只做范围裁剪，不重新定档
+13. **结构性写权由宿主管理，数值幅度由你直接给**：不要输出 relationship_updates；长期关系轨道由宿主固定映射沉淀。要不要给某个角色投递提示，不是你的职责，由结算之后的叙事导演决定。但短期社会反应（social_impacts/modifier_updates 的 magnitude）、Drive 变化（drive_updates 的 delta）、新压力条的漂移与临界值（drive_creations 的 drift_per_turn/critical_threshold）、以及场景张力（tension_delta），都由你按情境给出具体浮点数；宿主只做范围裁剪，不重新定档
 14. **communicate 不需要你裁定成不成功**：说话能不能说出口，不是语义判断——只要合法性没有拦（同地点可达），宿主一律无条件视为送达成功，你在 resolved_actions 里给这类 actor 写的 outcome/result 都会被宿主直接丢弃重写，写了不会生效，不必费力去判断。但这句话说了什么仍然可能有内容后果，那部分依然由你判断：如果它构成对已知 WorldEvent 的转述/回应，照常给 knowledge_updates（event_id + response_kind）；如果内容本身构成值得记录的社会互动，照常给 social_impacts/modifier_updates
 
 ## 剧本设定
@@ -107,9 +107,6 @@ class SimulationControl(Component):
 
 ## 本轮宿主签发的角色入口授权
 {json.dumps(input_payload.get("character_entry_authorizations", []), ensure_ascii=False, indent=2)}
-
-## 当前剧情线（仅供参考；推进已有钟不能写 plot_updates，那是因果规则的事）
-{json.dumps(input_payload.get("plot_threads", []), ensure_ascii=False, indent=2)}
 
 ## 当前叙事机会（storylet，仅供参考，不是事实也不是指令）
 下面每条机会只有在本轮已提交事实真正满足其触发条件时，才能由你结算成事实（environment 类直接写
@@ -279,7 +276,7 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
 
 `exchanges` 用于双方明确同意的物品、货币或资源交换。每个 exchange 只允许两个已有角色，双方必须同场、本轮都真实提交 proposal，并分别拥有非 hidden 的正向 resolved action；`accepted_by` 必须与 parties 完全一致。每条 transfer 的 from 必须真实拥有 object_id，物品必须 portable 且已向对方公开；同一对象不能同时出现在 object_lifecycle。quantity 缺省为整件/全部堆栈，部分数量转移要求内容预定义不可由模型改写的 stack_key，引擎会确定性拆分或合并堆栈。所有 transfer、对象所有权与数量变化在一个 WorldStateTransaction 中原子提交；数量不足、双花、异地接受、隐藏物品或任一后续写入非法都会整批回滚。
 
-`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capability/skill 名称的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识或 Drive 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates、plot_updates 或 tension_delta；分支内的 social_impacts/drive_updates 遵循与顶层相同的数值规则。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
+`uncertain_outcomes` 只用于当前规则无法确定成功与否的尝试。`world` 用于物理或环境结果，`observation` 只允许对应 actor 本轮提交 observe。difficulty 只能使用模板枚举；required_capability 只是对权威 actor capability/skill 名称的引用，宿主会自行计算有限修正。success/failure 都必须包含一个 resolved_action，并把该分支才会发生的 Scene、对象、社会影响、Modifier、知识或 Drive 变化放在同一分支中；不要在顶层重复这些变化。分支中的 actor.location 只允许当前 move actor 保持原地或到达 LegalityEngine 已授权的目的地，不能移动其他角色、替换目的地或让非 move 行动改变坐标；越权位置会在掷骰前从两个分支同时剥离并审计。分支同样不能直接写 relationship_updates 或 tension_delta；分支内的 social_impacts/drive_updates 遵循与顶层相同的数值规则。宿主选择分支后才会把它合并进权威事务，未选分支永远不能进入 Rendering 或 Memory。
 
 `knowledge_updates.event_id` 的规范 statement 由宿主 Event Entity 决定。可选 `response_kind` 只描述本轮真实 communicate 对该事件采取的社会行为：report、explain、apologize、accuse、request、forgive 或 acknowledge；无效值会退化为普通 report。它只形成可审计的 Event response，不代表接收者相信、接受道歉、承认指控或改变关系。
 
@@ -391,10 +388,7 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
         except (TypeError, ValueError):
             result["tension_delta"] = 0.0
 
-        # Exact Plot clocks and long-term Relationship Tracks belong to host
-        # systems.  Keep the normalized shape for downstream transactions, but
-        # never copy these values from semantic model output.
-        result["plot_updates"] = []
+        # Long-term relationship tracks belong to host systems.
         result["relationship_updates"] = []
 
         social_impacts = data.get("social_impacts", [])
@@ -453,13 +447,8 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             item for item in drive_creations if isinstance(item, dict)
         ]
 
-        # director_signals and plot_beat_proposals are no longer this
-        # component's output -- they are narrative intuition, produced by
-        # NarrativeDirector after this tick's settlement has committed, not
-        # guessed at alongside it. Always empty here so a stray field in an
-        # LLM response can never smuggle either in through this path.
+        # Director signals are produced only by NarrativeDirector after commit.
         result["director_signals"] = []
-        result["plot_beat_proposals"] = []
 
         spawn_character = data.get("spawn_character")
         if spawn_character is None and isinstance(data.get("introduce_character"), dict):
@@ -579,7 +568,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             "conflict_level": "none",
             "conflict_flags": [],
             "tension_delta": 0.0,
-            "plot_updates": [],
             "relationship_updates": [],
             "social_impacts": [],
             "modifier_updates": [],
@@ -590,7 +578,6 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             "drive_updates": [],
             "drive_creations": [],
             "director_signals": [],
-            "plot_beat_proposals": [],
             "spawn_character": None,
             "simulation_notes": [],
             "applied_conflict_templates": [],

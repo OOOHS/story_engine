@@ -6,6 +6,7 @@ from typing import Dict, Optional, List, Any
 from src.story_engine.environment.runner import Runner
 from src.story_engine.scenarios.config import ScenarioConfig
 from .scenario_loader import setup_scenario
+from .seed_compiler import compile_scenario_seed
 from .step_status import public_step_status
 
 
@@ -18,6 +19,17 @@ class Session:
         self.runner = runner
         self.scenario = scenario
         self.step_count = 0
+        self._closed = False
+
+    def close(self) -> None:
+        """Release live agent runtimes owned by this session."""
+
+        if self._closed:
+            return
+        self._closed = True
+        close = getattr(self.runner, "close", None)
+        if callable(close):
+            close()
 
     @property
     def entities(self):
@@ -36,6 +48,8 @@ class Session:
         on_phase_done: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """Run one simulation step; rejected pre-step host input consumes none."""
+        if self._closed:
+            raise RuntimeError("session is closed")
         context = self.runner.run_step(
             overrides=overrides or {},
             world_edits=world_edits,
@@ -103,3 +117,39 @@ def create_session(
     )
     setup_scenario(runner, scenario)
     return Session(runner, scenario)
+
+
+def create_session_from_seed(
+    seed: ScenarioConfig | Dict[str, Any] | str,
+    agent_runtime_factories: Optional[Dict[str, Any]] = None,
+    random_seed: int | str | None = None,
+    sentiment_definitions: Optional[Dict[str, Any]] = None,
+    modifier_definitions: Optional[Dict[str, Any]] = None,
+    memory_namespace: Optional[str] = None,
+    *,
+    runtime: str = "hermes",
+    simulation_mode: str | None = None,
+    narration_mode: str | None = None,
+) -> Session:
+    """Compile an author seed and immediately create a runnable Session.
+
+    This is the product-facing onboarding path.  It deliberately delegates
+    structural validation to ``compile_scenario_seed`` and the existing
+    ``setup_scenario`` boundary, so a malformed seed fails before any agent
+    process is started.
+    """
+
+    scenario = compile_scenario_seed(
+        seed,
+        runtime=runtime,
+        simulation_mode=simulation_mode,
+        narration_mode=narration_mode,
+    )
+    return create_session(
+        scenario,
+        agent_runtime_factories=agent_runtime_factories,
+        random_seed=random_seed,
+        sentiment_definitions=sentiment_definitions,
+        modifier_definitions=modifier_definitions,
+        memory_namespace=memory_namespace,
+    )

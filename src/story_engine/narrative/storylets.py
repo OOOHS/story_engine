@@ -12,13 +12,12 @@ class StoryletEngine:
     def refresh_situations(
         self,
         scene_state: Any,
-        plot_state: Any,
         player_name: Any,
         player_pov: Dict[str, Any],
         timeline_packet: Dict[str, Any],
         current_step: int,
     ) -> Dict[str, Any]:
-        """Project world/timeline/plot state into ranked situations.
+        """Project world and timeline state into ranked situations.
 
         Purely a same-turn projection used to score storylet relevance;
         it holds no cross-turn state of its own.
@@ -38,7 +37,6 @@ class StoryletEngine:
         aftermath = self._aftermath(player_name, timeline_packet)
         if aftermath:
             situations.append(aftermath)
-        situations.extend(self._plots(plot_state, current_step))
 
         deduped = {
             str(item.get("situation_id", "")).strip(): item
@@ -209,35 +207,6 @@ class StoryletEngine:
             "focus_score": 82,
         }
 
-    def _plots(self, plot_state, current_step):
-        if not plot_state or not hasattr(plot_state, "get_pressure_packets"):
-            return []
-        situations = []
-        for item in plot_state.get_pressure_packets():
-            if not isinstance(item, dict):
-                continue
-            plot_id = str(item.get("plot_id", "")).strip()
-            clock = int(item.get("clock", 0) or 0)
-            if not plot_id or clock <= 0:
-                continue
-            situations.append(
-                {
-                    "situation_id": f"plot:{plot_id}",
-                    "kind": "plot_pressure",
-                    "status": "active",
-                    "visibility": "hidden",
-                    "location": None,
-                    "time_window": {"step": current_step, "stage": str(item.get("stage", "")).strip()},
-                    "participants": [],
-                    "cause": str(item.get("summary", "")).strip(),
-                    "stakes": [],
-                    "tags": self._dedupe_texts(["plot_pressure"] + list(item.get("tags", []))),
-                    "source": {"type": "plot", "id": plot_id},
-                    "focus_score": 46 + min(clock, 4) * 4,
-                }
-            )
-        return situations
-
     def _collect_situation_tags(self, kind, phase, location_kind, visibility, content_tags=None):
         return self._dedupe_texts([kind, visibility, phase, location_kind] + list(content_tags or []))
 
@@ -254,7 +223,6 @@ class StoryletEngine:
     def resolve(
         self,
         scene_state: Any,
-        plot_state: Any,
         scenario: Any,
         situation_packet: Dict[str, Any] | None = None,
     ) -> List[Dict[str, Any]]:
@@ -270,7 +238,7 @@ class StoryletEngine:
             if self.requires_situation_route(storylet) and not situation_matches:
                 continue
             if not all(
-                scene_state.matches_condition(condition, plot_state=plot_state)
+                scene_state.matches_condition(condition)
                 for condition in storylet.conditions
             ):
                 continue
@@ -310,15 +278,6 @@ class StoryletEngine:
                 }
             )
 
-        active.extend(
-            self._resolve_runtime_beats(
-                scene_state=scene_state,
-                plot_state=plot_state,
-                consumed=consumed,
-                situation_packet=situation_packet or {},
-            )
-        )
-
         active.sort(
             key=lambda item: (
                 int(item.get("priority", 0) or 0),
@@ -328,72 +287,6 @@ class StoryletEngine:
             ),
             reverse=True,
         )
-        return active
-
-    def _resolve_runtime_beats(
-        self,
-        scene_state: Any,
-        plot_state: Any,
-        consumed: Set[str],
-        situation_packet: Dict[str, Any],
-    ) -> List[Dict[str, Any]]:
-        if not plot_state or not hasattr(plot_state, "plots"):
-            return []
-        focus_situation_id = str(
-            (situation_packet or {}).get("focus_situation", {}).get("situation_id", "")
-        ).strip()
-        active: List[Dict[str, Any]] = []
-        for plot_id, plot in (plot_state.plots or {}).items():
-            if not isinstance(plot, dict) or plot.get("status") == "sunset":
-                continue
-            for beat in plot.get("candidate_beats", []) or []:
-                if not isinstance(beat, dict):
-                    continue
-                beat_id = str(beat.get("beat_id", "")).strip()
-                if not beat_id:
-                    continue
-                storylet_id = plot_state.runtime_storylet_id(str(plot_id), beat_id)
-                if beat.get("one_shot", True) and storylet_id in consumed:
-                    continue
-                conditions = [
-                    item for item in (beat.get("conditions") or []) if isinstance(item, dict)
-                ]
-                if not conditions:
-                    continue
-                if not all(
-                    scene_state.matches_condition(condition, plot_state=plot_state)
-                    for condition in conditions
-                ):
-                    continue
-                effect = beat.get("effect") if isinstance(beat.get("effect"), dict) else {}
-                kind = str(beat.get("kind", "environment")).strip() or "environment"
-                active.append(
-                    {
-                        "storylet_id": storylet_id,
-                        "intent": str(beat.get("intent", "")).strip(),
-                        "priority": 60,
-                        "tags": ["runtime_beat", kind],
-                        "situation_kinds": [],
-                        "situation_tags": [],
-                        "matched_situation_ids": [],
-                        "focus_situation_match": bool(focus_situation_id),
-                        "situation_score": 0,
-                        "runtime_beat": True,
-                        "one_shot": bool(beat.get("one_shot", True)),
-                        "plot_id": str(plot_id),
-                        "beat_id": beat_id,
-                        "kind": kind,
-                        "beat": {
-                            "beat_type": kind,
-                            "visibility": str(effect.get("visibility", "public") or "public"),
-                            "preferred_actors": list(effect.get("preferred_actors") or []),
-                            "preferred_template_ids": [],
-                            "required_flags": [],
-                            "target_actor": effect.get("target_actor"),
-                            "stake": str(effect.get("stake", "") or ""),
-                        },
-                    }
-                )
         return active
 
     def build_packet(
@@ -645,24 +538,12 @@ class StoryletEngine:
             item.storylet_id: item
             for item in (getattr(scenario, "storylets", None) or [])
         }
-        runtime_map = {
-            str(item.get("storylet_id", "")).strip(): item
-            for item in (active_storylets or [])
-            if isinstance(item, dict) and item.get("runtime_beat")
-        }
         consumable: List[str] = []
         for storylet_id in hits:
             storylet = storylet_map.get(storylet_id)
             if storylet and storylet.one_shot and storylet_id not in consumable:
                 consumable.append(storylet_id)
                 continue
-            runtime = runtime_map.get(str(storylet_id).strip())
-            if (
-                runtime
-                and runtime.get("one_shot", True)
-                and storylet_id not in consumable
-            ):
-                consumable.append(storylet_id)
         return consumable
 
     def _text_set(self, values: Any) -> Set[str]:

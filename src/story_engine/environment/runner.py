@@ -184,6 +184,16 @@ class Runner:
     def unregister_agent(self, entity: Entity) -> None:
         self.agent_registry.unregister(entity)
 
+    def close(self) -> None:
+        """Close all live character runtimes owned by this Runner.
+
+        Runner instances are session-scoped.  Explicit closure is important
+        for persistent Hermes subject processes, especially when a Web
+        adapter resets or a server shuts down.
+        """
+
+        self.agent_registry.close()
+
     def get_agent_perception(self, actor_name: str) -> Any:
         """Build a read-only decision packet for a human or other UI runtime."""
         entity = self.entities.get(str(actor_name or "").strip())

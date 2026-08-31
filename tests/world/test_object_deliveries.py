@@ -4,7 +4,6 @@ from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.host_rule_simulation import (
     HostRuleSimulationControl,
 )
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.entity import Entity
 from src.story_engine.simulation import ObjectDeliveryResolver
@@ -137,7 +136,6 @@ def test_delivery_crosses_simulation_and_world_transaction():
     scene = _scene()
     gm = Entity("GameMaster")
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     gm.add_component(HostRuleSimulationControl(llm_config={}))
     entities = {"GameMaster": gm, "甲": Entity("甲"), "乙": Entity("乙")}

@@ -22,11 +22,15 @@ python main.py --scenario thirteenth-floor \
 本地传输与 Docker 传输复用同一 subject JSON 协议、超时和生命周期；Docker 只是
 依赖打包与部署隔离方式。
 
+Hermes vendor 源码已随项目放在 `docker/hermes-story/hermes-agent/`，因此可以
+直接重建 `hermes-story:latest`，也可以使用 `--hermes-transport local` 启动本地
+多进程运行；该目录保留上游 `LICENSE`，不包含测试和 Python 缓存。
+
 - 世界真相由 ECS 状态决定，不由渲染文本决定。
 - 主循环遵循 `Input -> Action Scheduling -> Simulation -> Rendering` 的权威顺序。
 - `Simulation` 阶段只产出结构化结果，不直接向玩家讲话。
 - `Rendering` 阶段只能渲染已经确定的事实，不得新增状态变化。
-- Storylets 和 Drama 是结构化机会/压力观测，Plot Clocks 是宿主状态；它们都不是 prompt 里的散文命令。
+- Storylets 和 Drama 是结构化机会/压力观测；它们都不是 prompt 里的散文命令。
 - 每个角色注册为独立 agent；agent 只能提出意图，不能直接宣布世界结果。
 - 角色使用 `observe / move / interact / communicate / wait` 五种原子大动作，具体参数保留自然语言，由环境规则与 GM 共同结算。
 - 时间采用离散事件队列：动作按环境决定的持续时间完成，同一完成时刻的动作作为 simultaneous batch 结算，不再假定所有角色严格一轮一动。
@@ -57,9 +61,9 @@ python main.py --scenario thirteenth-floor \
 
 ### 3. Simulation
 
-- `SimulationControl` 读取当前 `SceneState`、激活的 `Storylets`、`DramaState`、`PlotState`。
+- `SimulationControl` 读取当前 `SceneState`、激活的 `Storylets` 和 `DramaState`。
 - 大模型在这里充当“结构化常识处理器”，只返回 JSON 风格的结算结果。
-- ECS 依据经过验证的 `state_updates` 等语义后果更新世界；`plot_updates` 由宿主因果规则追加，长期关系变化由宿主社会系统派生，最后统一事务提交。
+- ECS 依据经过验证的 `state_updates` 等语义后果更新世界；Storylet 命中由宿主在提交后记录，长期关系变化由宿主社会系统派生，最后统一事务提交。
 - `CognitionSystem` 随后只把角色亲历或同场可见的结构化结果写入其私有经验。
 
 ### 4. Rendering
@@ -118,7 +122,7 @@ Session 用 `public_step_status()` 把复杂内部诊断收束为四种产品状
 
 硬物理法则、角色能力与空间连通性由可扩展的 `LegalityEngine` 裁定。新题材可以注册自己的 physics profile，而不需要修改 SimulationSystem。
 
-动态人物不能再由 Simulation GM 凭空引入。宿主注入事件或时间线承诺必须先携带一次性 `character_entry` 授权，固定 authorization id、人物身份、地点和初始世界事实；只有 `profile_mode=semantic` 时，GM 才能补充自然语言 personality/goals。随后 `CharacterLifecycle` 执行两阶段出生：先纯验证并准备 Entity，再把候选 actor body、授权消费记录与 Scene/Plot/Drama/Relationship 一起事务提交，最后注册 live agent runtime。注册失败会使用事务 checkpoint 恢复全部权威状态、注销残留 runtime 并移除 ECS Entity，避免产生只有“脑”没有“身体”、只有剧情没有人物或授权已用但人物未出生的半状态。动态人物仍受已有地点和数量上限约束。
+动态人物不能再由 Simulation GM 凭空引入。宿主注入事件或时间线承诺必须先携带一次性 `character_entry` 授权，固定 authorization id、人物身份、地点和初始世界事实；只有 `profile_mode=semantic` 时，GM 才能补充自然语言 personality/goals。随后 `CharacterLifecycle` 执行两阶段出生：先纯验证并准备 Entity，再把候选 actor body、授权消费记录与 Scene/Drama/Relationship 一起事务提交，最后注册 live agent runtime。注册失败会使用事务 checkpoint 恢复全部权威状态、注销残留 runtime 并移除 ECS Entity，避免产生只有“脑”没有“身体”、只有剧情没有人物或授权已用但人物未出生的半状态。动态人物仍受已有地点和数量上限约束。
 
 旧版 `Persona -> AgentActionSystem -> NarrativeControl -> NarrativeSystem` 旁路已经移除。该路径曾允许 GM 文本直接改 Scene、直接向 entities 字典插入人物，并绕过 proposal、WorldStateTransaction、CharacterLifecycle 和 AgentRegistry。系统公共 API 现在只暴露 Runner 使用的权威阶段；动态人物没有直接 `spawn()` 兼容入口，必须经过 prepare → transaction stage → runtime finalize，且 finalize 必须证明角色已经进入 live AgentRegistry。
 
@@ -148,13 +152,13 @@ Hermes 的概率策略属于角色主体：需要权衡时，它先用角色私�
 
 非物质压力可以通过有证据的 `drive_updates` 改变：affected actor、产生后果的 source actor、已有 need、`increase/decrease` 方向、定性强度和事实原因都必须明确，并且 source 本轮必须有已结算行动。宿主把强度固定映射为 `0.05/0.12/0.25/0.4` 的 need delta；GM 自报 delta 会被忽略。Drive 更新只进入权威私有状态，不交给 Rendering；无证据更新会连同本轮其他世界变化一起回滚。
 
-Simulation 的 Scene、Plot、Drama 与 Relationship 写入会先经过 `WorldStateTransaction`：在副本上验证全部不变量后才提交。语义 GM 不能直接提供 Plot clock 或长期关系 delta；Plot 更新只由 `CausalPlotEngine` 根据候选世界事实生成，关系变化由 Sentiment 和其他宿主社会规则按固定映射产生。低层事务仍会验证宿主生成的关系写入及其角色、不变量和事实来源。成功事务会携带可恢复 checkpoint，供动态 Agent 注册等提交后边界失败时恢复；任一阶段非法时整批回滚，同时清除可能被 Rendering 误当成事实的 resolved actions。
+Simulation 的 Scene、Drama 与 Relationship 写入会先经过 `WorldStateTransaction`：在副本上验证全部不变量后才提交。语义 GM 不能直接写长期关系轨道；关系变化由 Sentiment 和其他宿主社会规则按固定映射产生。低层事务仍会验证宿主生成的关系写入及其角色、不变量和事实来源。成功事务会携带可恢复 checkpoint，供动态 Agent 注册等提交后边界失败时恢复；任一阶段非法时整批回滚，同时清除可能被 Rendering 误当成事实的 resolved actions。
 
 秘密和信念通过受证据约束的 `knowledge_updates` 在角色间传播：发送者必须真正知道该陈述、双方必须同场、且本轮必须有已结算的传递行动；知识只进入指定接收者的私有 Cognition。
 
-长期剧情可用 `PlotRuleConfig` 声明状态因果边：角色实际到达地点、对象状态被揭露或世界 flag 成立时，`CausalPlotEngine` 会按优先级自动推进 plot clock，并与世界状态一起事务提交；场景级触发数和推进预算可以防止一次宽条件造成剧情跳跃。
+Storylet 直接声明对 Scene、world object 或 actor 状态的条件；条件满足时成为叙事机会，是否兑现仍由真实行动与世界结算决定。无需独立剧情时钟或宏剧情旁路。
 
-对象生命周期发生后的候选世界同样会参与因果规则求值，因此“角色真正取得钥匙”“证据被销毁”或“信件确实交到某人手中”可以直接推进 Plot，而不是依赖模型猜测剧情进度。
+对象生命周期发生后的候选世界同样会参与后续 Storylet 条件求值，因此“角色真正取得钥匙”“证据被销毁”或“信件确实交到某人手中”都能自然改变可用叙事机会。
 
 AgentPerception 会额外提供角色自己的私有需求快照，以及当前 POV 中对象可用 affordance 的排序机会列表。排序只是一种处境提示，不会强制 Agent 机械选择最高分行动；人格、目标、承诺、风险承受力和错误信念仍然共同决定 proposal。
 
@@ -172,7 +176,7 @@ AgentPerception 会额外提供角色自己的私有需求快照，以及当前 
 
 会参与调查、欺骗、揭露和谈判的客观命题由独立 `Claim Entity` 表达；角色自己的 `KnowledgeState` 只记录对 Claim 的 stance、confidence、来源和已知 evidence。Claim 的宿主真值不会进入角色感知。有效主动观察可以通过已连接的可见 evidence 发现 Claim；同场知情角色可以传播或故意歪曲 stance，但不能凭空创造自己不知道的 Claim。
 
-引擎提供 `EpisodeRunner` 与 `EpisodeSweepRunner`。前者审计单个多回合 trace，后者通过宿主 launcher 对同一故事种子运行多个 deterministic seed，聚合停滞、僵局、角色差异、Goal 收束、权限违规、动作轨迹多样性与 replay mismatch。可选的 `EpisodeClosurePolicy` 会根据 Goal、Timeline commitment、动作队列、尚未被角色处理的 WorldEvent/事件回应与可选 Plot 状态判断一个 Episode 是否已稳定收束；Agent/GM 不能自行宣布完结。Scene 中每个行为角色还会被审计是否具有对应 Entity、AgentController 和 live runtime。Episode 停止只是评估边界，不会关闭仍可继续模拟的世界。
+引擎提供 `EpisodeRunner` 与 `EpisodeSweepRunner`。前者审计单个多回合 trace，后者通过宿主 launcher 对同一故事种子运行多个 deterministic seed，聚合停滞、僵局、角色差异、Goal 收束、权限违规、动作轨迹多样性与 replay mismatch。可选的 `EpisodeClosurePolicy` 会根据 Goal、Timeline commitment、动作队列、尚未被角色处理的 WorldEvent/事件回应判断一个 Episode 是否已稳定收束；Agent/GM 不能自行宣布完结。Scene 中每个行为角色还会被审计是否具有对应 Entity、AgentController 和 live runtime。Episode 停止只是评估边界，不会关闭仍可继续模拟的世界。
 
 仓库内置一个无 Storylet 的最小调查回归种子：两名 Agent 围绕秘密 Claim 和唯一 Evidence 自主调查、否认、施压或争夺物品。它用于跨 seed 校准组合机制，不属于核心引擎的固定故事内容。
 
@@ -197,10 +201,6 @@ AgentPerception 会额外提供角色自己的私有需求快照，以及当前 
 - `inject_crisis`
 - `allow_release`
 
-### PlotState
-
-将长线阴谋或大事件实体化为进度时钟，用于给导演系统提供“优先兑现哪条暗流”的依据。
-
 ## 当前目录
 
 ```text
@@ -213,7 +213,6 @@ src/
 │   │   ├── simulation_control.py
 │   │   ├── narrative_renderer.py
 │   │   ├── drama_state.py
-│   │   └── plot_state.py
 │   ├── systems/
 │   │   ├── input.py
 │   │   ├── simulation.py
@@ -274,5 +273,5 @@ python web_main.py --host 127.0.0.1 --port 8000
 - 交付形态仍是简单终端文字冒险。
 - 已新增一个与引擎解耦的 Web UI 适配层，可直接在浏览器里试玩。
 - 引擎层已切到带离散事件调度的权威循环。
-- Arkham 剧本已补上初始状态、storylets、drama、plot entities 的最小示例。
+- Arkham 剧本已补上初始状态、Storylet 和 Drama 的最小示例。
 - `ConsoleDriver` 仍然是轻量交互层，复杂导演式介入后续再接回去。

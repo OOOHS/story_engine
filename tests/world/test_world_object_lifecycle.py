@@ -1,7 +1,6 @@
 from copy import deepcopy
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.environment.world_transaction import WorldStateTransaction
 from src.story_engine.systems.rendering import RenderingSystem
@@ -43,7 +42,6 @@ def _result(action_actor="甲", operations=None):
             }
         ],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "object_lifecycle": operations or [],
         "tension_delta": 0,
@@ -69,7 +67,7 @@ def test_spawned_object_has_explicit_tangible_identity_and_is_visible():
     )
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is True
@@ -106,7 +104,7 @@ def test_pick_up_hide_transfer_and_reveal_are_sequential_world_operations():
     )
 
     hidden = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), hide_result, proposal_actors={"甲"}
+        scene, DramaState(), hide_result, proposal_actors={"甲"}
     )
 
     assert hidden.committed is True
@@ -128,7 +126,7 @@ def test_pick_up_hide_transfer_and_reveal_are_sequential_world_operations():
         ]
     )
     transferred = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), transfer_result, proposal_actors={"甲"}
+        scene, DramaState(), transfer_result, proposal_actors={"甲"}
     )
 
     assert transferred.committed is True
@@ -157,7 +155,7 @@ def test_remote_object_manipulation_rejects_entire_world_transaction():
     drama = DramaState(tension=0.4)
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), drama, result, proposal_actors={"丙"}
+        scene, drama, result, proposal_actors={"丙"}
     )
 
     assert outcome.committed is False
@@ -182,7 +180,7 @@ def test_actor_can_pick_up_object_then_move_with_it_in_one_resolved_action():
     result["state_updates"]["actor_states"] = {"甲": {"location": "书房"}}
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is True
@@ -198,7 +196,7 @@ def test_item_placement_fields_cannot_bypass_lifecycle_through_state_updates():
         "旧钥匙": {"owner": "丙", "location": None, "hidden": True}
     }
 
-    outcome = WorldStateTransaction().commit(scene, PlotState(), DramaState(), result)
+    outcome = WorldStateTransaction().commit(scene, DramaState(), result)
 
     assert outcome.committed is False
     assert any("require object_lifecycle" in error for error in outcome.errors)
@@ -213,7 +211,6 @@ def test_content_cannot_shadow_reserved_engine_affordance_ids():
 
     outcome = WorldStateTransaction().commit(
         scene,
-        PlotState(),
         DramaState(),
         _result(),
         proposal_actors={"甲"},
@@ -249,10 +246,10 @@ def test_lifecycle_cannot_create_or_destroy_spatial_graph_nodes():
     )
 
     spawn_outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), spawn_place, proposal_actors={"甲"}
+        scene, DramaState(), spawn_place, proposal_actors={"甲"}
     )
     destroy_outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), destroy_place, proposal_actors={"甲"}
+        scene, DramaState(), destroy_place, proposal_actors={"甲"}
     )
 
     assert spawn_outcome.committed is False
@@ -276,7 +273,7 @@ def test_destroy_removes_tangible_object_and_lifecycle_bookkeeping():
     )
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is True
@@ -401,7 +398,7 @@ def test_nested_contents_follow_container_owner_without_child_rewrites():
     result = _result()
     result["state_updates"]["actor_states"] = {"甲": {"location": "书房"}}
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is True
@@ -431,7 +428,7 @@ def test_closed_opaque_container_hides_contents_and_opening_reveals_them():
         ]
     )
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is True
@@ -457,7 +454,7 @@ def test_transparent_closed_container_allows_sight_but_not_manipulation():
         ]
     )
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is False
@@ -489,7 +486,7 @@ def test_hidden_outer_container_does_not_leak_or_grant_nested_access():
         ],
     )
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"乙"}
+        scene, DramaState(), result, proposal_actors={"乙"}
     )
 
     assert outcome.committed is False
@@ -517,7 +514,7 @@ def test_open_inner_container_cannot_be_targeted_through_closed_outer_container(
     )
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is False
@@ -544,7 +541,7 @@ def test_relocate_into_container_enforces_direct_capacity_atomically():
     result["state_updates"]["scene"]["description"] = "不应提交"
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is False
@@ -569,7 +566,7 @@ def test_container_cycle_and_self_placement_are_rejected_atomically():
     )
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), cycle, proposal_actors={"甲"}
+        scene, DramaState(), cycle, proposal_actors={"甲"}
     )
 
     assert outcome.committed is False
@@ -588,7 +585,7 @@ def test_container_cycle_and_self_placement_are_rejected_atomically():
         ]
     )
     self_outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), self_placement, proposal_actors={"甲"}
+        scene, DramaState(), self_placement, proposal_actors={"甲"}
     )
     assert self_outcome.committed is False
     assert any("cannot place object inside itself" in error for error in self_outcome.errors)
@@ -611,7 +608,7 @@ def test_non_empty_container_cannot_be_destroyed_or_consumed():
     )
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), result, proposal_actors={"甲"}
+        scene, DramaState(), result, proposal_actors={"甲"}
     )
 
     assert outcome.committed is False
@@ -628,7 +625,7 @@ def test_container_authority_fields_cannot_bypass_lifecycle_updates():
         "匣中钥匙": {"container": "帆布包"},
     }
 
-    outcome = WorldStateTransaction().commit(scene, PlotState(), DramaState(), result)
+    outcome = WorldStateTransaction().commit(scene, DramaState(), result)
 
     assert outcome.committed is False
     assert any("require object_lifecycle" in error for error in outcome.errors)
@@ -645,7 +642,7 @@ def test_transaction_rejects_malformed_preexisting_container_graph():
     before = deepcopy(scene.get_snapshot())
 
     outcome = WorldStateTransaction().commit(
-        scene, PlotState(), DramaState(), _result(), proposal_actors={"甲"}
+        scene, DramaState(), _result(), proposal_actors={"甲"}
     )
 
     assert outcome.committed is False

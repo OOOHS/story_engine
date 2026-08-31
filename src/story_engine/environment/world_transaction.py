@@ -94,7 +94,6 @@ class WorldStateTransaction:
         "world_version",
         "consumed_character_entry_authorizations",
         "consumed_storylets",
-        "consumed_plot_rules",
     }
 
     def __init__(self) -> None:
@@ -107,7 +106,6 @@ class WorldStateTransaction:
     def commit(
         self,
         scene_state: Any,
-        plot_state: Any,
         drama_state: Any,
         result: Dict[str, Any],
         relationship_book: Any = None,
@@ -118,13 +116,9 @@ class WorldStateTransaction:
         consumed_storylet_ids: List[str] | None = None,
         emergent_meter_budget: int = 0,
     ) -> TransactionResult:
-        # ``plot_state`` and ``consumed_storylet_ids`` are accepted only for
-        # call-site compatibility. Plot clocks, storylet consumption, new
-        # plot_beat_proposals, and director_signals are no longer
-        # staged/committed here: they are narrative derivations of
-        # already-committed world facts, produced by NarrativeDirector and
-        # settled by ``CausalPlotEngine.settle`` after this transaction
-        # succeeds, not rehearsed against a guess of what it will produce.
+        # ``consumed_storylet_ids`` is accepted only for call-site compatibility.
+        # Storylet consumption and director_signals are narrative derivations of
+        # already-committed world facts, produced after this transaction succeeds.
         errors: List[str] = []
         updates = result.get("state_updates", {})
         self._validate_scene_updates(scene_state, updates, errors)
@@ -292,7 +286,6 @@ class WorldStateTransaction:
             "world_objects": {},
             "actor_states": {},
         }
-        sanitized["plot_updates"] = []
         sanitized["relationship_updates"] = []
         sanitized["social_impacts"] = []
         sanitized["modifier_updates"] = []
@@ -304,7 +297,6 @@ class WorldStateTransaction:
         sanitized["drive_updates"] = []
         sanitized["drive_creations"] = []
         sanitized["director_signals"] = []
-        sanitized["plot_beat_proposals"] = []
         sanitized["storylet_hits"] = []
         sanitized["tension_delta"] = 0.0
         sanitized["spawn_character"] = None

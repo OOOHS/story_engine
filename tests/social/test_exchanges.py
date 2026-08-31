@@ -3,15 +3,11 @@ from copy import deepcopy
 from pydantic import Field
 
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.world_transaction import WorldStateTransaction
-from src.story_engine.narrative import CausalPlotEngine
 from src.story_engine.scenarios.config import (
-    PlotEntityConfig,
-    PlotRuleConfig,
     ScenarioConfig,
     StateCondition,
 )
@@ -110,7 +106,6 @@ def _result(exchanges, actions=None):
     return {
         "resolved_actions": actions or [_action("甲"), _action("乙")],
         "state_updates": {"scene": {}, "world_objects": {}, "actor_states": {}},
-        "plot_updates": [],
         "relationship_updates": [],
         "knowledge_updates": [],
         "object_lifecycle": [],
@@ -123,7 +118,6 @@ def _result(exchanges, actions=None):
 def _commit(scene, result, proposal_actors=None, **kwargs):
     return WorldStateTransaction().commit(
         scene,
-        kwargs.pop("plot_state", PlotState()),
         kwargs.pop("drama_state", DramaState()),
         result,
         proposal_actors=set(proposal_actors or {"甲", "乙"}),
@@ -618,65 +612,6 @@ def test_exchange_result_is_independent_of_exchange_and_transfer_order():
     assert snapshots[0] == snapshots[1]
 
 
-def test_exchange_ownership_participates_in_post_commit_causal_plot():
-    scene = _scene()
-    plots = PlotState.from_configs(
-        [
-            PlotEntityConfig(
-                plot_id="key_trade",
-                title="钥匙交易",
-                description="甲取得钥匙。",
-                max_clock=2,
-            )
-        ]
-    )
-    scenario = ScenarioConfig(
-        name="交换因果",
-        default_agent_runtime="llm",
-        description="交换推动剧情",
-        environment="集市",
-        initial_state="钥匙仍在乙手中",
-        plot_rules=[
-            PlotRuleConfig(
-                rule_id="alice_gets_key",
-                plot_id="key_trade",
-                conditions=[
-                    StateCondition(
-                        scope="world_object",
-                        target="乙的钥匙",
-                        path="owner",
-                        operator="eq",
-                        value="甲",
-                    )
-                ],
-                advance=1,
-                reason="甲通过真实交换取得钥匙",
-            )
-        ],
-    )
-    result = _result(
-        [
-            _exchange(
-                "buy_key",
-                ["甲", "乙"],
-                [{"from": "乙", "to": "甲", "object_id": "乙的钥匙"}],
-            )
-        ]
-    )
-
-    outcome = _commit(scene, result, plot_state=plots)
-    assert outcome.committed is True
-    # The exchange settled for real first; only now, against the actual
-    # committed ownership, does the causal rule get to evaluate -- no
-    # pre-commit rehearsal of what the exchange would have produced.
-    assert scene.get_object_state("乙的钥匙")["owner"] == "甲"
-
-    settled = CausalPlotEngine().settle(
-        scene_state=scene, plot_state=plots, scenario=scenario, result=result
-    )
-
-    assert settled["causal_plot_rules"] == ["alice_gets_key"]
-    assert plots.plots["key_trade"]["clock"] == 1
 
 
 def test_stack_key_cannot_be_forged_through_state_updates():
@@ -765,7 +700,6 @@ def test_simulation_system_commits_exchange_using_current_agent_proposals():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     alice = Entity("甲")
     bob = Entity("乙")
@@ -799,7 +733,6 @@ def test_failed_runtime_exchange_is_sanitized_before_rendering():
     gm = Entity("GameMaster")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
-    gm.add_component(PlotState())
     gm.add_component(DramaState())
     context = {"intents": [{"actor": "甲", "intent": "单方面声称交易"}]}
 

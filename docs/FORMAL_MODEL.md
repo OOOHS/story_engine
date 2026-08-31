@@ -4,7 +4,7 @@ Story Engine 采用事件驱动的部分可观察多角色博弈（POSG）作为
 
 ## 映射
 
-- `S`：Scene、Object、Plot、Relationship、Drive 等权威状态。
+- `S`：Scene、Object、Relationship、Drive 等权威状态。
 - `O_i`：角色 `i` 的 POV、被动观察和主动观察结果；尚未交付给策略的新世界事件与社会回应分别保存在宿主拥有的有限 pending 队列中。
 - `L_i`：Host 可验证的私人账本，包括 POV 事件收据、Claim 来源、身体压力、日程、地图和已登记目标；它不是公共知识，也不等于角色的完整心智。
 - `M_i`：持久 subject 自己的回忆、注意、评价、情绪、信念解释、计划、笔记、动机和选择。Hermes 的 `M_i` 位于其 conversation/JSON memory/tool 上下文。宿主不保留 `M_i` 的镜像。
@@ -43,7 +43,7 @@ Claim、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为�
 
 ## 策略与随机性
 
-`Agent` 是完整角色策略，不等同于单次 LLM 调用。Hermes 内部先生成带 `motive_lens`、`intent_signature` 和有限 utility 的候选，以分层 Gumbel-Max 先采样动机透镜、再采样该透镜下的行动；这样随机性作用于“此刻哪种人格动机占据工作空间”及其具体表达，而不是直接给词句加噪声。评测可配置 per-character seed 重放；生产默认生成随机 subject seed，宿主只能得到 fingerprint，不能读取私人候选与原始 seed。明显只有一个合理意图时允许直接行动，不伪造多样性。
+`Agent` 是完整角色策略，不等同于单次 LLM 调用。Hermes 在自己的长程上下文、记忆和内部决策中完成观察、权衡与随机性，向 Host 只提交一条非空自然语言 action。Host 将该字符串解析为内部 Action IR，再执行合法性、资源与世界结算；外部协议不暴露候选、utility 或人格采样字段。
 
 这仍是性格机制的第一层实现：当前 Trait 以结构化 bootstrap 进入长程主体，但人格/目标条件化的注意竞争、评价理论 appraisal、刺激衰减与真正异步抢占尚未完成，不能把候选 utility 当成已经客观校准的心理模型。
 

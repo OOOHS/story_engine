@@ -30,12 +30,7 @@
 - 它只计算 `quiet / watch / rising / acute` 等压力状态和可选后果线索，不要求本轮出现危机。
 - 具体危机只能由角色行动、世界事件和已有因果自然形成；没有兑现时不建立叙事欠账。
 
-### 4. 主线必须实体化
-
-- 长线阴谋、政治暗流、秘密、灾厄，不能只是 prompt 提示。
-- 它们应以 `PlotState` 中的时钟实体存在，并被推进、停滞、兑现。
-
-### 5. 角色是 Agent，但 Agent 不是裁判
+### 4. 角色是 Agent，但 Agent 不是裁判
 
 - 每个角色实体通过 `AgentController` 声明自己的 agent runtime。
 - live runtime 注册在 session 级 `AgentRegistry`，不进入 ECS 持久状态。
@@ -97,7 +92,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 输入：GM semantic snapshot、已提交 `intents`、合法性、当前参与者自身的 Drive、可见关系定性状态，以及 Claim/角色入口等结算目录
 - 输出：`resolved_actions`、`state_updates`、`social_impacts`、定性 `conflict_level` 等语义候选；Storylet hit、Plot、长期关系、Drive magnitude 和 Drama tension 数值不属于该层输出
 - 不确定结果的 success/failure 只是语义补丁候选。宿主在随机选择前同时清理两边的 actor.location：只有当前 move actor 的原位置或 LegalityEngine 授权目的地可保留，其他角色、非 move 坐标和替换目的地全部进入 authority rejection
-- Storylet、Conflict、Drama directive、Plot snapshot、Situation、reaction pressure 和角色导演字段只保留在 Host context 中用于检测、评估与事后归因，不进入任何语义 resolver。GM 因而只能回答“这些角色已经提出的行动在世界中发生了什么”，不能根据剧情压力把中性行动故意扭成预定节拍
+- Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 和角色导演字段只保留在 Host context 中用于检测、评估与事后归因，不进入任何语义 resolver。GM 因而只能回答“这些角色已经提出的行动在世界中发生了什么”，不能根据剧情压力把中性行动故意扭成预定节拍
 - `ScenarioConfig.rules` 只描述客观世界法则与题材常识；叙事节奏、语言风格和揭示方式属于 `ScenarioConfig.narration`。公开 `environment` 只能包含角色可观察环境，不能混入“仅 GM 参考”的隐藏设定
 - 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断、Plot pressure 或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
 
@@ -108,7 +103,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 输入：已经结算好的结构化结果
 - 输出：玩家可见文本
 - 约束：不得新增结构化结果之外的事实
-- 只接收 public actor projection、可见动作/对象 change ledger 和去除导演字段后的社会关系；`conflict`、`storylet_pressure`、Plot/causal rule、内部 simulation notes、bias/framing/territorial 不进入渲染 prompt
+- 只接收 public actor projection、可见动作/对象 change ledger 和去除导演字段后的社会关系；`conflict`、`storylet_pressure`、宏剧情/causal rule、内部 simulation notes、bias/framing/territorial 不进入渲染 prompt
 - 核心默认只要求事实落地、受限视角和中立清楚，不强制快节奏、慢热、锋利或其他题材风格；内容包可通过 `ScenarioConfig.narration.guidance` 提供可选风格，并用 `max_sentences / max_characters` 声明单回合展示上限
 - RenderingSystem 可以产出玩家 `visible_timeline` 供显示，但 Narrator 文本和玩家渲染包永远不会写入角色 Observation 或 Memory。每个角色的 episodic memory 只从自己的 `Cognition.experiences` 归档本轮亲历事件，并附带公共 scene 状态；同场角色共享真正可观察的结构化事实，异地角色不会共享，任何角色都不会把面向玩家的第二人称文案误当成自身经历
 
@@ -129,11 +124,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - `inject_crisis`
 - `allow_release`
 
-这些指令以 `narrative_pressure` 进入 GM 结算输入。太平淡时 GM 可以提交 `plot_beat_proposals`，不能直接改 clock。
-
-### PlotState
-
-将长线事件实体化成可推进的 clocks。内容包用 `plot_entities` + `plot_rules` 预写；运行时 GM 只能通过 `plot_beat_proposals` 开新线或挂 candidate beat（必须有触发条件和兑现 kind），不能写 `plot_updates`。登记后的 beat 在条件成立时进入 Storylet 机会；兑现后宿主才给运行时线程推进 clock。未推进的运行时线程会按 idle budget sunset。
+这些指令以 `narrative_pressure` 进入 GM 结算输入，只表达节奏倾向，不创建剧情线程或强制事件。
 
 ## 五、系统职责
 
@@ -154,11 +145,10 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 ### StoryletEngine
 
-- 根据权威状态与内部 Situation 投影路由筛选可用 storylets：将玩家前台、时间承诺、场景转换、事后余波和 plot pressure 投影为统一的、当轮即算即弃的 Situation（`refresh_situations`），按 focus score/可见性/状态排序，不再有独立的 SituationEngine/SituationState 组件或跨轮记忆
+- 根据权威状态与内部 Situation 投影路由筛选可用 storylets：将玩家前台、时间承诺、场景转换和事后余波投影为统一的、当轮即算即弃的 Situation（`refresh_situations`），按 focus score/可见性/状态排序，不再有独立的 SituationEngine/SituationState 组件或跨轮记忆
 - 排序叙事机会；不产生 `require_hit`、forced id 或本轮兑现要求
 - 在语义、不确定性和并发结果形成后，根据真实行动/模板/事实标签识别自然命中；事务成功后才处理 one-shot 消费
 - 纯环境性的 storylet（不需要具体角色决定）由 GM 直接结算成 `actor=World` 的事实并标注 `source_storylet_id`；需要具体角色决定的，才由 GM 发 `director_signals`
-- 运行时 `plot_beat_proposals` 登记的 beat 在条件匹配后与内容 storylet 走同一条机会/命中/消费路径，`storylet_id` 形如 `runtime:<plot_id>:<beat_id>`
 - GM 输出的 `storylet_hits` 属于越权声明，会被统一过滤
 - 不替角色选择行动，不直接修改世界
 - 作为 Simulation 的独立服务，避免主系统继续膨胀
@@ -281,9 +271,9 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 授权固定 name、role、location、initial_state 和私有初始结构；`profile_mode=semantic` 最多允许 GM 补充 personality 与自然语言 goals，不能改写权威出生事实
 - 动态人物必须同时进入 Entity 集合、权威 `SceneState.actor_states` 和 `AgentRegistry`
 - `prepare` 只验证请求、净化字段并构造尚未发布的 Entity，不修改 ECS、世界或注册表
-- `stage` 将候选 actor body、`dynamic_character_names` 和 consumed authorization id 写入事务副本，使新人物可以参与同轮对象、关系和 Plot 因果校验，失败时授权也不会被消耗
+- `stage` 将候选 actor body、`dynamic_character_names` 和 consumed authorization id 写入事务副本，使新人物可以参与同轮对象、关系和 宏剧情 因果校验，失败时授权也不会被消耗
 - 世界事务成功后才执行 `finalize`：先创建并确认 live runtime 注册，再公开 ECS Entity
-- runtime factory、注册回调或注册确认失败时，先注销残留 runtime 和 Entity，再通过事务 checkpoint 恢复 Scene、Plot、Drama 与 Relationship
+- runtime factory、注册回调或注册确认失败时，先注销残留 runtime 和 Entity，再通过事务 checkpoint 恢复 Scene、宏剧情、Drama 与 Relationship
 - 出生失败会把整轮结算转换为 transaction rejection，Rendering 不会继续描述一个未实际存在的人物
 - live 语义路径中的出生地点由授权固定且必须已经存在；未知地点授权直接拒绝，不允许 GM 借回退改变入口
 - 使用 `max_dynamic_characters` 限制宿主事件或内容错误导致的无界人口增长
@@ -308,7 +298,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 非便携对象不能由普通角色搬动；对象不能借生命周期接口伪装成地点、修改空间图或覆盖保留字段
 - `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本
 - 隐藏对象只进入所有者自己的 POV；其他同场角色和 Rendering 都不会收到其生命周期 payload 或普通属性更新
-- 生命周期先在候选 SceneState 上执行，因此对象所有权、位置和存在性可以直接触发 `CausalPlotEngine` 规则
+- 生命周期先在候选 SceneState 上执行，因此对象所有权、位置和存在性可以直接影响后续 Storylet 条件
 
 ### DriveState 与 NeedDynamics
 
@@ -360,14 +350,14 @@ NeedConfig(
 
 ### WorldStateTransaction
 
-- 在 SceneState、PlotState、DramaState 与事务级 `RelationshipBook` 的副本上暂存本轮写入
+- 在 SceneState、DramaState 与事务级 `RelationshipBook` 的副本上暂存本轮写入
 - 同一事务还可以暂存参与本轮结算的私有 DriveState；快照通过可序列化字段重建，不沿 Component 的 Entity 回指复制 live runtime
-- 校验更新 section、已有角色、已有对象、地点、子区域、空间图、有形对象放置与生命周期账本、宿主派生 plot update、tension 范围，以及宿主关系变化的角色和关系不变量
+- 校验更新 section、已有角色、已有对象、地点、子区域、空间图、有形对象放置与生命周期账本、tension 范围，以及宿主关系变化的角色和关系不变量
 - RelationshipBook 只从 pair 关系实体重建；宿主应用 Sentiment 等系统派生的有向 track delta 和互动时间线后再原子发布，Scene 不保存关系镜像
-- 所有检查通过后才一次提交；任何一项失败时 Scene、Plot、Drama、SocialRelation 与 DriveState 全部保持原样
+- 所有检查通过后才一次提交；任何一项失败时 Scene、Drama、SocialRelation 与 DriveState 全部保持原样
 - 成功提交返回这些权威组件的提交前恢复 checkpoint；需要 live runtime 等外部资源的生命周期可以在 finalize 失败时撤销已经提交的候选世界
 - checkpoint 同时恢复 need pressure、risk tolerance 和 drive 的 step 游标，避免资源已经回滚而角色仍错误地认为需求已被满足
-- 被拒绝的结算会清空 resolved facts、plot/relationship/host-derived storylet hit 和 spawn 请求，避免 Rendering 描述未提交事实
+- 被拒绝的结算会清空 resolved facts、relationship/host-derived storylet hit 和 spawn 请求，避免 Rendering 描述未提交事实
 - 被拒绝的结算也会清空对象生命周期操作，避免渲染一个没有实际生成、移动或销毁的物品
 - 新角色和新对象不能借普通 state update 隐式出现，必须经过专门生命周期接口
 - 每条非 World `resolved_action.actor` 必须存在于本轮 proposal actor 集合；Simulation 模型、Conflict template 或 Storylet 即使生成了语法正确的 NPC 行动，只要该 NPC 本轮没有运行并提交 proposal，整个事务就拒绝该伪造结果
@@ -382,7 +372,7 @@ NeedConfig(
 
 ### ResourceContestResolver
 
-- 在结构化 Simulation 输出之后、因果 Plot 与 `WorldStateTransaction` 之前解析同轮对象竞争
+- 在结构化 Simulation 输出之后、因果 宏剧情 与 `WorldStateTransaction` 之前解析同轮对象竞争
 - 只裁减互不兼容的 `object_lifecycle` claim 并改写受影响 action，不直接修改权威世界
 - 消耗型 `use` 按对象当前 `quantity` 分配配额；同一 actor 的重复使用同样占用配额
 - 非消耗、非独占 affordance 可以由多名角色同轮共享；`exclusive: true` 只允许一个 claim
@@ -419,8 +409,8 @@ NeedConfig(
 - 同轮所有 exchange 先按 object 聚合 claim；总 quantity 超过权威库存、一个对象被指向不同 recipient、或多个 exchange 形成双花时，整笔世界事务拒绝
 - 应用按稳定 exchange/object id 计算，不依赖 JSON 数组顺序；fragment id 使用 object、recipient 与排序后的 exchange ids 生成
 - exchange 在候选 SceneState 上先于普通 object lifecycle 暂存，因此支付与对象所有权可以处于同一个 `WorldStateTransaction`
-- 任一 Plot、关系、Drive 或对象写入随后失败时，交换也随 checkpoint/事务整体回滚，不存在半提交的转手
-- `CausalPlotEngine` 在交换后的候选世界求值，所以“甲真正通过交易取得钥匙”可以同轮触发 Plot 规则
+- 任一关系、Drive 或对象写入随后失败时，交换也随 checkpoint/事务整体回滚，不存在半提交的转手
+- 交换后的候选世界仍参与 Storylet 条件求值，所以“甲真正通过交易取得钥匙”可以同轮改变可用叙事机会
 - 完整 exchange bundle 只进入 GM episodic memory；Rendering 和普通角色记忆依赖可见 resolved actions，不接收私下的 bundle 明细
 
 示例：
@@ -477,7 +467,7 @@ NeedConfig(
 
 角色创建时，每个 `Identity.goals` 字符串都会同步成为一个私有 `GoalState` 记录。它可以零配置地参与 Agent 决策。Agent 可以引用自己当前 active 的 Goal，或本轮收到的 WorldEvent/EventResponse；Host 核验归属、POV 和注意队列。这只表示“这个行动在角色策略中响应了该动机”，不能证明行动成功或目标已经完成。
 
-场景可以选择提供 `goal_specs`，为少数需要确定结算的目标增加 `completion_conditions` 和 `failure_conditions`。这些条件复用 `StateCondition`，只能查询权威 `SceneState` / `PlotState`：
+场景可以选择提供 `goal_specs`，为少数需要确定结算的目标增加 `completion_conditions` 和 `failure_conditions`。这些条件复用 `StateCondition`，只能查询权威 `SceneState`：
 
 ```text
 自然语言 Goal
@@ -543,7 +533,7 @@ Character
     └── claim_id、stance、confidence、basis、source、evidence_refs
 ```
 
-- Claim 真值可以随 Scene/Plot 条件变化，但角色知识不会自动同步；
+- Claim 真值可以随 Scene/宏剧情 条件变化，但角色知识不会自动同步；
 - public Claim 会作为公开主张进入所有角色知识，但不代表角色相信它，更不代表它为真；
 - active observe 只有发现与 Claim 相连、且对行动者可见的 evidence 时才能更新 KnowledgeState；
 - 同场知情角色可以在 communicate 中断言与自己立场不同的 stance，从而撒谎；
@@ -553,16 +543,6 @@ Character
 - Episode 将角色首次学习或修订 Claim 记录为 `claim_knowledge_learned/revised`。observed basis 从 KnowledgeState 的 Host-owned `source=evidence:<id>` 和 updated step 构造 `EvidenceObservation <- resolved_action + Evidence`；reported basis 构造 `ClaimReport <- speaker resolved action`。Claim-derived Goal 指向 `claim_knowledge:<actor>:<claim>`，而不是全局 Claim truth
 - 角色支持某项针对他人的 Claim 时形成 potential leverage，持有支持物时标为 evidence-backed；
 - Claim Entity 不是 Agent，也不会自主行动。
-
-### CausalPlotEngine
-
-- `PlotRuleConfig` 将权威后状态条件映射到 plot clock/stage 变化
-- 规则在候选 SceneState 上求值，并与 Scene/Plot/Drama 一起进入同一事务
-- 世界事务失败时，派生 plot 进度和 one-shot 消费标记都不会提交
-- one-shot 规则通过 `consumed_plot_rules` 保证快照重放和后续回合不重复推进
-- `consumed_plot_rules` 是引擎内部账本，resolver 不能自行写入或伪造消费记录
-- 同轮规则按 `priority` 稳定选择，并受 `causal_plot_max_triggers_per_turn` 与 `causal_plot_max_total_advance` 约束，避免一个宽条件意外推进整条剧情线
-- LLM 仍可提出 plot update，但明确的状态因果优先由确定性规则表达
 
 ### CognitionSystem
 
@@ -575,7 +555,6 @@ Character
 ### SimulationSystem
 
 - 解析 Storylet 机会，并在候选后果形成后事后检测自然命中
-- 读取 plot pressure
 - 向 drama manager 申请导演指令
 - 让 `SimulationControl` 返回结构化结算
 - 将结算写回 ECS 状态

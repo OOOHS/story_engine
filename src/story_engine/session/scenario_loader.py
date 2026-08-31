@@ -8,8 +8,10 @@ from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.components.narrative_renderer import NarrativeRenderer
+from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
+from src.story_engine.components.host_rule_narrative import HostRuleNarrativeRenderer
+from src.story_engine.components.narrative_director import NarrativeDirector
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.public_pressure_state import PublicPressureState
 from src.story_engine.components.observation import Observation
 from src.story_engine.components.memory import Memory
@@ -83,16 +85,30 @@ def create_gm(scenario: ScenarioConfig, *, memory_namespace: str = "") -> Entity
             private_scene_fields=list(scenario.private_scene_fields),
         )
     )
-    gm.add_component(SimulationControl(
-        model_config=config.get_component_config("game_master"),
-        scenario=scenario,
-    ))
-    gm.add_component(NarrativeRenderer(
-        model_config=config.get_component_config("narrator"),
-        scenario=scenario,
-    ))
+    simulation_config = config.get_component_config("game_master")
+    narrator_config = config.get_component_config("narrator")
+    simulation_mode = str(getattr(scenario, "simulation_mode", "llm") or "llm").strip().lower()
+    narration_mode = str(getattr(scenario, "narration_mode", "llm") or "llm").strip().lower()
+    if simulation_mode == "rules":
+        gm.add_component(HostRuleSimulationControl(scenario=scenario))
+    else:
+        gm.add_component(SimulationControl(
+            model_config=simulation_config,
+            scenario=scenario,
+        ))
+    if narration_mode == "rules":
+        gm.add_component(HostRuleNarrativeRenderer(scenario=scenario))
+    else:
+        gm.add_component(NarrativeRenderer(
+            model_config=narrator_config,
+            scenario=scenario,
+        ))
+    if bool(getattr(scenario, "narrative_director_enabled", False)):
+        gm.add_component(NarrativeDirector(
+            model_config=simulation_config,
+            scenario=scenario,
+        ))
     gm.add_component(DramaState.from_config(scenario.drama))
-    gm.add_component(PlotState.from_configs(scenario.plot_entities))
     gm.add_component(PublicPressureState())
     gm.add_component(Observation())
     gm.add_component(

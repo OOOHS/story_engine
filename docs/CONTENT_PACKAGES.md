@@ -32,7 +32,7 @@ python -m build --wheel --no-isolation \
 - `src/story_engine_content/bundled/`：可试玩的完整示例故事；应用必须显式选择，没有默认剧本。
 - `src/story_engine_content/evaluation/`：只用于验证通用引擎性质的最小种子，不作为产品故事；它与产品内容一样位于核心包之外。
 
-`src/story_engine/scenarios/` 只保留通用 `ScenarioConfig` schema。具体人物、地点、对白风格、秘密、Plot、Storylet 和初始关系不得放入这个目录。
+`src/story_engine/scenarios/` 只保留通用 `ScenarioConfig` schema。具体人物、地点、对白风格、秘密、宏剧情、Storylet 和初始关系不得放入这个目录。
 
 ## 选择一个故事
 

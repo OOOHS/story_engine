@@ -22,15 +22,7 @@ def test_host_records_the_runtime_action_verbatim_without_re_ranking_it():
     assert commitment.action == action
     assert commitment.trace == {
         "mode": "runtime_committed",
-        "selected_candidate_id": "runtime:0",
-        "selected_action": action.to_dict(),
-        "candidates": [
-            {
-                "candidate_id": "runtime:0",
-                "source": "runtime",
-                "action": action.to_dict(),
-            }
-        ],
+        "committed_action": action.to_dict(),
     }
 
 
@@ -38,7 +30,7 @@ def test_a_bare_action_string_still_commits_through_normalization():
     commitment = commit_runtime_action(AgentDecision(action="留在原地等待。"))
 
     assert commitment.action.detail == "留在原地等待。"
-    assert commitment.trace["selected_candidate_id"] == "runtime:0"
+    assert commitment.trace["committed_action"] == commitment.action.to_dict()
 
 
 def test_repetition_ledger_counts_the_same_plan_and_resets_on_a_new_one():
@@ -110,7 +102,7 @@ def test_input_system_commits_the_runtime_action_and_updates_the_ledger():
 
     trace = context["policy_traces"]["甲"]
     assert trace["mode"] == "runtime_committed"
-    assert context["intents"][0]["action"] == trace["selected_action"]
+    assert context["intents"][0]["action"] == trace["committed_action"]
     assert "probability" not in context["intents"][0]
     controller = entity.get_component("AgentController")
     assert controller.repeated_policy_action_count == 1

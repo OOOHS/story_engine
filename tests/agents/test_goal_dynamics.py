@@ -14,7 +14,6 @@ from src.story_engine.components.navigation_state import (
     NavigationState,
 )
 from src.story_engine.components.relationship import RelationshipBit
-from src.story_engine.components.plot_state import PlotState
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.world_event import WorldEventFact
 from src.story_engine.core.component import Component
@@ -201,7 +200,6 @@ def test_semantic_resolver_cannot_write_goal_status_directly():
     gm = Entity("GameMaster")
     scene = SceneState(scene_flags={"door_open": False})
     gm.add_component(scene)
-    gm.add_component(PlotState())
     actor = Entity("甲")
     state = GoalState.from_initial(
         [],
