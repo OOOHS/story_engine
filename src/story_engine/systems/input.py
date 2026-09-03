@@ -20,6 +20,9 @@ from src.story_engine.environment.physical_affordances import (
     PhysicalAffordanceEngine,
 )
 from src.story_engine.common.action_target import bind_action_target
+from src.story_engine.environment.narrative_candidates import (
+    drain_due_director_authorizations,
+)
 from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 
@@ -60,6 +63,10 @@ class InputSystem(System):
         activation_trace = context.setdefault("agent_activations", {})
         context["proposal_semantics"] = "simultaneous"
         context["character_spawn_authorizations"] = []
+        context["storylet_definition_authorizations"] = []
+        context["topology_candidate_authorizations"] = []
+        context["interrupted_actions"] = []
+        self._drain_director_authorizations(scene_state, context, current_step)
 
         for event in context.get("inject_events", []):
             event_data = event if isinstance(event, dict) else {"intent": str(event)}
@@ -71,6 +78,20 @@ class InputSystem(System):
             self._register_character_entry_authorization(
                 context,
                 event_data.get("character_entry"),
+                fallback_id=event_data.get("event_id"),
+                source="injected",
+                current_step=current_step,
+            )
+            self._register_storylet_definition_authorization(
+                context,
+                event_data.get("storylet_definition"),
+                fallback_id=event_data.get("event_id"),
+                source="injected",
+                current_step=current_step,
+            )
+            self._register_topology_candidate_authorization(
+                context,
+                event_data.get("topology_candidate"),
                 fallback_id=event_data.get("event_id"),
                 source="injected",
                 current_step=current_step,
@@ -116,14 +137,19 @@ class InputSystem(System):
             actor_location = scene_state.get_actor_location(name) if scene_state else None
             is_player = bool(player_name and name == player_name)
             if action_queue is not None and action_queue.is_busy(name):
-                activation_trace[name] = {
-                    "active": False,
-                    "scope": "busy",
-                    "reason": "action_in_progress",
-                    "busy_until": action_queue.busy_until(name),
-                    "pending_action": action_queue.pending_for(name),
-                }
-                continue
+                interrupted = self._preempt_for_critical_attention(
+                    entity, action_queue, current_step
+                )
+                if interrupted is None:
+                    activation_trace[name] = {
+                        "active": False,
+                        "scope": "busy",
+                        "reason": "action_in_progress",
+                        "busy_until": action_queue.busy_until(name),
+                        "pending_action": action_queue.pending_for(name),
+                    }
+                    continue
+                context["interrupted_actions"].append(interrupted)
             activation = self.scheduler.activation_for(
                 entity,
                 step=current_step,
@@ -832,6 +858,37 @@ class InputSystem(System):
         ):
             cognition.acknowledge_event_responses(pending_event_responses)
 
+    @staticmethod
+    def _preempt_for_critical_attention(
+        entity: Entity,
+        action_queue: Any,
+        current_step: int,
+    ) -> Dict[str, Any] | None:
+        """Abort an in-flight action when a critical signal is waiting for her.
+
+        This is where the three urgency tiers stop being labels. A character
+        performing a multi-step action is otherwise skipped entirely, so she
+        would be deaf even to someone drawing a blade on her. Only ``critical``
+        buys an interruption: ``direct`` is guaranteed delivery at her next
+        decision point and ``ambient`` waits, neither of which should make her
+        drop what she is holding.
+
+        Reading the queue is enough to know she is busy, but the decision comes
+        from Cognition, which the Host has already committed, so it survives
+        replay. Returning a receipt here also means a critical signal always
+        reaches an activation: the same pending record makes AgentScheduler
+        wake her, so nothing is aborted without a decision replacing it.
+        """
+        cognition = entity.get_component("Cognition")
+        if cognition is None or not hasattr(cognition, "next_pending_attention"):
+            return None
+        kind, attention_id, urgency = cognition.next_pending_attention(current_step)
+        if not attention_id or urgency != "critical":
+            return None
+        return action_queue.preempt(
+            entity.name, reason=f"{kind}:{attention_id}"
+        )
+
     def _visible_ongoing_actions(
         self,
         actor_name: str,
@@ -1112,6 +1169,20 @@ class InputSystem(System):
                 source="timeline",
                 current_step=current_step,
             )
+            self._register_storylet_definition_authorization(
+                context,
+                item.get("storylet_definition"),
+                fallback_id=item.get("commitment_id"),
+                source="timeline",
+                current_step=current_step,
+            )
+            self._register_topology_candidate_authorization(
+                context,
+                item.get("topology_candidate"),
+                fallback_id=item.get("commitment_id"),
+                source="timeline",
+                current_step=current_step,
+            )
 
     def _register_character_entry_authorization(
         self,
@@ -1122,6 +1193,111 @@ class InputSystem(System):
         source: str,
         current_step: int,
     ) -> None:
+        self._register_candidate_authorization(
+            context,
+            raw,
+            fallback_id=fallback_id,
+            source=source,
+            current_step=current_step,
+            authorizations_key="character_spawn_authorizations",
+            error_key="character_entry_authorization_errors",
+        )
+
+    def _register_storylet_definition_authorization(
+        self,
+        context: Dict[str, Any],
+        raw: Any,
+        *,
+        fallback_id: Any,
+        source: str,
+        current_step: int,
+    ) -> None:
+        self._register_candidate_authorization(
+            context,
+            raw,
+            fallback_id=fallback_id,
+            source=source,
+            current_step=current_step,
+            authorizations_key="storylet_definition_authorizations",
+            error_key="storylet_definition_authorization_errors",
+        )
+
+    def _register_topology_candidate_authorization(
+        self,
+        context: Dict[str, Any],
+        raw: Any,
+        *,
+        fallback_id: Any,
+        source: str,
+        current_step: int,
+    ) -> None:
+        self._register_candidate_authorization(
+            context,
+            raw,
+            fallback_id=fallback_id,
+            source=source,
+            current_step=current_step,
+            authorizations_key="topology_candidate_authorizations",
+            error_key="topology_candidate_authorization_errors",
+        )
+
+    def _drain_director_authorizations(
+        self,
+        scene_state: Any,
+        context: Dict[str, Any],
+        current_step: int,
+    ) -> None:
+        """Surface NarrativeDirector-queued authorizations that are due this
+        step into the same per-kind pools ``inject_events``/timeline
+        authorizations land in, so a downstream ``Authority.resolve()`` call
+        cannot tell the difference between the three sources.
+        """
+        if scene_state is None:
+            return
+        for kind, authorizations_key, consumed_flag in (
+            (
+                "character",
+                "character_spawn_authorizations",
+                "consumed_character_entry_authorizations",
+            ),
+            (
+                "storylet_definition",
+                "storylet_definition_authorizations",
+                "consumed_storylet_definition_authorizations",
+            ),
+            (
+                "topology",
+                "topology_candidate_authorizations",
+                "consumed_topology_authorizations",
+            ),
+        ):
+            due = drain_due_director_authorizations(
+                scene_state,
+                kind=kind,
+                consumed_flag=consumed_flag,
+                current_step=current_step,
+            )
+            if due:
+                context.setdefault(authorizations_key, []).extend(deepcopy(due))
+
+    def _register_candidate_authorization(
+        self,
+        context: Dict[str, Any],
+        raw: Any,
+        *,
+        fallback_id: Any,
+        source: str,
+        current_step: int,
+        authorizations_key: str,
+        error_key: str,
+    ) -> None:
+        """Shared plumbing for every narrative-candidate authorization kind.
+
+        Character entries and storylet definitions both get issued the same
+        way -- via ``inject_events``/timeline commitment payloads carrying a
+        kind-specific dict -- and only differ in which pool the resulting
+        authorization lands in.
+        """
         if not isinstance(raw, dict):
             return
         authorization = deepcopy(raw)
@@ -1129,7 +1305,7 @@ class InputSystem(System):
             authorization.get("authorization_id") or fallback_id or ""
         ).strip()
         if not authorization_id:
-            context.setdefault("character_entry_authorization_errors", []).append(
+            context.setdefault(error_key, []).append(
                 f"{source}:missing_authorization_id"
             )
             return
@@ -1140,9 +1316,7 @@ class InputSystem(System):
         # batch reaches Simulation; it does not persist into the next step.
         authorization.setdefault("expires_step", int(current_step) + 20)
         authorization["source"] = source
-        context.setdefault("character_spawn_authorizations", []).append(
-            authorization
-        )
+        context.setdefault(authorizations_key, []).append(authorization)
 
     def _sanitize_auto_intent(self, intent: str, is_player: bool) -> str:
         normalized = " ".join(str(intent or "").split())

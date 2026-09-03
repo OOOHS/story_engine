@@ -2,6 +2,7 @@ from copy import deepcopy
 
 from src.story_engine.components.drama_state import DramaState
 from src.story_engine.components.scene_state import SceneState
+from src.story_engine.environment.world_object_lifecycle import WorldObjectLifecycle
 from src.story_engine.environment.world_transaction import WorldStateTransaction
 from src.story_engine.systems.rendering import RenderingSystem
 
@@ -80,6 +81,39 @@ def test_spawned_object_has_explicit_tangible_identity_and_is_visible():
     assert "密封信" in scene.get_view_pov("甲")["visible_objects"]
     assert "密封信" in scene.get_view_pov("乙")["visible_objects"]
     assert "密封信" not in scene.get_known_locations()
+    audit = scene.get_scene_flag("narrative_candidate_audit")
+    assert audit[-1] == {
+        "kind": "object",
+        "source": "gm",
+        "accepted": True,
+        "reason": "",
+        "candidate_id": "密封信",
+        "step": 0,
+    }
+
+
+def test_rejected_spawn_is_recorded_in_the_shared_candidate_audit_trail():
+    scene = _scene()
+    result = _result(
+        operations=[
+            {
+                "operation": "spawn",
+                "object_id": "旧钥匙",
+                "actor": "甲",
+                "reason": "重复声明已存在的物件",
+                "object_kind": "key",
+            }
+        ]
+    )
+
+    errors = WorldObjectLifecycle().apply(scene, result, current_step=3)
+
+    assert any("cannot spawn existing object" in error for error in errors)
+    audit = scene.get_scene_flag("narrative_candidate_audit")
+    assert audit[-1]["kind"] == "object"
+    assert audit[-1]["accepted"] is False
+    assert "cannot spawn existing object" in audit[-1]["reason"]
+    assert audit[-1]["candidate_id"] == "旧钥匙"
 
 
 def test_pick_up_hide_transfer_and_reveal_are_sequential_world_operations():

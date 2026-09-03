@@ -23,7 +23,7 @@ def create_agent(
     model_config: dict = None,
     is_player: bool = False,
     agent_config: dict = None,
-    activation_policy: str = "auto",
+    activation_policy: str = "background",
     background_interval: int = 3,
     initial_beliefs: list = None,
     initial_secrets: list = None,

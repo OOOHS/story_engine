@@ -227,9 +227,21 @@ class SemanticAuthorityFilter:
         path: str,
         rejected: List[str],
     ) -> None:
-        """Shape and bound director_signals; this is GM-authored content,
-        not a host-owned field, so valid entries are kept (not zeroed) --
-        only malformed or excess entries are dropped.
+        """Shape and bound ``director_signals`` entries.
+
+        This method is shared by two call sites with different upstream
+        realities:
+
+        - The GM/semantic-result path (``SimulationSystem`` sanitizing the
+          resolver's own output): ``SimulationControl._normalize_result``
+          already unconditionally zeroes ``director_signals`` before this
+          filter ever runs, because a GM never gets to author them --
+          only ``NarrativeDirector`` does, strictly *after* world commit.
+          For that path this method is a no-op in practice.
+        - The NarrativeDirector-result path (``SimulationSystem.
+          _run_narrative_director``): here ``director_signals`` genuinely
+          carries director-authored suggestions, so valid entries are kept
+          (not zeroed) -- only malformed or excess entries are dropped.
         """
         raw = container.get("director_signals")
         if raw is None:

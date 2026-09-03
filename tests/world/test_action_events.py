@@ -235,6 +235,122 @@ def test_input_does_not_awaken_agent_while_external_action_is_in_progress():
     assert context["agent_activations"]["甲"]["busy_until"] == 2
 
 
+def test_preempting_an_in_flight_action_voids_it_and_shields_the_next_one():
+    queue = ActionEventQueue()
+    queue.schedule(
+        _proposal("甲", {"kind": "interact", "detail": "撬开旧锁", "target": "旧锁"})
+    )
+
+    receipt = queue.preempt("甲", reason="world_event:alarm-1")
+
+    assert receipt["actor"] == "甲"
+    assert receipt["action_kind"] == "interact"
+    assert receipt["action_target"] == "旧锁"
+    assert receipt["reason"] == "world_event:alarm-1"
+    assert receipt["planned_completion"] == 2
+    # Her own phrasing of what she was doing is not part of the receipt, because
+    # the receipt is what witnesses are allowed to learn.
+    assert "detail" not in receipt and "intent" not in receipt
+    # Conservative settlement: she is free again and the aborted action never
+    # reaches Simulation as a completion, so it yields none of its effects.
+    assert queue.is_busy("甲") is False
+    assert queue.pop_next_batch() == []
+
+    queue.schedule(
+        _proposal("甲", {"kind": "interact", "detail": "再撬一次", "target": "旧锁"})
+    )
+
+    # Whatever she chooses instead runs to the end, so a character standing in a
+    # stream of critical signals still makes progress instead of restarting.
+    assert queue.preempt("甲", reason="world_event:alarm-2") is None
+    assert queue.is_busy("甲") is True
+
+
+def test_preemption_is_undone_by_the_step_checkpoint():
+    queue = ActionEventQueue()
+    queue.schedule(_proposal("甲", {"kind": "interact", "detail": "撬开旧锁"}))
+    checkpoint = queue.checkpoint()
+
+    assert queue.preempt("甲", reason="world_event:alarm-1") is not None
+    queue.restore(checkpoint)
+
+    # A rolled-back step must leave no trace of the abort, including the
+    # immunity it granted -- otherwise a replay would preempt different actions.
+    assert queue.is_busy("甲") is True
+    queue.preempt("甲", reason="world_event:alarm-1")
+    queue.schedule(_proposal("甲", {"kind": "interact", "detail": "再撬一次"}))
+    assert queue.preempt("甲", reason="world_event:alarm-2") is None
+
+
+def _busy_actor_world(*, priority, witness_mode="direct"):
+    queue = ActionEventQueue()
+    queue.schedule(
+        _proposal("甲", {"kind": "interact", "detail": "撬开旧锁", "target": "旧锁"})
+    )
+    registry = AgentRegistry()
+    actor = Entity("甲")
+    actor.add_component(AgentController(runtime="test"))
+    cognition = Cognition()
+    cognition.record_world_event(
+        event_id="alarm-1",
+        statement="警钟骤然响起。",
+        step=0,
+        location="房间",
+        witness_mode=witness_mode,
+        attention_priority=priority,
+    )
+    actor.add_component(cognition)
+    registry.register(actor, Runtime())
+    gm = Entity("GameMaster")
+    gm.add_component(SimulationControl())
+    gm.add_component(
+        SceneState(
+            world_objects={"房间": {}},
+            actor_states={"甲": {"location": "房间"}},
+        )
+    )
+    context = {
+        "action_queue": queue,
+        "agent_registry": registry,
+        "overrides": {},
+        "clock": GameClock(),
+        "player_name": None,
+        "inject_events": [],
+        "intents": [],
+    }
+    return queue, {"GameMaster": gm, "甲": actor}, context
+
+
+def test_critical_signal_interrupts_the_action_a_character_is_in_the_middle_of():
+    queue, entities, context = _busy_actor_world(priority=95)
+
+    InputSystem().update(entities, context)
+
+    # Without this she would be skipped for being busy and stay deaf to an alarm
+    # for the whole duration of her action.
+    assert queue.is_busy("甲") is False
+    # Nothing is aborted without a decision replacing it: the same pending
+    # record that bought the interruption also guarantees the activation.
+    assert context["agent_activations"]["甲"]["active"] is True
+    assert [item["actor"] for item in context["intents"]] == ["甲"]
+    interrupted = context["interrupted_actions"]
+    assert [item["action_kind"] for item in interrupted] == ["interact"]
+    assert interrupted[0]["reason"] == "world_event:alarm-1"
+
+
+def test_non_critical_signal_leaves_a_busy_character_to_finish_her_action():
+    queue, entities, context = _busy_actor_world(priority=50)
+
+    InputSystem().update(entities, context)
+
+    # Ambient and direct news is worth a wake once she is free, never worth
+    # making her drop what she is holding.
+    assert queue.is_busy("甲") is True
+    assert context["intents"] == []
+    assert context["interrupted_actions"] == []
+    assert context["agent_activations"]["甲"]["reason"] == "action_in_progress"
+
+
 def test_perception_exposes_ongoing_action_shape_without_private_detail_or_hidden_target():
     queue = ActionEventQueue()
     public = _proposal(

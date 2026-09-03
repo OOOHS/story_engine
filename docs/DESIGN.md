@@ -152,6 +152,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - GM 输出的 `storylet_hits` 属于越权声明，会被统一过滤
 - 不替角色选择行动，不直接修改世界
 - 作为 Simulation 的独立服务，避免主系统继续膨胀
+- `scenario.storylets` 只是静态起点；`resolve()` 会额外合并 `scene_state.dynamic_storylets`（`StoryletDefinitionLifecycle` 提交的运行时新增定义），`consumable_hits()` 也会从当轮 `active_storylets` 回读动态条目的 `one_shot` 语义，因为动态 storylet 从不进入 `scenario.storylets`。动态 storylet 定义走"叙事候选注册"一节所述的预授权链路，命中/消费检测本身（`detect_hits`/`consumable_hits`）不受影响——那是纯粹的事后推导，不是候选
 
 ### TimelineEngine
 
@@ -202,7 +203,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 单边整件交付用 `interact(target, delivery_recipient)`：发送者必须持有公开 portable 对象，接收者当前可见；语义层正向结算后 `ObjectDeliveryResolver` 覆盖该对象的 GM lifecycle 写入并生成 exact relocate。部分数量、互换与付款不走该捷径，继续要求双方 proposal
 - public scene flag 与 Timeline day-phase transition 会生成 `scope=scene,target=scene,path=scene_flags.<field>` impacts，并向现存角色投递一次环境观察；私有 flag、phase_turn、schedule 和消费账本不生成 Event
 - 现场见证者获得私有 event belief 与 passive experience；缺席者只在自己真实所在地获得 self experience，不会被伪装成曾在会场
-- 每个首次获知的 event id 进入角色私有 pending observation 队列；离屏 auto/background Agent 会被唤醒一次，runtime 成功收到完整 perception 后才由宿主确认处理
+- 每个首次获知的 event id 进入角色私有 pending observation 队列；离屏 background Agent 会被唤醒一次，runtime 成功收到完整 perception 后才由宿主确认处理
 - pending observation 不是简单 FIFO。宿主为每条刺激保存不进入 Agent prompt 的 `priority + step + stable id` attention record：销毁/警报/缺席高于普通对象变化，普通移动和时间阶段较低；道歉、解释、指控等 response 与 WorldEvent 在同一个选择边界比较。容量截断保留最高优先级记录，同级按新鲜度和稳定 id 重放；Agent 只看到排序后的真实 id，不看到数值
 - Scheduler 的唤醒原因、AgentPerception 中最多二十条待处理刺激和成功决策后的 acknowledge 使用同一个排序 view，避免“按最旧事件唤醒、却交付并消费最新事件”的错位
 - 每条首次出现的 `source->target:response_kind` 也生成稳定 event-response attention id。它与原 event knowledge 分开消费，因此已知事故上的新道歉、解释或指控仍会唤醒接收者
@@ -261,17 +262,31 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 一批 social impacts 在副本上统一验证，任一非法则不发布其中任何感受或关系沉淀
 - Sentiment 的来源由宿主改写为已验证的 `resolved_action`；模型自报的 `source_event` 不进入权威状态。由 Sentiment 沉淀的有向 Track 同时保存该 Sentiment 的规范引用，供 Episode 还原“行为 → 感受 → 长期关系 → 后续目标”链
 
+### 叙事候选注册（NarrativeCandidate pipeline）
+
+四类"新内容进入世界"——动态角色、动态对象、动态 Storylet 定义、动态拓扑（新增 location）——共享同一条候选注册链路，而不是四套互相独立的临时逻辑：
+
+- `narrative_candidates.py` 提供跨 kind 的共享骨架：`NarrativeCandidateAuthority` 统一处理"授权信封"本身（authorization_id 唯一性、一次性消费账本、`not_before/expires` 时间窗），`CandidateLedger` 统一处理"动态名字/ID 账本"（去重、容量上限、写回 scene flag），`record_candidate_audit` 把每条候选的裁决（接受/拒绝及原因）落入统一的 `narrative_candidate_audit` scene flag，供 Episode/Debug 回放。四个 kind 各自的字段 schema 与治理松紧度保持独立，只共享这层信封与账本代码。
+- 各 kind 的治理严格度不统一，且刻意保留差异：
+  - **角色**（`CharacterEntryAuthority`/`CharacterLifecycle`）与**Storylet 定义**（`StoryletDefinitionAuthority`/`StoryletDefinitionLifecycle`）与**拓扑新增**（`TopologyCandidateAuthority`/`TopologyCandidateLifecycle`）都要求宿主先签发一次性 `authorization_id`（通过 `inject_events` 或 Timeline commitment 到期），GM 必须引用它才能兑现；无授权的请求只留审计记录，不进入生命周期。这三者都是永久性结构改动，因此按"角色"那一档从严治理。
+  - **对象**（`WorldObjectLifecycle._spawn`）保持无需预授权的自由声明，只做 `max_dynamic_world_objects` 容量上限与字段合法性校验；这不是遗漏，是刻意保留的较松治理档。
+- 每个 kind 都走同一个三段生命周期，与 `WorldStateTransaction` 的整体原子性契合：
+  1. `resolve()`：校验授权/请求信封，产出 `*Resolution`（含拒绝原因列表）。
+  2. `prepare()` → `stage()`：在候选 SceneState 副本上构造并暂存新内容（新增 actor body / world object / `dynamic_storylets` 条目 / 拓扑节点），不改变已发布的权威状态；失败时授权不会被消耗。
+  3. `WorldStateTransaction.commit()` 原子提交或整体回滚；只有角色 kind 在提交成功后还有 `finalize()`（注册 live runtime、公开 Entity），其余三个 kind 提交成功即完成，没有额外 finalize 副作用。
+- `NarrativeDirector` 是候选的第三个来源（另两个是 `inject_events` 与 Timeline commitment），但它严格运行在本步世界提交**之后**，从不直接创造世界事实：它输出的 `narrative_candidates` 会被 `queue_director_authorization` 排队为**下一步**生效的预授权（写入 `pending_narrative_director_authorizations` scene flag），`InputSystem` 在下一步开始时通过 `drain_due_director_authorizations` 把到期且未消费的授权注入对应 kind 的 `*_authorizations` 池，走和 `inject_events`/Timeline commitment 完全相同的兑现路径。`NarrativeDirector` 每步最多提议 `MAX_CANDIDATES_PER_TICK` 条候选，且只能是 `character`/`storylet_definition`/`topology` 三种 kind（对象仍是自由声明，不需要也不接受 Director 预授权）。
+
 ### CharacterLifecycle
 
 - 初始内容加载与动态出生共享同一个三方不变量：每个 `SceneState.actor_states` 行为主体必须有同名 ECS Entity、AgentController 和 live AgentRegistry runtime；每个 Agent Entity 也必须有位于已知地点的 Scene body。该不变量由 AgentRegistry 注册入口和所有含 SceneState 的 Runner step 共同强制，不依赖标准内容加载器
 - 动态出生者本轮的观察窗口显式标记为尚未存在；它可以读取提交后的当前状态，但不会被同地点回退逻辑补成出生前行动、交换、知识传播或社会后果的见证者
 - `ScenarioConfig.characters` 与 `initial_actor_states` 在 Session bootstrap 时必须一一对应；无 Agent 的 actor body、无 body 的 Agent、重复角色名和未知初始地点均在创建 GM/Entity 前拒绝
 - 正式 Session 每步在任何 Host mutation、时间推进或 Agent perception 之前重新审计绑定；运行时被意外注销、Entity 被替换或 Scene body 脱离时整步 fail closed
-- 动态出生前必须由宿主 `inject_events` 或 Timeline commitment 签发一次性 Character Entry Authorization；无授权 GM 请求只留下审计记录，不进入生命周期
+- 动态出生前必须由宿主 `inject_events` 或 Timeline commitment 签发一次性 Character Entry Authorization（或 NarrativeDirector 排队的下一步预授权）；无授权 GM 请求只留下审计记录，不进入生命周期。授权信封本身（唯一性、消费账本、时间窗）由共享的 `NarrativeCandidateAuthority` 校验，见"叙事候选注册"一节
 - 授权固定 name、role、location、initial_state 和私有初始结构；`profile_mode=semantic` 最多允许 GM 补充 personality 与自然语言 goals，不能改写权威出生事实
 - 动态人物必须同时进入 Entity 集合、权威 `SceneState.actor_states` 和 `AgentRegistry`
 - `prepare` 只验证请求、净化字段并构造尚未发布的 Entity，不修改 ECS、世界或注册表
-- `stage` 将候选 actor body、`dynamic_character_names` 和 consumed authorization id 写入事务副本，使新人物可以参与同轮对象、关系和 宏剧情 因果校验，失败时授权也不会被消耗
+- `stage` 将候选 actor body、`dynamic_character_names` 和 consumed authorization id 写入事务副本，使新人物可以参与同轮对象、关系和 宏剧情 因果校验，失败时授权也不会被消耗；名字账本与消费账本复用共享的 `CandidateLedger`
 - 世界事务成功后才执行 `finalize`：先创建并确认 live runtime 注册，再公开 ECS Entity
 - runtime factory、注册回调或注册确认失败时，先注销残留 runtime 和 Entity，再通过事务 checkpoint 恢复 Scene、宏剧情、Drama 与 Relationship
 - 出生失败会把整轮结算转换为 transaction rejection，Rendering 不会继续描述一个未实际存在的人物
@@ -296,9 +311,10 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 放入和取出要求所有相关容器已打开；关闭的不透明容器遮蔽内容，关闭的透明容器允许看见但不允许直接操作。任何自包含、循环引用、容量超限或缺失容器都会使整轮事务回滚
 - 容量按直接 child 的 `container_size * quantity` 计算，避免嵌套内容在多层重复占用；非空容器不能直接销毁或消耗
 - 非便携对象不能由普通角色搬动；对象不能借生命周期接口伪装成地点、修改空间图或覆盖保留字段
-- `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本
+- `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本；名字账本复用共享的 `CandidateLedger`，且无需 authorization_id 即可自由声明（与角色/Storylet 定义/拓扑三个需要预授权的 kind 形成刻意的治理差异，见"叙事候选注册"一节）
 - 隐藏对象只进入所有者自己的 POV；其他同场角色和 Rendering 都不会收到其生命周期 payload 或普通属性更新
 - 生命周期先在候选 SceneState 上执行，因此对象所有权、位置和存在性可以直接影响后续 Storylet 条件
+- 每次 `spawn` 的接受/拒绝结果都会写入统一的 `narrative_candidate_audit` 账本（`kind="object"`），与其余三个候选 kind 共享同一份审计记录
 
 ### DriveState 与 NeedDynamics
 
@@ -314,7 +330,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - `drive_updates` 不进入玩家 Rendering payload；角色只能在下一轮通过自己的私有 DriveState 感知压力变化
 - 每个 need 保存一个有界的宿主 provenance ledger：对象 affordance 与显式社会/环境压力指向已验证 `resolved_action`，自然漂移指向 clock step。ledger 不进入 `private_drives`，只用于回滚、重放和 Episode 因果审计
 - `NeedDynamics` 会从当前可见对象生成 affordance opportunity，按角色当前 pressure 与 relief 强度排序，但该分数只影响 Agent 判断，不改写 proposal
-- 普通 auto/background 角色的 need 达到 critical threshold 时，`AgentScheduler` 会立即给予一次 background 激活；显式 dormant 仍保持人工控制边界
+- 普通 background 角色的 need 达到 critical threshold 时，`AgentScheduler` 会立即给予一次 background 激活；`autonomous=False` 仍保持人工控制边界
 
 示例内容定义：
 

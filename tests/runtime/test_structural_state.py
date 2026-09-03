@@ -878,7 +878,7 @@ def _dormant_nonplayer_web_agents(adapter):
     for name, entity in adapter._session.entities.items():
         controller = entity.get_component("AgentController")
         if controller is not None and name != player:
-            controller.activation_policy = "dormant"
+            controller.autonomous = False
 
 
 def test_web_history_marks_authoritative_rollback_instead_of_fake_story_turn():

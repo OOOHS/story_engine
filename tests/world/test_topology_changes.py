@@ -48,8 +48,8 @@ def _register_scene_actors(runner: Runner, scene: SceneState) -> None:
             "旅行者",
             "平静",
             [],
-            activation_policy="dormant",
         agent_runtime="llm")
+        actor.get_component("AgentController").autonomous = False
         runner.add_entity(actor)
         runner.agent_registry.register(actor, object())
 

@@ -7,9 +7,9 @@ import pytest
 from src.story_engine.agents import (
     AgentPerception,
     HermesCharacterAgent,
-    SubjectInbox,
     SubjectLedgerProjector,
     SubjectMessage,
+    build_subject_messages,
 )
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.commitment import commit_runtime_action
@@ -19,31 +19,85 @@ from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.memory import MemorySystem
 
 
-
-
-def test_subject_inbox_deduplicates_and_acknowledges_messages():
-    inbox = SubjectInbox()
-    message = SubjectMessage(
-        message_id="evt-1",
-        kind="stimulus",
-        step=4,
-        payload={"result": "有人打开了门。"},
-        priority=80,
+def test_build_subject_messages_tags_urgency_from_cognition_records():
+    perception = AgentPerception(
+        actor_name="伊芙",
+        step=6,
+        private_cognition={
+            "pending_world_event_records": [
+                {
+                    "event_id": "obligation:breach",
+                    "statement": "关键交付已经违约。",
+                    "confidence": 1.0,
+                    "updated_step": 6,
+                    "urgency": "critical",
+                },
+                {
+                    "event_id": "movement:同事",
+                    "statement": "同事走进了房间。",
+                    "confidence": 1.0,
+                    "updated_step": 5,
+                    "urgency": "ambient",
+                },
+            ],
+            "pending_event_response_records": [
+                {
+                    "response_id": "event-response:evt:甲->伊芙:apologize",
+                    "event_id": "evt",
+                    "source": "甲",
+                    "response_kind": "apologize",
+                    "statement": "甲向伊芙道歉。",
+                    "step": 6,
+                    "urgency": "direct",
+                },
+            ],
+        },
     )
 
-    assert inbox.deliver(message) is True
-    assert inbox.deliver(message) is False
-    assert [item.message_id for item in inbox.pending()] == ["evt-1"]
+    messages = build_subject_messages(perception)
 
-    inbox.acknowledge(["evt-1"])
+    by_ref = {item.source_ref: item for item in messages}
+    assert by_ref["obligation:breach"].kind == "stimulus"
+    assert by_ref["obligation:breach"].urgency == "critical"
+    assert by_ref["movement:同事"].urgency == "ambient"
+    assert (
+        by_ref["event-response:evt:甲->伊芙:apologize"].kind
+        == "active_observation_result"
+    )
+    assert by_ref["event-response:evt:甲->伊芙:apologize"].urgency == "direct"
+    # urgency is Cognition-internal scheduling metadata, not something the
+    # subject-facing payload should carry twice (it is already the top-level tag).
+    assert "urgency" not in by_ref["obligation:breach"].payload
 
-    assert inbox.pending() == ()
-    assert inbox.deliver(message) is False
-    assert inbox.snapshot()["acknowledged_count"] == 1
+
+def test_build_subject_messages_is_idempotent_across_a_failed_retry():
+    """No inbox is needed: the same still-pending Cognition records always
+    reproduce the identical message set until the caller actually acks them."""
+
+    perception = AgentPerception(
+        actor_name="伊芙",
+        step=6,
+        private_cognition={
+            "pending_world_event_records": [
+                {
+                    "event_id": "obligation:breach",
+                    "statement": "关键交付已经违约。",
+                    "confidence": 1.0,
+                    "updated_step": 6,
+                    "urgency": "critical",
+                },
+            ],
+        },
+    )
+
+    first_attempt = build_subject_messages(perception)
+    second_attempt = build_subject_messages(perception)
+    assert [item.to_dict() for item in first_attempt] == [
+        item.to_dict() for item in second_attempt
+    ]
 
 
 def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas():
-    inbox = SubjectInbox()
     projector = SubjectLedgerProjector()
     perception = AgentPerception(
         actor_name="伊芙",
@@ -82,9 +136,9 @@ def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas(
         current_plan="Host 不应镜像 Hermes 的计划",
     )
 
-    projector.project(inbox, perception)
+    initial = projector.project(perception)
+    projector.commit()
 
-    initial = inbox.pending(limit=100)
     categories = {
         item.payload.get("category")
         for item in initial
@@ -103,9 +157,7 @@ def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas(
     assert "Host 检索出的整段回忆不应投递" not in encoded
     assert "host-feeling" not in encoded
 
-    inbox.acknowledge(item.message_id for item in initial)
-    projector.project(inbox, perception)
-    assert inbox.pending() == ()
+    assert projector.project(perception) == []
 
     changed = replace(
         perception,
@@ -117,8 +169,7 @@ def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas(
         },
         private_goals={"active": [], "recent_history": []},
     )
-    projector.project(inbox, changed)
-    delta = inbox.pending(limit=100)
+    delta = projector.project(changed)
     assert any(
         item.kind == "ledger_update"
         and item.payload.get("category") == "drive_signal"
@@ -131,6 +182,89 @@ def test_subject_ledger_projects_only_host_verifiable_private_records_as_deltas(
         and item.payload.get("ref") == "goal-letter"
         for item in delta
     )
+
+
+def test_subject_ledger_retries_a_failed_turn_without_double_incrementing():
+    """If a turn fails before commit(), the next project() call must recompute
+    the identical messages (same revision, same message_id) rather than
+    treating the never-committed digest as already delivered."""
+
+    projector = SubjectLedgerProjector()
+    perception = AgentPerception(
+        actor_name="伊芙",
+        step=3,
+        private_goals={
+            "active": [{"goal_id": "goal-letter", "title": "查明信件去向"}],
+            "recent_history": [],
+        },
+    )
+
+    first_attempt = projector.project(perception)
+    # Simulate a failed subject turn: commit() is never called.
+    second_attempt = projector.project(perception)
+
+    assert [item.to_dict() for item in first_attempt] == [
+        item.to_dict() for item in second_attempt
+    ]
+    assert all(item.payload.get("revision") == 1 for item in second_attempt)
+
+    projector.commit()
+    third_attempt = projector.project(perception)
+    assert third_attempt == []
+
+
+def test_subject_ledger_pov_snapshot_only_resends_on_bootstrap_location_change_or_dormancy():
+    projector = SubjectLedgerProjector()
+
+    def perception_at(step, location):
+        return AgentPerception(
+            actor_name="伊芙",
+            step=step,
+            self_state={"location": location, "health": "healthy"},
+            world_view={"visible_actors": ["甲"]},
+        )
+
+    bootstrap_messages = projector.project(perception_at(0, "客厅"), bootstrap=True)
+    pov = [
+        item for item in bootstrap_messages
+        if item.payload.get("category") == "pov_snapshot"
+    ]
+    assert len(pov) == 1
+    # A POV snapshot is a Host-verifiable ledger record: its delivery timing
+    # is structural (bootstrap/location-change/dormant-refresh), not
+    # priority-driven, so it carries no urgency tag at all.
+    assert pov[0].urgency is None
+    assert pov[0].payload["reason"] == "bootstrap"
+    assert pov[0].payload["record"]["self_body"]["location"] == "客厅"
+    projector.commit()
+
+    # Same location, only a couple of steps later: no snapshot resend needed.
+    quiet_messages = projector.project(perception_at(2, "客厅"))
+    assert not any(
+        item.payload.get("category") == "pov_snapshot" for item in quiet_messages
+    )
+
+    # Location changed: forces a fresh snapshot even though it is not bootstrap.
+    moved_messages = projector.project(perception_at(3, "厨房"))
+    moved_pov = [
+        item for item in moved_messages
+        if item.payload.get("category") == "pov_snapshot"
+    ]
+    assert len(moved_pov) == 1
+    assert moved_pov[0].urgency is None
+    assert moved_pov[0].payload["reason"] == "location_changed"
+    projector.commit()
+
+    # Long dormancy without a location change also forces a fresh snapshot.
+    dormant_messages = projector.project(
+        perception_at(3 + SubjectLedgerProjector.POV_DORMANT_STEPS, "厨房")
+    )
+    dormant_pov = [
+        item for item in dormant_messages
+        if item.payload.get("category") == "pov_snapshot"
+    ]
+    assert len(dormant_pov) == 1
+    assert dormant_pov[0].payload["reason"] == "dormant_refresh"
 
 
 
@@ -195,6 +329,11 @@ def _deliberation():
 
 
 def test_hermes_subject_keeps_messages_pending_when_turn_fails():
+    """No inbox exists anymore: the caller (InputSystem) only acks Cognition's
+    pending_world_events/pending_event_responses after decide() returns
+    without raising, so a perception built from still-pending Cognition
+    records is, by construction, resent verbatim on the next retry."""
+
     entity = create_agent(
         name="伊芙",
         role="调查者",
@@ -202,18 +341,25 @@ def test_hermes_subject_keeps_messages_pending_when_turn_fails():
         goals=[],
         agent_runtime="hermes",
     )
-    conversation = _SubjectConversation(entity.id, [RuntimeError("runtime failed")])
+    retry_response = {"action": "检查信封上的蜡印。"}
+    conversation = _SubjectConversation(
+        entity.id, [RuntimeError("runtime failed"), retry_response]
+    )
     runtime = HermesCharacterAgent(
         conversation_factory=lambda _entity, _config: conversation
     )
     perception = AgentPerception(
         actor_name="伊芙",
         step=4,
-        passive_observations=[{
-            "event_id": "evt-envelope",
-            "observed_step": 4,
-            "result": "你看见信封被交出。",
-        }],
+        private_cognition={
+            "pending_world_event_records": [{
+                "event_id": "evt-envelope",
+                "statement": "你看见信封被交出。",
+                "confidence": 1.0,
+                "updated_step": 4,
+                "urgency": "critical",
+            }],
+        },
     )
 
     with pytest.raises(RuntimeError, match="runtime failed"):
@@ -221,9 +367,20 @@ def test_hermes_subject_keeps_messages_pending_when_turn_fails():
 
     snapshot = runtime.subject_snapshot(entity)
     assert snapshot["bootstrapped"] is False
-    assert [item["message_id"] for item in snapshot["inbox"]["pending"]] == [
-        "evt-envelope"
+
+    # The Cognition-owned pending record is untouched by the failed attempt,
+    # so calling decide() again with the same perception must resend the
+    # identical stimulus message rather than treating it as already sent.
+    runtime.decide(entity, perception)
+    stimulus_messages = [
+        item
+        for item in conversation.packets[-1]["critical_signals"]
+        if item["kind"] == "stimulus"
     ]
+    assert [item["message_id"] for item in stimulus_messages] == [
+        "stimulus:evt-envelope"
+    ]
+    assert stimulus_messages[0]["urgency"] == "critical"
 
 
 def test_hermes_subject_keeps_mind_private_but_can_register_a_goal_watch():
@@ -292,7 +449,16 @@ def test_hermes_subject_keeps_mind_private_but_can_register_a_goal_watch():
     assert "host-emotion-marker" not in packet_text
     assert "host-memory-marker" not in packet_text
     assert "host-plan-marker" not in packet_text
-    assert conversation.packets[0]["wake"]["body"] == {
+    assert "body" not in conversation.packets[0]["wake"]
+    assert "visible_world" not in conversation.packets[0]["wake"]
+    pov_messages = [
+        item
+        for item in conversation.packets[0]["messages"]
+        if item["payload"].get("category") == "pov_snapshot"
+    ]
+    assert len(pov_messages) == 1
+    assert "urgency" not in pov_messages[0]
+    assert pov_messages[0]["payload"]["record"]["self_body"] == {
         "location": "会客厅",
         "capabilities": ["观察"],
     }

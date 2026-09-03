@@ -449,7 +449,7 @@ def test_new_response_to_already_known_event_wakes_recipient_once():
         has_manual_override=False,
     )
     assert activation.active is True
-    assert activation.reason == f"event_response:{response_id}"
+    assert activation.reason == f"urgent:event_response:{response_id}"
 
     recipient.acknowledge_event_responses()
     CognitionSystem().update(entities, transfer)

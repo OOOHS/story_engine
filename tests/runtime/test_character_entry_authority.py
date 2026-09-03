@@ -328,8 +328,8 @@ def test_runner_carries_entry_capability_across_discrete_action_completion():
         "在场者",
         "平静",
         [],
-        activation_policy="dormant",
     agent_runtime="llm")
+    player.get_component("AgentController").autonomous = False
     runner.add_entity(player)
     runner.agent_registry.register(player, object())
     authorization = _authorization(profile_mode="semantic")

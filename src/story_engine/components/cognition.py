@@ -15,6 +15,11 @@ class AttentionRecord(BaseModel):
     kind: Literal["world_event", "event_response"]
     priority: int = Field(default=50, ge=0, le=100)
     step: int = 0
+    # True only for a world_event this actor personally caused or
+    # experienced (witness_mode == "self"), never for something merely
+    # witnessed or reported. Drives the "direct" urgency tier independent of
+    # the event's own severity -- see HostAttentionPolicy.message_urgency.
+    self_witnessed: bool = False
 
 
 class Cognition(Component):
@@ -40,19 +45,91 @@ class Cognition(Component):
     event_response_attention: Dict[str, AttentionRecord] = Field(default_factory=dict)
 
     def get_private_snapshot(self, current_step: int | None = None) -> Dict[str, Any]:
+        resolved_step = self._resolved_step(current_step)
+        ranked_events = self._ranked_world_events(current_step)[:ATTENTION_DELIVERY_LIMIT]
+        ranked_responses = self._ranked_event_responses(current_step)[
+            :ATTENTION_DELIVERY_LIMIT
+        ]
         return {
             "beliefs": deepcopy(self.beliefs[-40:]),
             "secrets": list(self.secrets[-20:]),
             "commitments": list(self.commitments[-20:]),
             "current_focus": self.current_focus,
             "recent_experiences": deepcopy(self.experiences[-20:]),
-            "pending_world_events": list(
-                self._ranked_world_events(current_step)[:ATTENTION_DELIVERY_LIMIT]
-            ),
-            "pending_event_responses": list(
-                self._ranked_event_responses(current_step)[:ATTENTION_DELIVERY_LIMIT]
-            ),
+            "pending_world_events": list(ranked_events),
+            "pending_event_responses": list(ranked_responses),
+            # Full-detail, ranked counterparts of the two id lists above so a
+            # subject runtime can build its own stimulus/response messages
+            # directly from this one ledger instead of reconstructing them
+            # from the recent_experiences sliding window.
+            "pending_world_event_records": [
+                self._world_event_record(event_id, resolved_step)
+                for event_id in ranked_events
+            ],
+            "pending_event_response_records": [
+                self._event_response_record(response_id, resolved_step)
+                for response_id in ranked_responses
+            ],
         }
+
+    def _world_event_record(self, event_id: str, current_step: int) -> Dict[str, Any]:
+        belief = next(
+            (
+                item
+                for item in reversed(self.beliefs)
+                if isinstance(item, dict)
+                and self._clean_text(item.get("event_id"), 180) == event_id
+            ),
+            None,
+        )
+        urgency = HostAttentionPolicy.message_urgency(
+            "world_event", self.world_event_attention.get(event_id), current_step
+        )
+        return {
+            "event_id": event_id,
+            "statement": belief.get("statement", "") if belief else "",
+            "confidence": belief.get("confidence", 1.0) if belief else 1.0,
+            "updated_step": int(
+                belief.get("updated_step", current_step) if belief else current_step
+            ),
+            "urgency": urgency,
+        }
+
+    def _event_response_record(
+        self, response_id: str, current_step: int
+    ) -> Dict[str, Any]:
+        raw = self.response_record(response_id)
+        urgency = HostAttentionPolicy.message_urgency(
+            "event_response",
+            self.event_response_attention.get(response_id),
+            current_step,
+        )
+        record = self.event_response_attention.get(response_id)
+        return {
+            "response_id": response_id,
+            "event_id": raw.get("event_id", ""),
+            "source": raw.get("actor", ""),
+            "response_kind": raw.get("response_kind", ""),
+            "statement": raw.get("result", ""),
+            "step": int(getattr(record, "step", current_step) or current_step),
+            "urgency": urgency,
+        }
+
+    def response_record(self, response_id: Any) -> Dict[str, Any]:
+        """Return the recorded experience event for one event_response, if any."""
+        key = self._clean_text(response_id, max_len=260)
+        if not key:
+            return {}
+        for experience in reversed(self.experiences):
+            if not isinstance(experience, dict):
+                continue
+            for event in experience.get("events", []):
+                if (
+                    isinstance(event, dict)
+                    and self._clean_text(event.get("response_id"), 260) == key
+                ):
+                    return dict(event)
+        return {}
 
     def record_experience(self, step: int, events: List[Dict[str, Any]]) -> None:
         cleaned_events = []
@@ -191,6 +268,7 @@ class Cognition(Component):
                 kind="world_event",
                 priority=self._priority(attention_priority),
                 step=int(step),
+                self_witnessed=witness_mode == "self",
             )
             self._reorder_attention(current_step=int(step))
         self.record_experience(
@@ -222,7 +300,19 @@ class Cognition(Component):
 
     def next_pending_attention(
         self, current_step: int | None = None
-    ) -> tuple[str, str]:
+    ) -> tuple[str, str, str]:
+        """Return ``(kind, attention_id, urgency)`` for the highest-ranked
+        pending item, or ``("", "", "")`` if none is pending.
+
+        ``urgency`` (``"critical"``/``"direct"``/``"ambient"``) lets callers
+        decide how far to go to deliver this item: ``critical`` earns both an
+        off-schedule wake and the abort of whatever multi-step action the actor
+        is in the middle of, ``direct`` earns the wake alone, and ``ambient``
+        waits in the ranked queue for her next activation. The decision itself
+        lives entirely in ``HostAttentionPolicy.message_urgency``; the two
+        callers acting on it are ``AgentScheduler`` (wake) and ``InputSystem``
+        (preempt).
+        """
         ranked = HostAttentionPolicy.combined_ranked(
             [
                 (
@@ -238,7 +328,34 @@ class Cognition(Component):
             ],
             current_step=current_step,
         )
-        return ranked[0] if ranked else ("", "")
+        if not ranked:
+            return "", "", ""
+        kind, attention_id = ranked[0]
+        records = (
+            self.world_event_attention
+            if kind == "world_event"
+            else self.event_response_attention
+        )
+        urgency = HostAttentionPolicy.message_urgency(
+            kind,
+            records.get(attention_id),
+            self._resolved_step(current_step),
+        )
+        return kind, attention_id, urgency
+
+    def _resolved_step(self, current_step: int | None) -> int:
+        if current_step is not None:
+            return int(current_step)
+        return max(
+            (
+                int(getattr(record, "step", 0) or 0)
+                for record in (
+                    *self.world_event_attention.values(),
+                    *self.event_response_attention.values(),
+                )
+            ),
+            default=0,
+        )
 
     def acknowledge_world_events(self, event_ids: List[str] | None = None) -> None:
         if event_ids is None:

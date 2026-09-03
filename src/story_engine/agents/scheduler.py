@@ -30,9 +30,7 @@ class AgentScheduler:
         if controller and not controller.autonomous:
             return AgentActivation(False, "dormant", "autonomy_disabled")
 
-        policy = str(getattr(controller, "activation_policy", "auto"))
-        if policy == "dormant":
-            return AgentActivation(False, "dormant", "policy_dormant")
+        policy = str(getattr(controller, "activation_policy", "background"))
         if is_player or policy == "foreground":
             return AgentActivation(True, "foreground", "player_or_foreground_policy")
         if player_location is None:
@@ -43,16 +41,21 @@ class AgentScheduler:
         if self._has_local_world_signal(actor_location, proposals):
             return AgentActivation(True, "background", "local_world_signal")
 
-        attention_kind, attention_id = self._pending_attention(entity, step)
-        if policy in {"auto", "background"} and attention_id:
+        # Every branch below only runs with policy == "background": the
+        # foreground/is_player/no_player_viewpoint/shares_player_location
+        # checks above already returned for anything else.
+        attention_kind, attention_id, attention_urgency = self._pending_attention(
+            entity, step
+        )
+        if attention_id and attention_urgency in {"critical", "direct"}:
             return AgentActivation(
                 True,
                 "background",
-                f"{attention_kind}:{attention_id}",
+                f"urgent:{attention_kind}:{attention_id}",
             )
 
         navigation_problem = self._navigation_problem(entity)
-        if policy in {"auto", "background"} and navigation_problem:
+        if navigation_problem:
             return AgentActivation(
                 True,
                 "background",
@@ -60,7 +63,7 @@ class AgentScheduler:
             )
 
         urgent_schedule = self._urgent_schedule(entity.name, step, scene_state)
-        if policy in {"auto", "background"} and urgent_schedule:
+        if urgent_schedule:
             return AgentActivation(
                 True,
                 "background",
@@ -68,7 +71,7 @@ class AgentScheduler:
             )
 
         critical_need = self._critical_need(entity)
-        if policy in {"auto", "background"} and critical_need:
+        if critical_need:
             return AgentActivation(
                 True,
                 "background",
@@ -76,7 +79,7 @@ class AgentScheduler:
             )
 
         continuation_goal = self._continuation_goal(entity, step, scene_state)
-        if policy in {"auto", "background"} and continuation_goal:
+        if continuation_goal:
             return AgentActivation(
                 True,
                 "background",
@@ -84,7 +87,7 @@ class AgentScheduler:
             )
 
         interval = max(1, int(getattr(controller, "background_interval", 3) or 3))
-        if policy in {"auto", "background"} and self._is_scheduled(entity.name, step, interval):
+        if self._is_scheduled(entity.name, step, interval):
             return AgentActivation(True, "background", "background_tick")
         return AgentActivation(False, "dormant", "not_scheduled")
 
@@ -133,16 +136,23 @@ class AgentScheduler:
         return str(cognition.next_pending_event_response() or "")
 
     @staticmethod
-    def _pending_attention(entity: Entity, current_step: int) -> tuple[str, str]:
+    def _pending_attention(
+        entity: Entity, current_step: int
+    ) -> tuple[str, str, str]:
         cognition = entity.get_component("Cognition")
         if cognition and hasattr(cognition, "next_pending_attention"):
-            kind, attention_id = cognition.next_pending_attention(current_step)
-            return str(kind or ""), str(attention_id or "")
+            kind, attention_id, urgency = cognition.next_pending_attention(
+                current_step
+            )
+            return str(kind or ""), str(attention_id or ""), str(urgency or "")
+        # Legacy fallback for cognition doubles that only expose the older
+        # single-queue accessors with no urgency classification: treat any
+        # hit as forcing a wake so their behavior is unchanged.
         if event_id := AgentScheduler._pending_world_event(entity):
-            return "world_event", event_id
+            return "world_event", event_id, "direct"
         if response_id := AgentScheduler._pending_event_response(entity):
-            return "event_response", response_id
-        return "", ""
+            return "event_response", response_id, "direct"
+        return "", "", ""
 
     @staticmethod
     def _navigation_problem(entity: Entity) -> str:

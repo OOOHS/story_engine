@@ -295,6 +295,18 @@ class WorldEventSystem(System):
                 observation_windows=observation_windows,
             )
         )
+        # Not gated on the state transaction: the abort already happened in the
+        # Input phase and produced no state change to commit, so the fact holds
+        # whether or not the semantic transaction lands. A rolled-back step
+        # discards this context and restores the queue together.
+        candidates.extend(
+            self._interrupted_action_events(
+                context.get("interrupted_actions", []),
+                scene_state,
+                current_step=self._step(context),
+                observation_windows=observation_windows,
+            )
+        )
         candidates.extend(
             timeline.get("attendance_events", [])
             if isinstance(timeline, dict)
@@ -824,6 +836,80 @@ class WorldEventSystem(System):
             )
         return events
 
+    def _interrupted_action_events(
+        self,
+        interrupted: Any,
+        scene_state: Any,
+        *,
+        current_step: int,
+        observation_windows: Any = None,
+    ) -> List[Dict[str, Any]]:
+        """Project aborted in-flight actions as facts other characters can see.
+
+        An interruption is settled conservatively -- the action yields none of
+        its intended effects -- so this event is the only trace it leaves. It
+        still has to exist: otherwise a character who broke off mid-search would
+        look, to everyone standing next to her, as though she had never started,
+        and no one could later hold her to having stopped.
+
+        Only the outward action kind and target are stated. Witnesses of a
+        multi-step action are never entitled to the actor's own phrasing of what
+        she was doing, and the receipt from ActionEventQueue.preempt already
+        excludes it.
+
+        ``self_attention`` is off: the interrupted actor is being handed the
+        critical signal that caused this in the very same step, so queueing her
+        own interruption back to her would only be noise.
+        """
+        events = []
+        for index, record in enumerate(list(interrupted or [])):
+            if not isinstance(record, dict):
+                continue
+            actor = self._text(record.get("actor"), 120)
+            if not actor:
+                continue
+            kind = self._text(record.get("action_kind"), 40)
+            target = self._text(record.get("action_target"), 120)
+            location = self._text(record.get("location"), 160)
+            descriptor = f"{kind or 'action'}"
+            if target:
+                descriptor = f"{descriptor}：{target}"
+            direct = sorted(
+                set(
+                    self._witnesses_at(scene_state, location, observation_windows)
+                ).difference({actor})
+            )
+            events.append(
+                {
+                    "event_id": (
+                        f"action-interrupted:{current_step}:{index}:{actor}:"
+                        f"{self._text(record.get('event_id'), 80)}"
+                    ),
+                    "kind": "action_interrupted",
+                    "title": f"{actor}中断动作",
+                    "statement": (
+                        f"{actor}中断了正在进行的动作（{descriptor}），"
+                        f"该动作没有完成。"
+                    ),
+                    "occurred_step": current_step,
+                    "location": location,
+                    "subjects": [actor],
+                    "objects": [],
+                    "direct_witnesses": direct,
+                    "self_witnesses": [actor],
+                    "source_type": "action_queue",
+                    "source_ref": (
+                        f"step:{int(current_step)}:actor:{actor}:"
+                        f"{self._text(record.get('event_id'), 80)}"
+                    ),
+                    "visibility": "local",
+                    "self_attention": False,
+                    "changed_paths": [],
+                    "impacts": [],
+                }
+            )
+        return events
+
     @staticmethod
     def _witnesses_at(
         scene_state: Any,
@@ -911,9 +997,7 @@ class WorldEventSystem(System):
         controller = entity.get_component("AgentController")
         if controller is None:
             return True
-        return bool(controller.autonomous) and str(
-            controller.activation_policy
-        ) != "dormant"
+        return bool(controller.autonomous)
 
     @classmethod
     def _attention_recipients(

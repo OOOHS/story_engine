@@ -1,8 +1,15 @@
 from typing import Any, Dict, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from src.story_engine.core.component import Component
+
+# Legacy scenario/save data may still spell out the older four-way policy.
+# "auto" and "background" were always behaviorally identical (every branch in
+# AgentScheduler grouped them together), and "dormant" duplicates the already
+# -independent ``autonomous`` switch below. Both collapse into "background" on
+# load instead of failing validation.
+_LEGACY_ACTIVATION_POLICY_ALIASES = {"auto": "background", "dormant": "background"}
 
 
 class AgentController(Component):
@@ -15,8 +22,16 @@ class AgentController(Component):
 
     # No default: every AgentController must state which runtime backs it.
     runtime: str
+    # Whether this character is ever allowed to act autonomously at all. This
+    # is the sole "fully off" switch; activation_policy only ever decides
+    # *how* an autonomous character is scheduled, not *whether* it may act.
     autonomous: bool = True
-    activation_policy: Literal["auto", "foreground", "background", "dormant"] = "auto"
+    activation_policy: Literal["foreground", "background"] = "background"
+
+    @field_validator("activation_policy", mode="before")
+    @classmethod
+    def _normalize_legacy_activation_policy(cls, value: Any) -> Any:
+        return _LEGACY_ACTIVATION_POLICY_ALIASES.get(str(value), value)
     background_interval: int = Field(default=3, ge=1)
     decision_count: int = Field(default=0, ge=0)
     last_decision_step: int = -1

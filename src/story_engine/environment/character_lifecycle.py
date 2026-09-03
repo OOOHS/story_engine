@@ -5,6 +5,11 @@ from typing import Any, Dict, List, Optional
 from src.config.config import config
 from src.story_engine.prefabs.templates import create_agent
 
+from .narrative_candidates import CandidateLedger
+
+DYNAMIC_NAMES_FLAG = "dynamic_character_names"
+CONSUMED_AUTHORIZATIONS_FLAG = "consumed_character_entry_authorizations"
+
 
 @dataclass(frozen=True)
 class CharacterSpawnPlan:
@@ -57,23 +62,24 @@ class CharacterLifecycle:
         ):
             errors.append(f"spawn_character name already exists: {name}")
 
-        dynamic_names = scene_state.get_scene_flag("dynamic_character_names", [])
+        dynamic_names = scene_state.get_scene_flag(DYNAMIC_NAMES_FLAG, [])
         if not isinstance(dynamic_names, list):
             errors.append("dynamic_character_names must be a list")
             dynamic_names = []
-        normalized_dynamic_names = [
-            str(item).strip() for item in dynamic_names if str(item).strip()
-        ]
+        normalized_dynamic_names = CandidateLedger.normalized_names(
+            scene_state, DYNAMIC_NAMES_FLAG
+        )
         if len(normalized_dynamic_names) != len(set(normalized_dynamic_names)):
             errors.append("dynamic_character_names contains duplicates")
-        try:
-            limit = max(
-                0, int(scene_state.get_scene_flag("max_dynamic_characters", 6) or 0)
-            )
-        except (TypeError, ValueError):
-            limit = 0
-            errors.append("max_dynamic_characters must be an integer")
-        if len(normalized_dynamic_names) >= limit:
+        cap_error = CandidateLedger.check_cap(
+            scene_state,
+            names_flag=DYNAMIC_NAMES_FLAG,
+            cap_flag="max_dynamic_characters",
+            default_cap=6,
+        )
+        if cap_error == "max_dynamic_characters must be an integer":
+            errors.append(cap_error)
+        elif cap_error:
             errors.append("spawn_character exceeds max_dynamic_characters")
 
         raw_state = request.get("initial_state", {})
@@ -98,9 +104,14 @@ class CharacterLifecycle:
         role = self._text(request.get("role"), 160) or "路人"
         personality = self._text(request.get("personality"), 600) or "尚未显露"
         goals = self._text_list(request.get("goals", []), limit=6, item_limit=300)
-        policy = str(request.get("activation_policy", "auto"))
-        if policy not in {"auto", "foreground", "background", "dormant"}:
-            policy = "auto"
+        policy = str(request.get("activation_policy", "background"))
+        # "auto" and "dormant" were legacy synonyms for "background" (see
+        # components/agent_controller.py); normalize instead of rejecting
+        # older scenario/spawn payloads.
+        if policy in {"auto", "dormant"}:
+            policy = "background"
+        if policy not in {"foreground", "background"}:
+            policy = "background"
         try:
             background_interval = max(
                 1, int(request.get("background_interval", 3) or 3)
@@ -169,19 +180,15 @@ class CharacterLifecycle:
             return [f"spawn_character actor already exists while staging: {plan.name}"]
         if plan.actor_state.get("location") not in scene_state.get_known_locations():
             return [f"spawn_character location disappeared while staging: {plan.name}"]
-        dynamic_names = scene_state.get_scene_flag("dynamic_character_names", [])
+        dynamic_names = scene_state.get_scene_flag(DYNAMIC_NAMES_FLAG, [])
         if not isinstance(dynamic_names, list):
             return ["dynamic_character_names must be a list"]
-        normalized = [str(item).strip() for item in dynamic_names if str(item).strip()]
+        normalized = CandidateLedger.normalized_names(scene_state, DYNAMIC_NAMES_FLAG)
         if plan.name in normalized:
             return [f"spawn_character already exists in lifecycle ledger: {plan.name}"]
-        consumed = []
         if plan.authorization_id:
-            consumed = list(
-                scene_state.get_scene_flag(
-                    "consumed_character_entry_authorizations", []
-                )
-                or []
+            consumed = CandidateLedger.normalized_names(
+                scene_state, CONSUMED_AUTHORIZATIONS_FLAG
             )
             if plan.authorization_id in consumed:
                 return [
@@ -189,12 +196,11 @@ class CharacterLifecycle:
                     f"{plan.authorization_id}"
                 ]
         scene_state.actor_states[plan.name] = deepcopy(plan.actor_state)
-        normalized.append(plan.name)
-        flag_updates = {"dynamic_character_names": normalized}
+        CandidateLedger.append_name(scene_state, DYNAMIC_NAMES_FLAG, plan.name)
         if plan.authorization_id:
-            consumed.append(plan.authorization_id)
-            flag_updates["consumed_character_entry_authorizations"] = consumed
-        scene_state.update_scene_flags(flag_updates)
+            CandidateLedger.consume_authorization(
+                scene_state, CONSUMED_AUTHORIZATIONS_FLAG, plan.authorization_id
+            )
         return []
 
     def finalize(

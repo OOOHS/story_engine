@@ -11,6 +11,14 @@ from src.story_engine.environment.character_lifecycle import (
 from src.story_engine.environment.exchanges import ExchangeDynamics
 from src.story_engine.environment.world_object_lifecycle import WorldObjectLifecycle
 from src.story_engine.motivation import NeedDynamics
+from src.story_engine.environment.topology_candidates import (
+    TopologyCandidateLifecycle,
+    TopologyCandidatePlan,
+)
+from src.story_engine.narrative.storylet_definitions import (
+    StoryletDefinitionLifecycle,
+    StoryletDefinitionPlan,
+)
 from src.story_engine.social import SocialDynamics
 
 
@@ -94,6 +102,15 @@ class WorldStateTransaction:
         "world_version",
         "consumed_character_entry_authorizations",
         "consumed_storylets",
+        "dynamic_storylet_ids",
+        "max_dynamic_storylets",
+        "dynamic_storylets",
+        "consumed_storylet_definition_authorizations",
+        "narrative_candidate_audit",
+        "dynamic_location_names",
+        "max_dynamic_locations",
+        "consumed_topology_authorizations",
+        "pending_narrative_director_authorizations",
     }
 
     def __init__(self) -> None:
@@ -102,6 +119,8 @@ class WorldStateTransaction:
         self.exchanges = ExchangeDynamics()
         self.characters = CharacterLifecycle()
         self.needs = NeedDynamics()
+        self.storylet_definitions = StoryletDefinitionLifecycle()
+        self.topology_candidates = TopologyCandidateLifecycle()
 
     def commit(
         self,
@@ -110,6 +129,8 @@ class WorldStateTransaction:
         result: Dict[str, Any],
         relationship_book: Any = None,
         character_spawn_plan: CharacterSpawnPlan | None = None,
+        storylet_definition_plan: StoryletDefinitionPlan | None = None,
+        topology_candidate_plan: TopologyCandidatePlan | None = None,
         drive_states: Dict[str, Any] | None = None,
         current_step: int = 0,
         proposal_actors: set[str] | None = None,
@@ -169,6 +190,16 @@ class WorldStateTransaction:
                     self.characters.stage(staged_scene, character_spawn_plan)
                 )
                 errors.extend(
+                    self.storylet_definitions.stage(
+                        staged_scene, storylet_definition_plan
+                    )
+                )
+                errors.extend(
+                    self.topology_candidates.stage(
+                        staged_scene, topology_candidate_plan
+                    )
+                )
+                errors.extend(
                     self.exchanges.apply(
                         staged_scene,
                         deepcopy(working_result),
@@ -206,6 +237,7 @@ class WorldStateTransaction:
                         staged_scene,
                         deepcopy(working_result),
                         previous_scene_state=scene_state,
+                        current_step=int(current_step),
                     )
                 )
                 errors.extend(

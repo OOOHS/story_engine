@@ -9,6 +9,7 @@ from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.systems.world_events import WorldEventSystem
 from src.story_engine.systems.simulation import SimulationSystem
 from src.story_engine.agents import AgentScheduler
+from src.story_engine.attention import HostAttentionPolicy
 
 
 class SimulationControl(Component):
@@ -87,6 +88,53 @@ def test_committed_object_relocation_becomes_local_objective_event():
     assert entities["甲"].get_component("Cognition").knows_event(event_id)
     assert entities["乙"].get_component("Cognition").knows_event(event_id)
     assert not entities["丙"].get_component("Cognition").knows_event(event_id)
+
+
+def test_interrupted_action_becomes_local_fact_without_leaking_her_own_detail():
+    entities, _ = _world()
+    context = _context({"resolved_actions": [], "exchanges": []})
+    context["interrupted_actions"] = [
+        {
+            "event_id": "action:7",
+            "actor": "甲",
+            "action_kind": "interact",
+            "action_target": "旧锁",
+            "location": "大厅",
+            "started_at": 3,
+            "interrupted_at": 4,
+            "planned_completion": 5,
+            "duration": 2,
+            "reason": "world_event:alarm-1",
+        }
+    ]
+
+    WorldEventSystem().update(entities, context)
+
+    event_id = "action-interrupted:4:0:甲:action:7"
+    fact = entities[f"WorldEvent:{event_id}"].get_component("WorldEventFact")
+    assert fact.kind == "action_interrupted"
+    assert fact.subjects == ["甲"]
+    assert "旧锁" in fact.statement
+    # Witnesses of a multi-step action are only ever entitled to its outward
+    # kind and target, never to how she described it to herself.
+    assert "撬" not in fact.statement
+    assert entities["乙"].get_component("Cognition").knows_event(event_id)
+    assert not entities["丙"].get_component("Cognition").knows_event(event_id)
+
+    # Watching someone break off is routine news. If it were critical it would
+    # preempt every co-located actor and one alarm would stall the whole scene.
+    assert (
+        HostAttentionPolicy.message_urgency(
+            "world_event",
+            entities["乙"].get_component("Cognition").world_event_attention[event_id],
+            4,
+        )
+        == "ambient"
+    )
+    # She is handed the signal that caused this in the same step, so queueing her
+    # own interruption back to her would only be noise.
+    assert "甲" not in entities["乙"].get_component("Cognition").pending_world_events
+    assert event_id not in entities["甲"].get_component("Cognition").pending_world_events
 
 
 def test_moving_witness_keeps_origin_object_event_and_event_location():
@@ -486,7 +534,7 @@ def test_public_scene_flag_change_becomes_global_event_but_private_flag_does_not
 
 def test_timeline_phase_transition_becomes_global_observation_once():
     entities, scene = _world()
-    entities["丙"].get_component("AgentController").activation_policy = "dormant"
+    entities["丙"].get_component("AgentController").autonomous = False
     context = {
         "clock": SimpleNamespace(current_step=5),
         "timeline": {

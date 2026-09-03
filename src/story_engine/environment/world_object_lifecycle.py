@@ -1,6 +1,10 @@
 import json
 from typing import Any, Dict, List, Optional
 
+from .narrative_candidates import CandidateLedger, record_candidate_audit
+
+DYNAMIC_NAMES_FLAG = "dynamic_world_object_names"
+
 
 class WorldObjectLifecycle:
     """Stages evidence-backed lifecycle changes for tangible world objects."""
@@ -39,6 +43,7 @@ class WorldObjectLifecycle:
         result: Dict[str, Any],
         *,
         previous_scene_state: Any = None,
+        current_step: int = 0,
     ) -> List[str]:
         operations = result.get("object_lifecycle", [])
         if not isinstance(operations, list):
@@ -91,6 +96,15 @@ class WorldObjectLifecycle:
                     prefix,
                     operation_errors,
                     previous_scene_state,
+                )
+                record_candidate_audit(
+                    scene_state,
+                    kind="object",
+                    source="gm",
+                    accepted=not operation_errors,
+                    reason="; ".join(operation_errors),
+                    candidate_id=object_id,
+                    step=current_step,
                 )
             elif operation == "relocate":
                 self._relocate(
@@ -259,14 +273,16 @@ class WorldObjectLifecycle:
             errors.append(f"{prefix} cannot spawn existing object: {object_id}")
             return
         dynamic_names = self._dynamic_names(scene_state)
-        try:
-            limit = max(
-                0, int(scene_state.get_scene_flag("max_dynamic_world_objects", 32) or 0)
-            )
-        except (TypeError, ValueError):
+        cap_error = CandidateLedger.check_cap(
+            scene_state,
+            names_flag=DYNAMIC_NAMES_FLAG,
+            cap_flag="max_dynamic_world_objects",
+            default_cap=32,
+        )
+        if cap_error == "max_dynamic_world_objects must be an integer":
             errors.append(f"{prefix} has invalid max_dynamic_world_objects")
             return
-        if len(dynamic_names) >= limit:
+        if cap_error:
             errors.append(f"{prefix} exceeds max_dynamic_world_objects")
             return
 
@@ -319,8 +335,7 @@ class WorldObjectLifecycle:
             }
         )
         scene_state.world_objects[object_id] = state
-        dynamic_names.append(object_id)
-        scene_state.update_scene_flags({"dynamic_world_object_names": dynamic_names})
+        CandidateLedger.append_name(scene_state, DYNAMIC_NAMES_FLAG, object_id)
 
     def _relocate(
         self,
@@ -752,10 +767,7 @@ class WorldObjectLifecycle:
 
     @staticmethod
     def _dynamic_names(scene_state: Any) -> List[str]:
-        raw = scene_state.get_scene_flag("dynamic_world_object_names", [])
-        if not isinstance(raw, list):
-            return []
-        return [str(item).strip() for item in raw if str(item).strip()]
+        return CandidateLedger.normalized_names(scene_state, DYNAMIC_NAMES_FLAG)
 
     @staticmethod
     def _text(value: Any, limit: int) -> str:

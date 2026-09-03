@@ -1,6 +1,8 @@
 from copy import deepcopy
 from typing import Any, Dict, List, Set
 
+from src.story_engine.scenarios.config import StoryletConfig
+
 
 class StoryletEngine:
     """Selects state-qualified narrative opportunities.
@@ -231,7 +233,7 @@ class StoryletEngine:
 
         consumed = set(scene_state.scene_flags.get("consumed_storylets", []))
         active: List[Dict[str, Any]] = []
-        for storylet in scenario.storylets:
+        for storylet in list(scenario.storylets) + self._dynamic_storylets(scene_state):
             if storylet.one_shot and storylet.storylet_id in consumed:
                 continue
             situation_matches = self.match_situations(storylet, situation_packet or {})
@@ -268,6 +270,7 @@ class StoryletEngine:
                         [int(item.get("focus_score", 0) or 0) for item in situation_matches]
                         or [0]
                     ),
+                    "one_shot": bool(storylet.one_shot),
                     "beat": (
                         beat.model_dump()
                         if beat and hasattr(beat, "model_dump")
@@ -534,17 +537,39 @@ class StoryletEngine:
     ) -> List[str]:
         if not hits:
             return []
-        storylet_map = {
-            item.storylet_id: item
+        one_shot_ids = {
+            str(item.storylet_id).strip()
             for item in (getattr(scenario, "storylets", None) or [])
+            if item.one_shot
         }
+        # Dynamic (runtime-registered) storylets never make it into
+        # ``scenario.storylets`` -- they only exist as the dicts ``resolve()``
+        # returned this step -- so their one_shot semantics can only be read
+        # back from ``active_storylets``.
+        for item in active_storylets or []:
+            if isinstance(item, dict) and item.get("one_shot"):
+                storylet_id = str(item.get("storylet_id", "")).strip()
+                if storylet_id:
+                    one_shot_ids.add(storylet_id)
         consumable: List[str] = []
         for storylet_id in hits:
-            storylet = storylet_map.get(storylet_id)
-            if storylet and storylet.one_shot and storylet_id not in consumable:
+            if storylet_id in one_shot_ids and storylet_id not in consumable:
                 consumable.append(storylet_id)
-                continue
         return consumable
+
+    def _dynamic_storylets(self, scene_state: Any) -> List[StoryletConfig]:
+        raw = scene_state.get_scene_flag("dynamic_storylets", []) if scene_state else []
+        if not isinstance(raw, list):
+            return []
+        compiled: List[StoryletConfig] = []
+        for item in raw:
+            if not isinstance(item, dict):
+                continue
+            try:
+                compiled.append(StoryletConfig(**item))
+            except Exception:
+                continue
+        return compiled
 
     def _text_set(self, values: Any) -> Set[str]:
         return {str(item).strip() for item in values or [] if str(item).strip()}

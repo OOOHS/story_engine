@@ -207,7 +207,7 @@ def test_public_event_local_witness_bypasses_zero_general_budget():
 def test_dormant_actor_learns_public_fact_without_consuming_attention_budget():
     entities, _, names = _public_world(count=8, budget=3)
     dormant = names[0]
-    entities[dormant].get_component("AgentController").activation_policy = "dormant"
+    entities[dormant].get_component("AgentController").autonomous = False
 
     _, event_id = _publish_phase(entities, step=12)
 

@@ -15,6 +15,21 @@ ATTENTION_DELIVERY_LIMIT = 20
 ATTENTION_FAIRNESS_RESERVE = 4
 ATTENTION_AGING_INTERVAL = 4
 
+# A world_event whose own base priority (kind-only, before any waiting boost)
+# clears this line carries severe, unignorable consequences on its own merit
+# (breach/destroy/alarm/missed/route_closed) -- regardless of whether this
+# particular actor happens to be its target. This is what makes a message
+# "critical" rather than "ambient"; it has nothing to do with whether the
+# actor is currently scheduled foreground or background.
+ATTENTION_CRITICAL_PRIORITY_THRESHOLD = 80
+
+# An ambient item that has waited this many steps still gets pushed through
+# rather than left to the ordinary aging boost. This bounds worst-case
+# latency for actors with a large background interval and no other trigger:
+# a witnessed ambient event still reaches them within a short, deterministic
+# window (tuned for anti-starvation, not for being itself urgent).
+ATTENTION_AMBIENT_MAX_WAIT_STEPS = 2
+
 RecordT = TypeVar("RecordT")
 
 
@@ -45,6 +60,14 @@ class HostAttentionPolicy:
             priority = 55
         elif kind == "object_state_changed":
             priority = 50
+        elif kind == "action_interrupted":
+            # Someone breaking off mid-action is routine outward news, on a par
+            # with watching them walk away. It must also stay far below
+            # ATTENTION_CRITICAL_PRIORITY_THRESHOLD: if witnessing one
+            # interruption were itself critical, one alarm would preempt every
+            # co-located actor, whose interruptions would preempt the next ring
+            # of witnesses, and a single event would stall the whole scene.
+            priority = 30
         elif kind == "actor_moved":
             priority = 25
         elif kind == "scene_phase_changed":
@@ -158,17 +181,81 @@ class HostAttentionPolicy:
         ]
 
     @classmethod
+    def effective_priority(
+        cls,
+        record: RecordT | None,
+        current_step: int,
+    ) -> tuple[int, int, int]:
+        """Return ``(effective_priority, boost, step)`` for one record.
+
+        ``effective_priority`` already includes the deterministic waiting
+        boost, so a long-queued low-priority item can eventually earn the
+        same off-schedule wake a fresh high-priority one gets immediately.
+        """
+        priority = cls.clamp(getattr(record, "priority", 0), default=0)
+        step = int(getattr(record, "step", 0) or 0)
+        age = max(0, int(current_step) - step)
+        boost = min(100 - priority, age // ATTENTION_AGING_INTERVAL)
+        return priority + boost, boost, step
+
+    @classmethod
+    def message_urgency(
+        cls,
+        kind: str,
+        record: RecordT | None,
+        current_step: int,
+    ) -> str:
+        """Classify one pending item's urgency: ``"critical"``, ``"direct"``
+        or ``"ambient"``.
+
+        This is a property of the message itself -- what happened, and to
+        whom -- not of whether the actor receiving it happens to be
+        scheduled foreground or background right now. It answers exactly two
+        questions: should this force an off-schedule wake, and how
+        prominently should it be placed once delivered.
+
+        - ``"critical"``: the event's own kind carries severe,
+          unignorable consequences on its own merit (breach/destroy/alarm/
+          missed/route_closed -- the same high bucket
+          ``ATTENTION_CRITICAL_PRIORITY_THRESHOLD`` names). Always forces a
+          wake and is meant to be surfaced most prominently in the wake
+          packet, separate from routine content.
+        - ``"direct"``: either an ``event_response`` (someone
+          apologized/explained/asked/accused this actor personally) or a
+          ``world_event`` this actor personally caused or experienced
+          (``record.self_witnessed``). Always forces a wake too, but as
+          ordinary content -- its urgency is "this will not be missed", not
+          "drop everything".
+        - ``"ambient"``: a passively witnessed or reported routine world
+          event. Never forces a wake by itself; it waits in the ranked queue
+          for the actor's next activation for any reason. Once it has
+          waited ``ATTENTION_AMBIENT_MAX_WAIT_STEPS``, it is still pushed
+          through as ``"direct"`` so a background actor with no other
+          trigger is not starved forever.
+        """
+        if kind == "event_response":
+            return "direct"
+        if record is None:
+            return "ambient"
+        if getattr(record, "self_witnessed", False):
+            return "direct"
+        base_priority = cls.clamp(getattr(record, "priority", 0), default=0)
+        if base_priority >= ATTENTION_CRITICAL_PRIORITY_THRESHOLD:
+            return "critical"
+        _effective, _boost, step = cls.effective_priority(record, current_step)
+        age = max(0, int(current_step) - step)
+        if age >= ATTENTION_AMBIENT_MAX_WAIT_STEPS:
+            return "direct"
+        return "ambient"
+
+    @classmethod
     def _sort_key(
         cls,
         attention_id: str,
         record: RecordT | None,
         current_step: int,
     ) -> tuple[int, int, int, str]:
-        priority = cls.clamp(getattr(record, "priority", 0), default=0)
-        step = int(getattr(record, "step", 0) or 0)
-        age = max(0, int(current_step) - step)
-        boost = min(100 - priority, age // ATTENTION_AGING_INTERVAL)
-        effective = priority + boost
+        effective, boost, step = cls.effective_priority(record, current_step)
         # A boost wins an effective-priority tie, while equally fresh records
         # retain the existing newer-first behavior.
         return (-effective, -boost, -step, attention_id)

@@ -244,8 +244,8 @@ def test_runner_publishes_committed_host_world_edit_without_raw_patch_leakage():
             "观察者",
             "谨慎",
             [],
-            activation_policy="dormant",
         agent_runtime="llm")
+        actor.get_component("AgentController").autonomous = False
         runner.add_entity(actor)
         runner.agent_registry.register(actor, object())
 

@@ -1,5 +1,9 @@
 from typing import List, Dict, Optional, Any, Literal  # noqa: F401 Optional used in property
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
+
+# See src.story_engine.components.agent_controller for why "auto" and
+# "dormant" collapse into "background" instead of failing to load.
+_LEGACY_ACTIVATION_POLICY_ALIASES = {"auto": "background", "dormant": "background"}
 
 
 class StateCondition(BaseModel):
@@ -169,7 +173,7 @@ class CharacterConfig(BaseModel):
     # runtime backs it. There is deliberately no silent fallback.
     agent_runtime: str
     agent_config: Dict[str, Any] = Field(default_factory=dict)
-    activation_policy: Literal["auto", "foreground", "background", "dormant"] = "auto"
+    activation_policy: Literal["foreground", "background"] = "background"
     background_interval: int = Field(default=3, ge=1)
     initial_beliefs: List[Dict[str, Any]] = Field(default_factory=list)
     initial_secrets: List[str] = Field(default_factory=list)
@@ -180,6 +184,11 @@ class CharacterConfig(BaseModel):
     initial_claim_knowledge: List[ClaimKnowledgeConfig] = Field(default_factory=list)
     initial_known_locations: List[str] = Field(default_factory=list)
     llm_config: Dict[str, Any] = Field(default_factory=dict)  # 可选的模型配置覆盖
+
+    @field_validator("activation_policy", mode="before")
+    @classmethod
+    def _normalize_legacy_activation_policy(cls, value: Any) -> Any:
+        return _LEGACY_ACTIVATION_POLICY_ALIASES.get(str(value), value)
 
 
 class RelationshipDirectionConfig(BaseModel):

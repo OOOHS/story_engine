@@ -30,9 +30,10 @@ from .runtime import CharacterAgentRuntime, runtime_owns_subjective_state
 from .offline_runtime import OfflineCharacterRuntime, default_offline_runtime_factories
 from .scheduler import AgentScheduler
 from .subject import (
-    SubjectInbox,
     SubjectLedgerProjector,
     SubjectMessage,
+    build_subject_messages,
+    build_subject_wake_packet,
 )
 from .types import (
     AgentActivation,
@@ -72,9 +73,10 @@ __all__ = [
     "commit_runtime_action",
     "repetition_signature",
     "repetition_target",
-    "SubjectInbox",
     "SubjectLedgerProjector",
     "SubjectMessage",
+    "build_subject_messages",
+    "build_subject_wake_packet",
     "make_hermes_container_runtime_factory",
     "make_local_hermes_runtime_factory",
 ]

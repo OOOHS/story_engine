@@ -3,10 +3,9 @@ from typing import Any, Callable, Dict, Protocol
 
 from src.story_engine.agents.actions import parse_natural_language_action
 from src.story_engine.agents.subject import (
-    SubjectInbox,
     SubjectLedgerProjector,
+    build_subject_messages,
     build_subject_wake_packet,
-    deliver_perception_messages,
 )
 from src.story_engine.agents.types import AgentDecision, AgentPerception
 from src.story_engine.core.entity import Entity
@@ -39,7 +38,6 @@ class HermesCharacterAgent:
         self._factory = conversation_factory
         self._config = config or {}
         self._conversations: Dict[str, HermesConversation] = {}
-        self._inboxes: Dict[str, SubjectInbox] = {}
         self._ledger_projectors: Dict[str, SubjectLedgerProjector] = {}
         self._bootstrapped: set[str] = set()
         self._turn_counts: Dict[str, int] = {}
@@ -50,18 +48,22 @@ class HermesCharacterAgent:
         if conversation is None:
             conversation = self._factory(entity, dict(self._config))
             self._conversations[entity.id] = conversation
-        inbox = self._inboxes.setdefault(entity.id, SubjectInbox())
-        deliver_perception_messages(inbox, perception)
         projector = self._ledger_projectors.setdefault(
             entity.id, SubjectLedgerProjector()
         )
-        projector.project(inbox, perception)
-        pending = inbox.pending(limit=int(self._config.get("inbox_limit", 32) or 32))
+        bootstrap = entity.id not in self._bootstrapped
+        message_limit = int(self._config.get("message_limit", 32) or 32)
+        # Both calls are pure projections over still-pending state (Cognition's
+        # own queues, the ledger's last *committed* baseline): nothing here is
+        # marked "sent" yet, so a retried decide() after a failed turn below
+        # recomputes and resends the identical message set.
+        messages = build_subject_messages(perception, limit=message_limit)
+        messages.extend(projector.project(perception, bootstrap=bootstrap))
         packet = build_subject_wake_packet(
             entity=entity,
             perception=perception,
-            messages=pending,
-            bootstrap=entity.id not in self._bootstrapped,
+            messages=messages,
+            bootstrap=bootstrap,
         )
         run_subject_turn = getattr(conversation, "run_subject_turn", None)
         if callable(run_subject_turn):
@@ -80,20 +82,21 @@ class HermesCharacterAgent:
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Hermes conversation returned no protocol content")
         decision = self._parse_subject_decision(entity, perception, content)
-        inbox.acknowledge(item.message_id for item in pending)
+        # This is the single ack point for the whole turn. Cognition's own
+        # pending_world_events/pending_event_responses are cleared by the
+        # caller (InputSystem) once this method returns without raising; the
+        # ledger projector's digest baseline is committed here, at the same
+        # "turn succeeded" boundary, so both halves of what a retry must not
+        # lose stay gated on the identical success condition.
+        projector.commit()
         self._bootstrapped.add(entity.id)
         return decision
 
     def subject_snapshot(self, entity_or_id: Entity | str) -> Dict[str, Any]:
         entity_id = entity_or_id.id if isinstance(entity_or_id, Entity) else str(entity_or_id)
-        inbox = self._inboxes.get(entity_id)
         return {
             "bootstrapped": entity_id in self._bootstrapped,
             "turn_count": self._turn_counts.get(entity_id, 0),
-            "inbox": inbox.snapshot() if inbox is not None else {
-                "pending": [],
-                "acknowledged_count": 0,
-            },
             "host_private_ledger": (
                 self._ledger_projectors[entity_id].snapshot()
                 if entity_id in self._ledger_projectors

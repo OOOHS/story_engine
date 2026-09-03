@@ -267,10 +267,16 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
     }}
   ],
   "spawn_character": null,
+  "storylet_definition": null,
+  "topology_candidate": null,
   "simulation_notes": ["供渲染阶段参考的事实备注"]
 }}
 
 `spawn_character` 只有在“本轮宿主签发的角色入口授权”中存在可用记录时才能填写。必须引用其中精确的 `authorization_id`；name、role、location、initial_state、runtime、初始秘密和权威需求均以授权为准，不能改写。只有授权的 profile_mode=semantic 时，才可以补充 personality 和自然语言 goals。没有授权时必须保持 null；普通叙述提到陌生人不等于世界中已经出生了一个角色。
+
+`storylet_definition` 只有在“本轮宿主签发的剧情点注册授权”中存在可用记录时才能填写，且必须引用其中精确的 `authorization_id`；storylet_id、intent、conditions、priority、one_shot、tags、situation_kinds、situation_tags 均以授权为准，不能改写。没有授权时必须保持 null；这是往剧本里永久新增一个可被将来命中的叙事机会点，不是记录已经发生的事。
+
+`topology_candidate` 只有在“本轮宿主签发的空间图新增授权”中存在可用记录时才能填写，且必须引用其中精确的 `authorization_id`；location_id、connects_to、visibility、reason 均以授权为准，不能改写。没有授权时必须保持 null；这是往世界地图里永久新增一个地点节点及其初始通路，与本轮临时的场景描述无关，也不能用来断开或改写已有地点之间的连接（那属于宿主步前专属权限）。
 
 `state_updates.world_objects` 只能修改已有对象的普通描述属性，不能创建对象，也不能直接写 owner、location、container、sub_location、hidden、portable、kind、is_location、quantity、stack_key、affordances、is_container、container_capacity、container_size、container_open 或 container_opaque。空间拓扑 `connected_to / zones / default_zone / aliases / is_location` 也属于宿主 world-building 权限，即使引用的地点有效也会被普通语义事务拒绝。`spawn` 与 `relocate` 必须且只能填写 owner/location/container 之一；container 必须是内容包预定义、容量足够且当前打开的容器，不能把对象放入自身或形成嵌套循环。动态 spawn 不能自行发明 affordance、stack_key 或容器能力。`set_visibility` 只需要 hidden；`set_container_state` 只用于已有容器并填写 open；关闭且不透明的容器会遮蔽内容，关闭的容器内容即使透明可见也不能直接操作。`use` 必须填写对象状态中真实存在的 affordance_id，其 consumes、exclusive、requires_owner、requires_capabilities 和 need_effects 都由内容包预先定义，不能由本轮输出伪造；缺少能力或所有权时不能声称使用成功；非空容器不能被直接销毁或消耗。`destroy` 不填写放置字段。对象生命周期操作必须引用本轮同一 actor 的已结算行动；角色必须与对象和目标 owner/location/container 的有效地点物理同场。移动外层容器会自然携带全部嵌套内容，不要逐项伪造 relocate。多个角色同轮争夺有限或独占对象时，引擎会按 simultaneous proposal 语义统一仲裁，不要依靠 object_lifecycle 数组顺序暗示赢家。不要通过对象生命周期创建新地点或修改空间图。
 
@@ -462,6 +468,18 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             spawn_character["goals"] = goals
             result["spawn_character"] = spawn_character
 
+        storylet_definition = data.get("storylet_definition")
+        if isinstance(storylet_definition, dict) and storylet_definition.get(
+            "authorization_id"
+        ):
+            result["storylet_definition"] = storylet_definition
+
+        topology_candidate = data.get("topology_candidate")
+        if isinstance(topology_candidate, dict) and topology_candidate.get(
+            "authorization_id"
+        ):
+            result["topology_candidate"] = topology_candidate
+
         notes = data.get("simulation_notes", [])
         if not isinstance(notes, list):
             notes = [str(notes)]
@@ -579,6 +597,8 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             "drive_creations": [],
             "director_signals": [],
             "spawn_character": None,
+            "storylet_definition": None,
+            "topology_candidate": None,
             "simulation_notes": [],
             "applied_conflict_templates": [],
             "action_feedback": [],

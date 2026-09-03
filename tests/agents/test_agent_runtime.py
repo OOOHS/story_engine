@@ -407,6 +407,7 @@ def test_scheduler_wakes_offscreen_agent_once_for_pending_world_event():
         step=4,
         location="港口",
         witness_mode="self",
+        attention_priority=95,
     )
 
     activation = scheduler.activation_for(
@@ -421,7 +422,40 @@ def test_scheduler_wakes_offscreen_agent_once_for_pending_world_event():
 
     assert activation.active is True
     assert activation.scope == "background"
-    assert activation.reason == "world_event:obligation:远方当事人:delivery:breached"
+    assert activation.reason == "urgent:world_event:obligation:远方当事人:delivery:breached"
+
+
+def test_scheduler_wakes_offscreen_agent_for_low_severity_self_caused_event():
+    """witness_mode="self" forces a wake as "direct" urgency even when the
+    event's own severity is low -- this is what makes urgency a property of
+    the event (who it happened to), not just its kind-based severity."""
+
+    scheduler = AgentScheduler()
+    character = _character("远方当事人")
+    character.get_component("AgentController").background_interval = 99
+    cognition = character.get_component("Cognition")
+    cognition.record_world_event(
+        event_id="movement:远方当事人:自行离开",
+        statement="远方当事人自己离开了港口。",
+        step=4,
+        location="港口",
+        witness_mode="self",
+        attention_priority=25,
+    )
+
+    activation = scheduler.activation_for(
+        character,
+        step=5,
+        actor_location="港口",
+        player_location="王宫",
+        proposals=[],
+        is_player=False,
+        has_manual_override=False,
+    )
+
+    assert activation.active is True
+    assert activation.scope == "background"
+    assert activation.reason == "urgent:world_event:movement:远方当事人:自行离开"
 
 
 def test_scheduler_wakes_offscreen_agent_when_private_need_becomes_critical():
@@ -700,7 +734,7 @@ def test_input_records_successful_goal_continuation_wakeup():
 def test_dormant_agent_only_wakes_for_manual_override():
     scheduler = AgentScheduler()
     character = _character("沉睡者")
-    character.get_component("AgentController").activation_policy = "dormant"
+    character.get_component("AgentController").autonomous = False
     character.get_component("Cognition").pending_world_events = ["storm"]
     character.get_component("Cognition").pending_event_responses = ["apology"]
 
@@ -792,6 +826,7 @@ def test_input_delivers_and_acknowledges_pending_world_event_attention():
         step=4,
         location="港口",
         witness_mode="self",
+        attention_priority=95,
     )
     registry.register(actor, runtime)
 
@@ -818,7 +853,7 @@ def test_input_delivers_and_acknowledges_pending_world_event_attention():
 
     InputSystem().update({"GameMaster": gm, "送货人": actor}, context)
 
-    assert context["agent_activations"]["送货人"]["reason"] == f"world_event:{event_id}"
+    assert context["agent_activations"]["送货人"]["reason"] == f"urgent:world_event:{event_id}"
     assert runtime.perceptions[0][1].private_cognition[
         "pending_world_events"
     ] == [event_id]
@@ -1013,10 +1048,12 @@ def test_attention_aging_eventually_schedules_a_retained_ordinary_event():
     assert cognition.next_pending_attention(279) == (
         "world_event",
         "obligation:fresh:breached",
+        "critical",
     )
     assert cognition.next_pending_attention(280) == (
         "world_event",
         "movement:waiting",
+        "direct",
     )
     assert cognition.get_private_snapshot(280)["pending_world_events"][0] == (
         "movement:waiting"
@@ -1024,6 +1061,79 @@ def test_attention_aging_eventually_schedules_a_retained_ordinary_event():
     restored = Cognition(**cognition.model_dump())
     assert restored.next_pending_attention(280) == cognition.next_pending_attention(280)
     assert restored.get_private_snapshot(280) == cognition.get_private_snapshot(280)
+
+
+def test_message_urgency_is_a_property_of_the_event_not_the_actors_schedule():
+    cognition = Cognition()
+    # A low-severity movement the actor caused/experienced personally
+    # (witness_mode="self") is "direct" -- guaranteed delivery -- even though
+    # its own severity would otherwise leave it "ambient".
+    cognition.record_world_event(
+        event_id="movement:self",
+        statement="角色自己走进了房间。",
+        step=0,
+        location="房间",
+        witness_mode="self",
+        attention_priority=25,
+    )
+    assert cognition.next_pending_attention(0) == (
+        "world_event",
+        "movement:self",
+        "direct",
+    )
+
+    # The same low severity, merely witnessed (not caused/experienced by the
+    # actor), stays "ambient": it does not force a wake.
+    other = Cognition()
+    other.record_world_event(
+        event_id="movement:witnessed",
+        statement="角色看见别人走进了房间。",
+        step=0,
+        location="房间",
+        witness_mode="witnessed",
+        attention_priority=25,
+    )
+    assert other.next_pending_attention(0) == (
+        "world_event",
+        "movement:witnessed",
+        "ambient",
+    )
+
+    # A high-severity event is "critical" regardless of witness_mode --
+    # severe consequences are urgent for any witness, not just the subject.
+    severe = Cognition()
+    severe.record_world_event(
+        event_id="alarm:witnessed",
+        statement="角色目击了一次警报。",
+        step=0,
+        location="房间",
+        witness_mode="witnessed",
+        attention_priority=90,
+    )
+    assert severe.next_pending_attention(0) == (
+        "world_event",
+        "alarm:witnessed",
+        "critical",
+    )
+
+    # event_response is always "direct" -- it is addressed to this actor
+    # personally -- regardless of its own response_kind priority.
+    responded = Cognition()
+    responded.record_event_response(
+        response_id="event-response:evt:甲->乙:acknowledge",
+        event_id="evt",
+        source="甲",
+        response_kind="acknowledge",
+        statement="甲向乙确认收到。",
+        step=0,
+        location="房间",
+        attention_priority=65,
+    )
+    assert responded.next_pending_attention(0) == (
+        "event_response",
+        "event-response:evt:甲->乙:acknowledge",
+        "direct",
+    )
 
 
 def test_host_attention_catalog_covers_alarm_for_every_delivery_path():
@@ -1069,7 +1179,7 @@ def test_scheduler_compares_event_response_and_world_event_priority():
     )
 
     assert activation.reason == (
-        "event_response:event-response:old:甲->乙:apologize"
+        "urgent:event_response:event-response:old:甲->乙:apologize"
     )
     snapshot = cognition.get_private_snapshot()
     cognition.acknowledge_event_responses(snapshot["pending_event_responses"])
@@ -1082,7 +1192,10 @@ def test_scheduler_compares_event_response_and_world_event_priority():
         is_player=False,
         has_manual_override=False,
     )
-    assert next_activation.reason == "world_event:movement:ordinary"
+    # The remaining item is an ordinary (priority 25) movement event: below
+    # the steer threshold, it no longer forces an off-schedule wake by
+    # itself -- it just waits in the ranked queue for the next activation.
+    assert next_activation.reason == "not_scheduled"
 
 
 def test_world_event_experience_is_passive_and_preserves_witness_mode():

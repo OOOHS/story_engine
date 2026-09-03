@@ -154,17 +154,10 @@ class EpisodeClosureEvaluator:
                     )
             cognition = entity.get_component("Cognition")
             controller = entity.get_component("AgentController")
-            dormant = bool(
-                controller
-                and (
-                    not controller.autonomous
-                    or str(controller.activation_policy) == "dormant"
-                )
-            )
+            dormant = bool(controller and not controller.autonomous)
             if (
                 controller is not None
                 and controller.autonomous
-                and str(controller.activation_policy) != "dormant"
                 and int(controller.decision_count) == 0
             ):
                 unexercised_autonomous_agents += 1

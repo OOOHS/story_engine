@@ -2,6 +2,10 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, Dict, List
 
+from .narrative_candidates import NarrativeCandidateAuthority
+
+CONSUMED_AUTHORIZATIONS_FLAG = "consumed_character_entry_authorizations"
+
 
 @dataclass(frozen=True)
 class CharacterEntryResolution:
@@ -10,7 +14,16 @@ class CharacterEntryResolution:
 
 
 class CharacterEntryAuthority:
-    """Compile a semantic spawn request from a host-issued entry capability."""
+    """Compile a semantic spawn request from a host-issued entry capability.
+
+    The authorization envelope itself (id uniqueness, consumption, validity
+    window) is delegated to ``NarrativeCandidateAuthority``, the same gate
+    shared with the ``storylet_definition``/``topology`` candidate kinds.
+    This method only owns the character-specific field compilation.
+    """
+
+    def __init__(self) -> None:
+        self._authority = NarrativeCandidateAuthority()
 
     def resolve(
         self,
@@ -24,60 +37,19 @@ class CharacterEntryAuthority:
             return CharacterEntryResolution()
         if not isinstance(request, dict):
             return CharacterEntryResolution(rejected=["spawn_character:not_an_object"])
-        authorization_id = self._text(request.get("authorization_id"), 160)
-        if not authorization_id:
-            return CharacterEntryResolution(
-                rejected=["spawn_character:missing_authorization_id"]
-            )
-        records: Dict[str, Dict[str, Any]] = {}
-        duplicates = set()
-        for item in authorizations or []:
-            if not isinstance(item, dict):
-                continue
-            item_id = self._text(item.get("authorization_id"), 160)
-            if not item_id:
-                continue
-            if item_id in records:
-                duplicates.add(item_id)
-            records[item_id] = item
-        if authorization_id in duplicates:
-            return CharacterEntryResolution(
-                rejected=[f"spawn_character:ambiguous_authorization:{authorization_id}"]
-            )
-        authorization = records.get(authorization_id)
-        if authorization is None:
-            return CharacterEntryResolution(
-                rejected=[f"spawn_character:unknown_authorization:{authorization_id}"]
-            )
-        raw_consumed = (
-            scene_state.get_scene_flag(
-                "consumed_character_entry_authorizations", []
-            )
-            if scene_state
-            else []
+
+        resolution = self._authority.resolve_authorization(
+            request,
+            domain="spawn_character",
+            authorizations=authorizations,
+            scene_state=scene_state,
+            consumed_flag=CONSUMED_AUTHORIZATIONS_FLAG,
+            current_step=current_step,
         )
-        if not isinstance(raw_consumed, list):
-            return CharacterEntryResolution(
-                rejected=["spawn_character:invalid_consumed_authorization_ledger"]
-            )
-        consumed = {
-            self._text(item, 160) for item in raw_consumed if self._text(item, 160)
-        }
-        if authorization_id in consumed:
-            return CharacterEntryResolution(
-                rejected=[f"spawn_character:consumed_authorization:{authorization_id}"]
-            )
-        try:
-            not_before = int(authorization.get("not_before_step", current_step))
-            expires_step = int(authorization.get("expires_step", current_step))
-        except (TypeError, ValueError):
-            return CharacterEntryResolution(
-                rejected=[f"spawn_character:invalid_window:{authorization_id}"]
-            )
-        if int(current_step) < not_before or int(current_step) > expires_step:
-            return CharacterEntryResolution(
-                rejected=[f"spawn_character:authorization_out_of_window:{authorization_id}"]
-            )
+        if resolution.rejected:
+            return CharacterEntryResolution(rejected=resolution.rejected)
+        authorization = resolution.authorization
+        authorization_id = self._text(request.get("authorization_id"), 160)
 
         name = self._text(authorization.get("name"), 120)
         location = self._text(authorization.get("location"), 160)
@@ -106,7 +78,7 @@ class CharacterEntryAuthority:
             "personality": self._text(authorization.get("personality"), 600),
             "goals": self._text_list(authorization.get("goals", []), 6, 300),
             "activation_policy": self._text(
-                authorization.get("activation_policy", "auto"), 20
+                authorization.get("activation_policy", "background"), 20
             ),
             "background_interval": authorization.get("background_interval", 3),
             "initial_beliefs": deepcopy(authorization.get("initial_beliefs", [])),

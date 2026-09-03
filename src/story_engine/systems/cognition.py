@@ -307,6 +307,4 @@ class CognitionSystem(System):
         controller = entity.get_component("AgentController")
         if controller is None:
             return True
-        return bool(controller.autonomous) and str(
-            controller.activation_policy
-        ) != "dormant"
+        return bool(controller.autonomous)

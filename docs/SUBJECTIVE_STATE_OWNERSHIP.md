@@ -15,7 +15,7 @@ Hermes subject mind = 回忆、注意、评价、情绪、信念解释、计划�
 
 | 状态 | Host 保存什么 | Hermes 保存什么 | Hermes 接收方式 |
 |---|---|---|---|
-| 身体与位置 | 当前身体状态、位置、能力和物理条件 | 对身体状态的体验与解释 | 每次 wake 的 embodied allowlist；`fear/mood/focus` 不可借 self-state 进入 |
+| 身体与位置 | 当前身体状态、位置、能力和物理条件 | 对身体状态的体验与解释 | `ledger_update:pov_snapshot` embodied allowlist，只在 bootstrap/换地点/离屏久唤醒时整份重发，不是每次 wake；`fear/mood/focus` 不可借 self-state 进入 |
 | 亲历事件 | 事件 ID、来源、时间、地点、witness mode、可验证 statement | 事件如何被记住、联想和重构 | `ledger_update:epistemic_record` 与 stimulus |
 | Claim 知识 | stance、confidence、basis、source、evidence refs | 相信程度的主观意义、怀疑和推理 | 增量 `claim_position` |
 | 地图与路线 | 已观察或合法获知的地点、边和来源 | 路线偏好、担忧和策略 | 增量 `known_map/navigation_problem` |
@@ -44,7 +44,11 @@ Hermes subject mind = 回忆、注意、评价、情绪、信念解释、计划�
 }
 ```
 
-记录不再 active、可用或存在时产生 `ledger_retraction`。消息拥有稳定引用和单调 revision；Hermes turn 失败时消息留在 `SubjectInbox`，只有形成合法 decision 后才确认。未变化的记录不会每轮重复发送。
+记录不再 active、可用或存在时产生 `ledger_retraction`。消息拥有稳定引用和单调 revision；未变化的记录不会每轮重复发送。
+
+没有独立的去重收件箱：`SubjectLedgerProjector.project()` 只针对上一次*已提交*的基线计算这一轮要发的消息，并不会立刻修改那份基线。只有 Hermes turn 真正成功、`HermesCharacterAgent.decide()` 即将返回时才调用 `commit()` 落盘。turn 失败则不提交，下一次重试重新对着同一未变基线计算，得到完全相同的 message_id 和 revision——不会漏发，也不会把同一条记录的 revision 重复递增。事件类消息（`stimulus`/`active_observation_result`）不经过这层账本：它们直接来自 `Cognition.pending_world_events`/`pending_event_responses`，只有调用方在 turn 成功后确认（`acknowledge_world_events`/`acknowledge_event_responses`）才会从队列移除，天然具备同样的重试安全性。
+
+身体视图与可见世界（`pov_snapshot` 类别）单独走一条不逐字段 diff 的整份重发规则，见 `docs/AGENT_RUNTIME.md` 的 POV 快照小节。
 
 Ledger message 是证据或约束，不是心理命令。`goal_registration` 不表示目标此刻一定有最高优先级，`drive_signal` 不规定角色必须采取哪种缓解方式，关系状态也不规定角色必须喜欢或信任对方。
 

@@ -25,7 +25,7 @@ Claim、Relationship、WorldEvent 和 GM 虽然也是 Entity，但不是行为�
 
 因为宿主不选择 `A_i`，它也无法重建角色的动机。角色可以随 `A_i` 附带 `motive_refs`，声明这一步响应的是自己哪个 active Goal、Sentiment 或 Drive need；宿主在角色私有 snapshot 中核验后才编入 provenance，引用她并不持有的记录会被驳回。Episode 只记录角色提交了什么、她给出的理由、以及世界如何结算，不把宿主事后推断伪装成角色的真实动机。
 
-临界 `DriveNeed_i` 会唤醒 auto/background 策略，但不自动等于未完成剧情。自然闭合只检查 `actionable_critical_need(i,n)`：need 已达到自己的 critical threshold，且当前受限观察中至少存在一个 Host 验证为 available、对同一 need 有负 delta 的 affordance。普通漂移、无已知解法的压力与 dormant 角色压力只保留诊断。这样既不会在角色眼前有食物却仍严重饥饿时提前结束，也不会因世界暂时没有水源而让 Episode 永远无法形成章节边界。
+临界 `DriveNeed_i` 会唤醒 background 策略，但不自动等于未完成剧情。自然闭合只检查 `actionable_critical_need(i,n)`：need 已达到自己的 critical threshold，且当前受限观察中至少存在一个 Host 验证为 available、对同一 need 有负 delta 的 affordance。普通漂移、无已知解法的压力与 `autonomous=False` 角色压力只保留诊断。这样既不会在角色眼前有食物却仍严重饥饿时提前结束，也不会因世界暂时没有水源而让 Episode 永远无法形成章节边界。
 
 `use_affordance` Goal 不以语义文本或单个 metadata 字段作为完成证明。令 `u=(actor, object, affordance, step)`，完成证据必须是 Host 在已提交对象事务后派生的 `WorldEventFact`，并同时满足确定性 event id、与 affordance 类型对应的 `object_use/object_relocate/object_set_container_state` kind、`source_ref=step:<t>:actor:<actor>`、subject/object 和 affordance metadata。任一字段不一致都保持 Goal active；因此 GM 输出、注入事件或其他角色的相似行为不能替目标所有者自证完成。
 
@@ -88,7 +88,7 @@ WorldEvent 的 `direct_witnesses` 也由同一个 `W_i(t)` 计算。对象状态
 
 - 被动观察来自 observation function：世界事件或其他角色的可见行动完成后，环境按地点、可见性和容器边界自动投递，不占用新的行动。
 - 主动观察是 `observe` 动作：角色主动投入一个行动完成事件来取得额外细节。公开行为写入 `result`，只对行动者可知的发现写入 `private_result`。
-- 新的被动 WorldEvent 会唤醒一次离屏 auto/background 策略；只有 perception 已交付给 runtime 后才从 pending 队列确认，因而不会丢失，也不会每轮重复触发。
+- 新的被动 WorldEvent 会唤醒一次离屏 background 策略；只有 perception 已交付给 runtime 后才从 pending 队列确认，因而不会丢失，也不会每轮重复触发。
 - 对已知事件作出的新社会回应仍是新的 observation。宿主使用 response identity 而不是 event identity 去重，避免“我早就知道事故”错误吞掉“对方刚刚为事故道歉”这一新信息。
 - 已提交的普通对象属性由宿主以事务前后差值形成 change set，再映射到 `I(e)`；只有对象所在地的观察者得到这一 Event，hidden 对象只进入真实操作者的 `O_i`。没有差值或伪造 change ledger 不产生 observation。语义空间拓扑写入始终拒绝；宿主命令批次 `T_t` 则在副本图 `G'_t` 上验证端点、冲突与引用闭包，只有整个批次合法时才令 `G_{t+}=G'_t`，并把真实 edge delta 映射为 `route_opened/route_closed` Event 与 `connected_to` impact。
 - 人工对象补丁批次 `H_t` 只接受已有对象上的严格 JSON 普通属性，且 `keys(H_t)` 与生命周期/拓扑/私有字段不相交；先在 Scene 副本计算 `ΔH_t`，任一项非法则 `ΔH_t=∅` 且不提交。只有非空差分才递增版本并形成带稳定 id 的 `object_state_changed`，因此 host intervention 与语义结算共享同一观察因果语义。
@@ -111,6 +111,8 @@ WorldEvent 的 `direct_witnesses` 也由同一个 `W_i(t)` 计算。对象状态
 
 耗时动作在完成前保持为 ongoing。其他同场角色可以感知其外在动作类型和当前可见目标，并在自己的决策点响应；引擎不会把行动者的自然语言私有意图直接泄漏给旁观者。长动作完成时会携带提交时与当前的世界版本差，规则层重新验证目标、位置和访问前提。
 
+ongoing 动作可被抢占，但只能被 `critical` 紧急度的 pending 消息抢占，且抢占决策只读取宿主已提交状态与步边界时间，因此对同一快照可重放。被抢占的动作保守结算：不产生任何原本效果、不构造部分完成状态，只留下一条同场可目击的中止事实（同样只暴露外在动作类型与可见目标）。抢占后该角色下一个动作免疫抢占，保证连续高危信号下仍有进展。
+
 动作的持续时间由环境根据动作类型决定，Agent 和 GM 不能自行缩短。思考耗时未来可以成为调度成本；当前只记录这是模型边界，尚不模拟真实推理延迟。
 
 离屏策略的运行频率不是奖励函数的一部分。世界事件、事件回应、期限和关键需求形成一次性中断；可验证的 Agent-grown Goal 则形成有最小间隔的 continuation wakeup。这样半马尔可夫策略可以跨多个动作继续推进后果链，同时不会把每个 active 自然语言目标都变成每个时间点的模型调用。
@@ -118,6 +120,8 @@ WorldEvent 的 `direct_witnesses` 也由同一个 `W_i(t)` 计算。对象状态
 认知更新与调度中断是两个不同函数：`belief_update_i(e)` 可以对 dormant 角色成立，而 `attention_enqueue_i(e)` 只有在 controller autonomous 且 activation policy 非 dormant 时成立。这样休眠角色不会失去客观经历，但环境 observation 也不能绕过手动控制边界。Episode closure 只等待可由当前 policy 消费的 attention；休眠账本保留为恢复诊断。
 
 对可运行角色，attention queue 使用单一宿主函数排序。令基础重要度为 `p(e)=priority(kind,role)`，等待提升为 `a_t(e)=min(100-p(e), floor(max(0,t-step(e))/4))`，则有效重要度为 `p_t(e)=p(e)+a_t(e)`；比较键依次为有效重要度、等待提升、发生 step 与稳定 id。priority 只由已提交 Event kind、response kind 与角色是否为 subject 确定，不接受 Agent/GM 数值；WorldEvent 和 event-response 在同一比较中选择。四十条的有限容量以高排名项为主体并预留最多四个最老项，使关键后果不被移动噪声淹没，同时让被保留的普通事件不会在持续输入下永久饥饿。Scheduler、`O_i` 的 pending slice 与 acknowledge 集合来自同一个带当前宿主 step 的排序视图，保证调度和实际消费一致并可重放。
+
+排在队首的 pending 项还带一个 `urgency(e) ∈ {critical, direct, ambient}` 标签，这是事件本身的性质而不是角色调度档位的函数，决定 Scheduler 是否为离屏 background 角色强制多一拍（`activation.reason` 前缀 `urgent:`），而不只是留给下一次自然唤醒。`event_response` 恒为 `direct`；`world_event` 若 `witness_mode(e)="self"` 亦恒为 `direct`；否则若其自身基础严重度 `base_priority(e)≥θ`（`θ=ATTENTION_CRITICAL_PRIORITY_THRESHOLD`，默认 80，即 breach/destroy/alarm/missed/route_closed 那一档）为 `critical`；否则为 `ambient`，但一旦已等待 `t-step(e)≥w`（`w=ATTENTION_AMBIENT_MAX_WAIT_STEPS`，一个远小于 aging 周期、专门保证有界等待的独立上限）即被促升为强制唤醒。`ambient` 项不参与强制唤醒判定，但仍留在同一个 `pending_i` 队列中，一旦角色因任何理由（`critical`/`direct` 项、前台、`background_tick`、日程/critical need/continuation goal 或自身等待超过 `w`）被激活，就随该次 `O_i^t` 一并交付——不是被丢弃，只是不由它自己触发提前唤醒。这保证了任一 background 角色的 `pending_i` 都会在有限 step 数内清空，Episode closure 的 `require_no_pending_world_events`/`require_no_pending_event_responses` 因而不会被一条低优先级、长期无其它触发条件的事件永久卡住。`critical`/`direct`/`ambient` 只影响 Host 侧的调度时机与 wake packet 内的摆放位置，不对应、也不试图模拟 Hermes 自己的 interrupt/steer API。
 
 对 public Event，先计算 epistemic projection `W(e)`，再独立计算 interrupt projection `A(e)⊆W(e)`。令预算为 `B`，则 subjects 与 `location(e)` 现场者构成强制集 `F`；普通名额为 `max(0,B-|F|)`，候选先按结构化 Goal dependency 命中排序，再以 `sha256(event_id|actor)` 稳定排序。所有 `i∈W(e)` 都执行 belief update，只有 `i∈A(e)` 执行 attention enqueue；dormant 从候选中排除但不从 `W(e)` 排除。于是公共知识一致性不依赖计算预算，而同一 Event 的自动 Agent fan-out 有确定上界（强制现场/当事人除外）。
 

@@ -113,7 +113,7 @@ def _critical_need_closure_session(*, relief=True, dormant=False):
     ])
     controller = AgentController(
         runtime="llm",
-        activation_policy="dormant" if dormant else "background",
+        autonomous=not dormant,
         decision_count=1,
     )
     return _closure_session(
@@ -484,7 +484,7 @@ def test_dormant_pending_attention_is_preserved_but_does_not_block_closure():
         pending_world_events=["storm"],
         pending_event_responses=["apology"],
     )
-    controller = AgentController(runtime="llm", activation_policy="dormant")
+    controller = AgentController(runtime="llm", autonomous=False)
 
     status = EpisodeClosureEvaluator().evaluate(
         _closure_session(
@@ -556,7 +556,7 @@ def test_dormant_navigation_problem_is_preserved_but_does_not_block_closure():
         _closure_session(
             goal_state=goals,
             navigation_state=navigation,
-            controller=AgentController(runtime="llm", activation_policy="dormant"),
+            controller=AgentController(runtime="llm", autonomous=False),
         ),
         EpisodeClosurePolicy(),
     )

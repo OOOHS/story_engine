@@ -4,6 +4,10 @@ from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.character_lifecycle import CharacterLifecycle
 from src.story_engine.environment.character_entries import CharacterEntryAuthority
+from src.story_engine.environment.narrative_candidates import (
+    queue_director_authorization,
+    record_candidate_audit,
+)
 from src.story_engine.environment.world_transaction import (
     TransactionResult,
     WorldStateTransaction,
@@ -12,6 +16,14 @@ from src.story_engine.narrative import (
     ConflictDirector,
     StoryletEngine,
     TimelineEngine,
+)
+from src.story_engine.narrative.storylet_definitions import (
+    StoryletDefinitionAuthority,
+    StoryletDefinitionLifecycle,
+)
+from src.story_engine.environment.topology_candidates import (
+    TopologyCandidateAuthority,
+    TopologyCandidateLifecycle,
 )
 from src.story_engine.rules import LegalityEngine
 from src.story_engine.social import SocialDynamics
@@ -42,6 +54,10 @@ class SimulationSystem(System):
         self.social = SocialDynamics()
         self.characters = CharacterLifecycle()
         self.character_entries = CharacterEntryAuthority()
+        self.storylet_definitions = StoryletDefinitionAuthority()
+        self.storylet_definition_lifecycle = StoryletDefinitionLifecycle()
+        self.topology_candidates = TopologyCandidateAuthority()
+        self.topology_candidate_lifecycle = TopologyCandidateLifecycle()
         self.transaction = WorldStateTransaction()
         self.proposals = ProposalArbiter()
         self.resource_contests = ResourceContestResolver()
@@ -318,8 +334,9 @@ class SimulationSystem(System):
                 result,
                 intents=context.get("intents", []),
             )
+            raw_spawn_character = result.get("spawn_character")
             entry_resolution = self.character_entries.resolve(
-                result.get("spawn_character"),
+                raw_spawn_character,
                 authorizations=context.get("character_spawn_authorizations", []),
                 scene_state=scene_state,
                 current_step=current_step,
@@ -336,6 +353,43 @@ class SimulationSystem(System):
                 memory_namespace=context.get("memory_namespace"),
             )
             spawn_plan = spawn_preparation.plan
+            raw_storylet_definition = result.get("storylet_definition")
+            storylet_definition_resolution = self.storylet_definitions.resolve(
+                raw_storylet_definition,
+                authorizations=context.get(
+                    "storylet_definition_authorizations", []
+                ),
+                scene_state=scene_state,
+                current_step=current_step,
+            )
+            context["storylet_definition_rejections"] = list(
+                storylet_definition_resolution.rejected
+            )
+            result["storylet_definition"] = storylet_definition_resolution.request
+            storylet_definition_preparation = self.storylet_definition_lifecycle.prepare(
+                scenario,
+                scene_state,
+                storylet_definition_resolution.request,
+            )
+            storylet_definition_plan = storylet_definition_preparation.plan
+            raw_topology_candidate = result.get("topology_candidate")
+            topology_candidate_resolution = self.topology_candidates.resolve(
+                raw_topology_candidate,
+                authorizations=context.get(
+                    "topology_candidate_authorizations", []
+                ),
+                scene_state=scene_state,
+                current_step=current_step,
+            )
+            context["topology_candidate_rejections"] = list(
+                topology_candidate_resolution.rejected
+            )
+            result["topology_candidate"] = topology_candidate_resolution.request
+            topology_candidate_preparation = self.topology_candidate_lifecycle.prepare(
+                scene_state,
+                topology_candidate_resolution.request,
+            )
+            topology_candidate_plan = topology_candidate_preparation.plan
             drive_states = {
                 entity_name: drive
                 for entity_name, character_entity in entities.items()
@@ -346,8 +400,11 @@ class SimulationSystem(System):
                 if prepared_drive is not None:
                     drive_states[spawn_plan.name] = prepared_drive
             spawned: List[str] = []
-            preparation_errors = list(outcome_errors) + list(
-                spawn_preparation.errors
+            preparation_errors = (
+                list(outcome_errors)
+                + list(spawn_preparation.errors)
+                + list(storylet_definition_preparation.errors)
+                + list(topology_candidate_preparation.errors)
             )
             if preparation_errors:
                 transaction_result = TransactionResult(
@@ -364,6 +421,8 @@ class SimulationSystem(System):
                     result=result,
                     relationship_book=relationship_book,
                     character_spawn_plan=spawn_plan,
+                    storylet_definition_plan=storylet_definition_plan,
+                    topology_candidate_plan=topology_candidate_plan,
                     drive_states=drive_states,
                     current_step=current_step,
                     proposal_actors=proposal_actors,
@@ -411,6 +470,7 @@ class SimulationSystem(System):
                     consumed_storylet_ids = self.storylets.consumable_hits(
                         scenario,
                         result["storylet_hits"],
+                        active_storylets=active_storylets,
                     )
                     narrative_director = entity.get_component("NarrativeDirector")
                     if narrative_director is not None:
@@ -453,6 +513,76 @@ class SimulationSystem(System):
                         and str(item.get("actor", "")).strip()
                         and str(item.get("actor", "")).strip() != "World"
                     ]
+
+            if scene_state is not None and isinstance(raw_spawn_character, dict):
+                spawned_this_step = bool(spawned) and transaction_result.committed
+                record_candidate_audit(
+                    scene_state,
+                    kind="character",
+                    source="gm",
+                    accepted=spawned_this_step,
+                    reason=(
+                        ""
+                        if spawned_this_step
+                        else "; ".join(
+                            entry_resolution.rejected
+                            or spawn_preparation.errors
+                            or transaction_result.errors
+                        )
+                    ),
+                    candidate_id=str(raw_spawn_character.get("authorization_id", "")),
+                    step=current_step,
+                )
+
+            if scene_state is not None and isinstance(raw_storylet_definition, dict):
+                storylet_staged = (
+                    storylet_definition_plan is not None
+                    and transaction_result.committed
+                )
+                record_candidate_audit(
+                    scene_state,
+                    kind="storylet_definition",
+                    source="gm",
+                    accepted=storylet_staged,
+                    reason=(
+                        ""
+                        if storylet_staged
+                        else "; ".join(
+                            storylet_definition_resolution.rejected
+                            or storylet_definition_preparation.errors
+                            or transaction_result.errors
+                        )
+                    ),
+                    candidate_id=str(
+                        raw_storylet_definition.get("authorization_id", "")
+                    ),
+                    step=current_step,
+                )
+
+            if scene_state is not None and isinstance(raw_topology_candidate, dict):
+                topology_staged = (
+                    topology_candidate_plan is not None
+                    and transaction_result.committed
+                )
+                record_candidate_audit(
+                    scene_state,
+                    kind="topology",
+                    source="gm",
+                    accepted=topology_staged,
+                    reason=(
+                        ""
+                        if topology_staged
+                        else "; ".join(
+                            topology_candidate_resolution.rejected
+                            or topology_candidate_preparation.errors
+                            or transaction_result.errors
+                        )
+                    ),
+                    candidate_id=str(
+                        raw_topology_candidate.get("authorization_id", "")
+                    ),
+                    step=current_step,
+                )
 
             if transaction_result.committed and scene_state is not None:
                 result["actor_movements"] = self._derive_actor_movements(
@@ -1071,6 +1201,12 @@ class SimulationSystem(System):
         )
         director_signals = filtered.result.get("director_signals", [])
         result["director_signals"] = director_signals
+        narrative_candidates = filtered.result.get("narrative_candidates", [])
+        result["narrative_candidates"] = narrative_candidates
+        for candidate in narrative_candidates:
+            self._queue_director_narrative_candidate(
+                scene_state, candidate, current_step=current_step
+            )
         for signal in director_signals:
             if not isinstance(signal, dict):
                 continue
@@ -1084,6 +1220,43 @@ class SimulationSystem(System):
                 source_ref=str(signal.get("source_ref", "")),
                 tags=list(signal.get("tags", []) or []),
             )
+
+    def _queue_director_narrative_candidate(
+        self,
+        scene_state: Any,
+        candidate: Any,
+        *,
+        current_step: int,
+    ) -> None:
+        """Turn one narrative_candidates entry into a next-step authorization.
+
+        This never writes world state: it only decides whether the proposal
+        has the minimum shape its kind's ``Authority.resolve()`` will need,
+        then queues it. Real validation (uniqueness, caps, window, field
+        legality) still happens exactly once, next step, in the same
+        Authority/Lifecycle every other source of that kind goes through.
+        """
+        if scene_state is None or not isinstance(candidate, dict):
+            return
+        kind = str(candidate.get("kind", "")).strip()
+        payload = candidate.get("payload")
+        if not isinstance(payload, dict):
+            return
+        required_fields = {
+            "character": ("name", "location"),
+            "storylet_definition": ("storylet_id", "intent"),
+            "topology": ("location_id",),
+        }.get(kind)
+        if required_fields is None:
+            return
+        if not all(str(payload.get(field, "")).strip() for field in required_fields):
+            return
+        queue_director_authorization(
+            scene_state,
+            kind=kind,
+            payload=dict(payload),
+            current_step=current_step,
+        )
 
     def _pick_salient_storylet(
         self,
