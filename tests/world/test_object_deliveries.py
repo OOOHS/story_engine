@@ -134,11 +134,11 @@ def test_stale_delivery_is_blocked_without_object_operation():
 
 def test_delivery_crosses_simulation_and_world_transaction():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     gm.add_component(DramaState())
     gm.add_component(HostRuleSimulationControl(llm_config={}))
-    entities = {"GameMaster": gm, "甲": Entity("甲"), "乙": Entity("乙")}
+    entities = {"WorldHost": gm, "甲": Entity("甲"), "乙": Entity("乙")}
     context = {
         "intents": [
             {

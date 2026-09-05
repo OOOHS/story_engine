@@ -219,7 +219,7 @@ def test_runner_pipeline_authorizes_and_registers_a_new_storylet():
     """
     scenario = _scenario()
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -248,7 +248,7 @@ def test_runner_pipeline_authorizes_and_registers_a_new_storylet():
     )
     gm.add_component(scene)
     gm.add_component(DramaState())
-    entities = {"GameMaster": gm}
+    entities = {"WorldHost": gm}
     context = {
         "intents": [],
         "inject_events": [

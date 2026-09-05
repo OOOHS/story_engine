@@ -268,7 +268,7 @@ def test_simulation_gm_gets_affordance_rules_without_host_policy_metadata():
             }
         },
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     control = SimulationControl()
     gm.add_component(control)
@@ -577,7 +577,7 @@ def test_input_system_autonomously_builds_player_proposal_without_override():
             )
 
     system = InputSystem()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -599,7 +599,7 @@ def test_input_system_autonomously_builds_player_proposal_without_override():
         "agent_registry": registry,
     }
 
-    system.update({"GameMaster": gm, "林见微": player}, context)
+    system.update({"WorldHost": gm, "林见微": player}, context)
 
     assert context["intents"][0]["actor"] == "林见微"
     assert context["intents"][0]["source"] == "ai"
@@ -678,7 +678,7 @@ def test_memory_archives_each_actor_personal_cognition_not_player_narration():
     class Clock:
         current_step = 4
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm_memory = Memory(agent_name="gm-memory-projection-test")
     gm.add_component(gm_memory)
     gm.add_component(
@@ -745,7 +745,7 @@ def test_memory_archives_each_actor_personal_cognition_not_player_narration():
         "rendered_text": "public_rendered_marker",
     }
 
-    entities = {"GameMaster": gm, **actors}
+    entities = {"WorldHost": gm, **actors}
     CognitionSystem().update(entities, context)
     MemorySystem().update(entities, context)
 
@@ -900,7 +900,10 @@ def test_web_history_marks_authoritative_rollback_instead_of_fake_story_turn():
 
 
 def test_web_history_preserves_committed_world_when_delivery_fails():
-    adapter = WebGameAdapter(false_heiress_scenario, agent_runtime_factories=_bundled_runtime_factories())
+    scenario = false_heiress_scenario.model_copy(
+        update={"simulation_mode": "rules"}
+    )
+    adapter = WebGameAdapter(scenario, agent_runtime_factories=_bundled_runtime_factories())
     _dormant_nonplayer_web_agents(adapter)
     rendering_index = next(
         index

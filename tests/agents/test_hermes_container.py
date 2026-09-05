@@ -439,38 +439,7 @@ def test_runner_factory_connects_container_protocol_to_character_agent():
             stdout=_marked(
                 {
                     "content": json.dumps(
-                        {
-                            "thought": "先确认情况",
-                            "candidates": [
-                                {
-                                    "option_id": "investigate",
-                                    "utility": 0.4,
-                                    "motive_lens": "确认安全",
-                                    "intent_signature": {
-                                        "strategy": "主动观察",
-                                        "stakes": ["safety", "knowledge"],
-                                    },
-                                    "action": {
-                                        "kind": "observe",
-                                        "detail": "走到窗边查看街道",
-                                        "target": "街道",
-                                    },
-                                },
-                                {
-                                    "option_id": "wait",
-                                    "utility": -0.2,
-                                    "motive_lens": "规避危险",
-                                    "intent_signature": {
-                                        "strategy": "延后暴露",
-                                        "stakes": ["safety"],
-                                    },
-                                    "action": {
-                                        "kind": "wait",
-                                        "detail": "留在原地继续听外面的动静",
-                                    },
-                                },
-                            ],
-                        },
+                        {"action": "走到窗边查看街道"},
                         ensure_ascii=False,
                     )
                 },
@@ -513,17 +482,15 @@ def test_runner_factory_connects_container_protocol_to_character_agent():
         ),
     )
 
-    assert decision.action in {
-        "走到窗边查看街道",
-        "留在原地继续听外面的动静",
-    }
+    assert decision.action == "走到窗边查看街道"
     assert decision.metadata == {"subject_runtime": True}
     assert requests[0]["enabled_toolsets"] == ["file"]
     subject_packet = requests[0]["subject_packet"]
     assert subject_packet["wake"]["step"] == 5
     assert subject_packet["wake"]["activation_scope"] == "background"
     assert subject_packet["identity_bootstrap"]["name"] == "观察者"
-    assert "行囊" in subject_packet["wake"]["visible_world"]["visible_world"]
+    pov_message = subject_packet["messages"][0]
+    assert "行囊" in pov_message["payload"]["record"]["visible_world"]["visible_world"]
 
 
 def test_hermes_runtime_rejects_non_json_instead_of_inventing_an_action():
@@ -580,7 +547,7 @@ def test_hermes_runtime_rejects_json_without_an_executable_action():
 
     with pytest.raises(
         ValueError,
-        match="structured agent action must be an object with kind",
+        match="non-empty natural-language string",
     ):
         runtime.decide(entity, AgentPerception(actor_name="观察者", step=1))
 
@@ -593,7 +560,7 @@ def test_hermes_runtime_allows_a_direct_subject_owned_action():
             stdout=_marked(
                 {
                     "content": json.dumps(
-                        {"action": {"kind": "wait", "detail": "等待。"}},
+                        {"action": "等待。"},
                         ensure_ascii=False,
                     )
                 },
@@ -618,10 +585,14 @@ def test_hermes_runtime_allows_a_direct_subject_owned_action():
         entity, AgentPerception(actor_name="观察者", step=1)
     )
 
-    assert decision.action_spec.kind == "wait"
+    assert decision.action == "等待。"
+    assert decision.normalized_action().kind == "wait"
 
 
-def test_hermes_runtime_rejects_paraphrases_as_fake_choice_diversity():
+def test_hermes_runtime_rejects_legacy_candidates_protocol():
+    """Hermes now deliberates internally and submits exactly one action; the
+    older multi-candidate/utility protocol is no longer a valid response."""
+
     def runner(command, **kwargs):
         request = json.loads(kwargs["input"])
         return SimpleNamespace(
@@ -631,34 +602,7 @@ def test_hermes_runtime_rejects_paraphrases_as_fake_choice_diversity():
                     "content": json.dumps(
                         {
                             "candidates": [
-                                {
-                                    "option_id": "first",
-                                    "utility": 0.0,
-                                    "motive_lens": "调查",
-                                    "intent_signature": {
-                                        "strategy": "检查划痕",
-                                        "stakes": ["knowledge"],
-                                    },
-                                    "action": {
-                                        "kind": "observe",
-                                        "detail": "查看门上的划痕。",
-                                        "target": "木门",
-                                    },
-                                },
-                                {
-                                    "option_id": "paraphrase",
-                                    "utility": 0.0,
-                                    "motive_lens": "调查",
-                                    "intent_signature": {
-                                        "strategy": "检查划痕",
-                                        "stakes": ["knowledge"],
-                                    },
-                                    "action": {
-                                        "kind": "observe",
-                                        "detail": "更仔细地观察木门上的划痕。",
-                                        "target": "木门",
-                                    },
-                                },
+                                {"action": "查看门上的划痕。"},
                             ]
                         },
                         ensure_ascii=False,
@@ -681,7 +625,7 @@ def test_hermes_runtime_rejects_paraphrases_as_fake_choice_diversity():
     )
     runtime = factory(entity, entity.get_component("AgentController").config)
 
-    with pytest.raises(ValueError, match="at least two motive lenses"):
+    with pytest.raises(ValueError, match="no longer accepts candidates"):
         runtime.decide(entity, AgentPerception(actor_name="观察者", step=1))
 
 

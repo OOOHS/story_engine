@@ -97,7 +97,7 @@ def test_input_uses_registered_agent_and_gives_it_pov_bounded_perception():
     character = _character("甲")
     registry.register(character, runtime)
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -134,7 +134,7 @@ def test_input_uses_registered_agent_and_gives_it_pov_bounded_perception():
         ],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": character}, context)
+    InputSystem().update({"WorldHost": gm, "甲": character}, context)
 
     perception = runtime.perceptions[0][1]
     assert isinstance(perception, AgentPerception)
@@ -157,7 +157,7 @@ def test_input_never_falls_back_to_an_unregistered_character_brain():
         pass
 
     character = _character("甲")
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -175,7 +175,7 @@ def test_input_never_falls_back_to_an_unregistered_character_brain():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": character}, context)
+    InputSystem().update({"WorldHost": gm, "甲": character}, context)
 
     assert context["intents"] == []
     assert context["agent_registration_errors"] == ["甲"]
@@ -201,7 +201,7 @@ def test_registry_rejects_runtime_without_agent_controller():
 
 def test_runner_enforces_agent_boundary_without_scenario_loader():
     runner = Runner()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
             world_objects={"房间": {}},
@@ -699,7 +699,7 @@ def test_input_records_successful_goal_continuation_wakeup():
     )
     actor.add_component(goals)
     registry.register(actor, runtime)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -718,7 +718,7 @@ def test_input_records_successful_goal_continuation_wakeup():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "行动者": actor}, context)
+    InputSystem().update({"WorldHost": gm, "行动者": actor}, context)
 
     controller = actor.get_component("AgentController")
     assert context["agent_activations"]["行动者"]["reason"] == (
@@ -772,7 +772,7 @@ def test_input_collects_offscreen_background_proposal_when_local_event_arrives()
     guard.get_component("AgentController").background_interval = 99
     registry.register(guard, runtime)
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -800,7 +800,7 @@ def test_input_collects_offscreen_background_proposal_when_local_event_arrives()
         ],
     }
 
-    InputSystem().update({"GameMaster": gm, "守门人": guard}, context)
+    InputSystem().update({"WorldHost": gm, "守门人": guard}, context)
 
     proposal = context["intents"][-1]
     assert proposal["actor"] == "守门人"
@@ -830,7 +830,7 @@ def test_input_delivers_and_acknowledges_pending_world_event_attention():
     )
     registry.register(actor, runtime)
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -851,7 +851,7 @@ def test_input_delivers_and_acknowledges_pending_world_event_attention():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "送货人": actor}, context)
+    InputSystem().update({"WorldHost": gm, "送货人": actor}, context)
 
     assert context["agent_activations"]["送货人"]["reason"] == f"urgent:world_event:{event_id}"
     assert runtime.perceptions[0][1].private_cognition[
@@ -892,7 +892,7 @@ def test_manual_override_acknowledges_only_the_delivered_attention_slice():
             location="大厅",
             attention_priority=90,
         )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -910,7 +910,7 @@ def test_manual_override_acknowledges_only_the_delivered_attention_slice():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": actor}, context)
+    InputSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     delivered = context["manual_perceptions"]["甲"]
     delivered_events = set(delivered["pending_world_events"])
@@ -1222,7 +1222,7 @@ def test_structured_injected_event_wakes_agent_at_remote_location():
     watcher = _character("瞭望员")
     watcher.get_component("AgentController").background_interval = 99
     registry.register(watcher, runtime)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -1251,7 +1251,7 @@ def test_structured_injected_event_wakes_agent_at_remote_location():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "瞭望员": watcher}, context)
+    InputSystem().update({"WorldHost": gm, "瞭望员": watcher}, context)
 
     assert context["intents"][0]["event_id"] == "mountain_flare"
     assert context["intents"][-1]["actor"] == "瞭望员"
@@ -1375,7 +1375,7 @@ def test_agent_decision_can_update_private_plan_and_beliefs_only():
     character.get_component("Cognition").secrets = ["自己藏着一封信"]
     registry.register(character, runtime)
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -1393,7 +1393,7 @@ def test_agent_decision_can_update_private_plan_and_beliefs_only():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "调查者": character}, context)
+    InputSystem().update({"WorldHost": gm, "调查者": character}, context)
 
     cognition = character.get_component("Cognition").get_private_snapshot()
     assert cognition["beliefs"][0]["statement"] == "有人夜里进过房间"
@@ -1428,7 +1428,7 @@ def test_agent_can_retire_private_continuity_state_before_next_turn():
     ]
     registry.register(character, runtime)
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -1447,7 +1447,7 @@ def test_agent_can_retire_private_continuity_state_before_next_turn():
             "inject_events": [],
             "intents": [],
         }
-        InputSystem().update({"GameMaster": gm, "甲": character}, context)
+        InputSystem().update({"WorldHost": gm, "甲": character}, context)
 
     run_input(1)
     runtime.metadata = {}
@@ -1480,7 +1480,7 @@ def test_memory_retrieval_uses_structured_goal_and_social_routes_without_new_eve
     memory = Memory()
     character.add_component(memory)
     registry.register(character, runtime)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -1501,7 +1501,7 @@ def test_memory_retrieval_uses_structured_goal_and_social_routes_without_new_eve
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": character}, context)
+    InputSystem().update({"WorldHost": gm, "甲": character}, context)
 
     perception = runtime.perceptions[0][1]
     queried_text = "\n".join(query for query, _ in memory.queries)
@@ -1774,7 +1774,7 @@ def test_cognition_system_does_not_leak_remote_or_hidden_outcomes():
     class SimulationControl(Component):
         pass
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -1822,7 +1822,7 @@ def test_cognition_system_does_not_leak_remote_or_hidden_outcomes():
     }
 
     CognitionSystem().update(
-        {"GameMaster": gm, "甲": observer, "乙": remote, "丙": colocated},
+        {"WorldHost": gm, "甲": observer, "乙": remote, "丙": colocated},
         context,
     )
 
@@ -1839,7 +1839,7 @@ def test_same_turn_npcs_cannot_see_each_others_uncommitted_proposals():
         pass
 
     def run_with_order(order):
-        gm = Entity("GameMaster")
+        gm = Entity("WorldHost")
         gm.add_component(SimulationControl())
         gm.add_component(
             SceneState(
@@ -1861,7 +1861,7 @@ def test_same_turn_npcs_cannot_see_each_others_uncommitted_proposals():
         registry = AgentRegistry()
         registry.register(first, runtimes[first.name])
         registry.register(second, runtimes[second.name])
-        entities = {"GameMaster": gm, "玩家": player, first.name: first, second.name: second}
+        entities = {"WorldHost": gm, "玩家": player, first.name: first, second.name: second}
         context = {
             "dispatcher": None,
             "agent_registry": registry,
@@ -1881,7 +1881,11 @@ def test_same_turn_npcs_cannot_see_each_others_uncommitted_proposals():
     forward, forward_intents = run_with_order(["甲", "乙"])
     reverse, reverse_intents = run_with_order(["乙", "甲"])
 
-    assert forward == {"甲": ["玩家"], "乙": ["玩家"]}
+    # The player is symmetric with every other proposer: her uncommitted
+    # intent from this same batch is just as invisible to 甲/乙 as theirs is
+    # to each other. No proposer gets to read another's decision before it
+    # settles, regardless of who happens to be the human.
+    assert forward == {"甲": [], "乙": []}
     assert reverse == forward
     assert {item["actor"] for item in forward_intents} == {"玩家", "甲", "乙"}
     assert {item["actor"] for item in reverse_intents} == {"玩家", "甲", "乙"}

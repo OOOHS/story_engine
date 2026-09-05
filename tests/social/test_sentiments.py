@@ -24,10 +24,10 @@ def _world():
 def _entities():
     from src.story_engine.core.entity import Entity
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(_world())
     return {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "甲": create_agent("甲", "访客", "平静", [], agent_runtime="llm"),
         "乙": create_agent("乙", "主人", "平静", [], agent_runtime="llm"),
     }
@@ -121,7 +121,7 @@ def test_hidden_or_unobservable_social_impact_is_rejected_without_partial_state(
 
 def test_moving_actor_keeps_sentiment_from_observed_origin_action():
     entities = _entities()
-    scene = entities["GameMaster"].get_component("SceneState")
+    scene = entities["WorldHost"].get_component("SceneState")
     scene.world_objects["走廊"] = {}
     scene.update_actor_state("甲", {"location": "走廊"})
     registry = SocialRelationRegistry()

@@ -115,7 +115,7 @@ def test_input_system_surfaces_due_director_authorizations_into_context():
     from src.story_engine.components.simulation_control import SimulationControl
     from src.story_engine.core.entity import Entity
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(scene)
     gm.add_component(DramaState())
@@ -126,7 +126,7 @@ def test_input_system_surfaces_due_director_authorizations_into_context():
         "player_name": None,
     }
 
-    InputSystem().update({"GameMaster": gm}, context)
+    InputSystem().update({"WorldHost": gm}, context)
 
     authorizations = context["character_spawn_authorizations"]
     assert len(authorizations) == 1

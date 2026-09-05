@@ -304,7 +304,6 @@ class EpisodeRunner:
             traces
         )
         actor_differentiation = self._actor_differentiation(traces)
-        commitment_resolutions = self._commitment_resolutions(traces)
         goal_resolutions = [
             change
             for trace in traces
@@ -595,7 +594,6 @@ class EpisodeRunner:
                 if decision_steps
                 else None,
                 "actor_differentiation": round(actor_differentiation, 6),
-                "commitment_resolution_count": commitment_resolutions,
                 "claim_knowledge_change_count": len(claim_knowledge_changes),
                 "modifier_change_count": len(modifier_changes),
                 "drive_need_cause_count": sum(
@@ -1653,10 +1651,6 @@ class EpisodeRunner:
                     )
                 )
         return sum(distances) / len(distances) if distances else 0.0
-
-    @staticmethod
-    def _commitment_resolutions(traces: Iterable[EpisodeStepTrace]) -> int:
-        return 0
 
     @staticmethod
     def _deadlocked(traces: List[EpisodeStepTrace], window: int = 4) -> bool:

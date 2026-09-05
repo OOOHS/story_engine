@@ -164,7 +164,7 @@ def test_runner_pipeline_authorizes_and_commits_a_new_location():
     the graph, mirroring the character/storylet_definition integration tests
     for the topology candidate kind."""
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -192,7 +192,7 @@ def test_runner_pipeline_authorizes_and_commits_a_new_location():
     )
     gm.add_component(scene)
     gm.add_component(DramaState())
-    entities = {"GameMaster": gm}
+    entities = {"WorldHost": gm}
     context = {
         "intents": [],
         "inject_events": [
@@ -220,7 +220,7 @@ def test_runner_pipeline_authorizes_and_commits_a_new_location():
 
 def test_rejected_candidate_leaves_graph_untouched():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -249,7 +249,7 @@ def test_rejected_candidate_leaves_graph_untouched():
     )
     gm.add_component(scene)
     gm.add_component(DramaState())
-    entities = {"GameMaster": gm}
+    entities = {"WorldHost": gm}
     context = {
         "intents": [],
         "inject_events": [],

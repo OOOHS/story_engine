@@ -162,7 +162,7 @@ def test_claim_reference_crosses_simulation_and_private_knowledge_boundary():
             "乙": {"location": "房间"},
         },
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     gm.add_component(DramaState())
     gm.add_component(HostRuleSimulationControl(llm_config={}))
@@ -182,7 +182,7 @@ def test_claim_reference_crosses_simulation_and_private_knowledge_boundary():
     )
     second = Entity("乙")
     second.add_component(KnowledgeState())
-    entities = {"GameMaster": gm, "甲": first, "乙": second}
+    entities = {"WorldHost": gm, "甲": first, "乙": second}
     registry = ClaimRegistry()
     registry.seed(
         [

@@ -276,7 +276,7 @@ def create_minimal_event_response_session(seed):
             "event-response": lambda entity, config: EventResponseRuntime()
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(SimulationControl(scenario=scenario))
     gm.add_component(NarrativeRenderer())
     return session

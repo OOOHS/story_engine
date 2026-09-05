@@ -49,11 +49,11 @@ def _entities(result):
         world_objects={"大厅": {}},
         actor_states={"甲": {"location": "大厅"}, "乙": {"location": "大厅"}},
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=result, scenario=_scenario()))
     gm.add_component(scene)
     gm.add_component(DramaState())
-    return {"GameMaster": gm}, scene
+    return {"WorldHost": gm}, scene
 
 
 def _result(actor, outcome, *, claimed_hits=None):

@@ -112,3 +112,7 @@ docs/                       # 详细设计文档
 - [`docs/FORMAL_MODEL.md`](docs/FORMAL_MODEL.md) — 部分可观察多角色博弈的形式化模型
 - [`docs/EPISODE_EVALUATION.md`](docs/EPISODE_EVALUATION.md) — 多轮涌现叙事的评测方法
 - [`docs/CONTENT_PACKAGES.md`](docs/CONTENT_PACKAGES.md) — 如何编写自己的故事内容包
+
+## 致谢
+
+角色代理由 [Hermes Agent](https://github.com/NousResearch/hermes-agent)（[Nous Research](https://nousresearch.com) 出品，MIT 协议）提供支持。其源码 vendor 在 `docker/hermes-story/hermes-agent/`，保留原始许可证。

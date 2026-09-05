@@ -52,6 +52,11 @@ def create_hermes_episode_session(
     policy = config or HermesEpisodeConfig()
     bound_scenario = deepcopy(scenario)
     bound_scenario.default_agent_runtime = "hermes"
+    # This harness always swaps the GM to Host-rule components below for a
+    # deterministic, replayable episode; the director must not sneak a live
+    # LLM call into an otherwise LLM-free host regardless of what the source
+    # scenario declared.
+    bound_scenario.narrative_director_enabled = False
     for character in bound_scenario.characters:
         character.agent_runtime = "hermes"
         character.agent_config = {
@@ -77,7 +82,7 @@ def create_hermes_episode_session(
         random_seed=seed,
         agent_runtime_factories={"hermes": runtime_factory},
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(HostRuleSimulationControl(scenario=bound_scenario))
     gm.add_component(HostRuleNarrativeRenderer(scenario=bound_scenario))
     return session

@@ -220,7 +220,7 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
         random_seed=3,
         agent_runtime_factories={"llm": lambda entity, cfg: _WaitingRuntime()},
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(CapturingSimulationControl(scenario=scenario))
 
     context = session.run_step(overrides={"甲": "安静等待。"})

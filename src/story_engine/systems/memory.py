@@ -70,7 +70,7 @@ class MemorySystem(System):
             memory_comp = entity.get_component("Memory")
             if memory_comp and not runtime_owns_subjective_state(entity):
                 memory_text = None
-                if entity_name == "GameMaster":
+                if entity_name == "WorldHost":
                     memory_text = semantic_gm_memory_text
                 else:
                     memory_text = self._actor_experience_memory(
@@ -253,7 +253,7 @@ class MemorySystem(System):
                             metadata=memory_metadata,
                         )
                     archived_count += 1
-                    if entity_name != "GameMaster":
+                    if entity_name != "WorldHost":
                         traces = context.setdefault(
                             "memory_consolidation_traces", {}
                         )

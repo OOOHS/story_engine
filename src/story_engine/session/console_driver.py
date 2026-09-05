@@ -114,5 +114,14 @@ class ConsoleDriver:
             retry_status = self.session.public_step_status(retry)
             if retry_status["status"] == "committed":
                 print("交付重试已经完成；世界没有重复推进。")
+                self._print_narration(retry)
             else:
                 print("交付重试仍未成功；在修复表现/归档层前不会接受下一步行动。")
+        elif status["status"] == "committed":
+            self._print_narration(context)
+
+    @staticmethod
+    def _print_narration(context: Dict[str, object]) -> None:
+        narration = str(context.get("rendered_text", "") or "").strip()
+        if narration:
+            print(f"\n{narration}")

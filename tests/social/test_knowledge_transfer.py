@@ -10,7 +10,7 @@ class SimulationControl(Component):
 
 
 def _world(target_location="书房"):
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -66,7 +66,7 @@ def test_known_secret_can_be_transferred_to_one_colocated_character():
     context = _context()
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 
@@ -83,7 +83,7 @@ def test_sender_cannot_transfer_statement_absent_from_private_knowledge():
     context = _context(statement="城主其实是龙")
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 
@@ -96,7 +96,7 @@ def test_knowledge_update_cannot_telepathically_cross_locations():
     context = _context()
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 
@@ -114,7 +114,7 @@ def test_listener_can_receive_origin_message_while_moving_away_this_batch():
     }
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 
@@ -130,7 +130,7 @@ def test_failed_communication_cannot_transfer_private_knowledge():
     context["simulation_result"]["resolved_actions"][0]["outcome"] = "fail"
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 
@@ -153,7 +153,7 @@ def test_knowledge_update_requires_resolved_source_action_evidence():
     ]
 
     CognitionSystem().update(
-        {"GameMaster": gm, "知情者": source, "听众": target, "旁观者": observer},
+        {"WorldHost": gm, "知情者": source, "听众": target, "旁观者": observer},
         context,
     )
 

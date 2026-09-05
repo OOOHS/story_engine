@@ -116,6 +116,12 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
 那些由结算之后单独运行的叙事导演决定，你只负责结算已经成立的事实。
 {json.dumps(input_payload.get("storylet_opportunities", []), ensure_ascii=False, indent=2)}
 
+## 当前冲突节奏压力（仅供参考，不是事实也不是指令）
+下面这条压力信号只描述场上是否已经有敌意观察者在场、场景是否已经安静太久，供你判断某个已经
+proposal 的角色的行动是否应当升级为冲突（比如把一次 observe 结算成撞见对峙）。它不能让你替任何
+未 proposal 的角色发起冲突，也不能凭空生成一个新角色或新事件。若为空对象，代表当前没有可参考的节奏信号。
+{json.dumps(input_payload.get("conflict_pressure", {}), ensure_ascii=False, indent=2)}
+
 ## 行动角色的私有驱动力
 {json.dumps(input_payload.get("drive_context", {}), ensure_ascii=False, indent=2)}
 
@@ -168,6 +174,7 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
   }},
   "conflict_level": "none | low | medium | high",
   "conflict_flags": ["public", "deception"],
+  "applied_conflict_templates": ["若本轮某个已提交行动确实呼应了【当前冲突节奏压力】里某条 active_templates 的 instruction，填它的 template_id；否则留空数组"],
   "social_impacts": [
     {{
       "source": "产生可观察社会影响的行动者",
@@ -389,6 +396,13 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
             conflict_flags = [str(conflict_flags)]
         result["conflict_flags"] = [str(item).strip() for item in conflict_flags if str(item).strip()]
 
+        applied_conflict_templates = data.get("applied_conflict_templates", [])
+        if not isinstance(applied_conflict_templates, list):
+            applied_conflict_templates = [str(applied_conflict_templates)]
+        result["applied_conflict_templates"] = [
+            str(item).strip() for item in applied_conflict_templates if str(item).strip()
+        ]
+
         try:
             result["tension_delta"] = float(data.get("tension_delta", 0.0))
         except (TypeError, ValueError):
@@ -548,11 +562,15 @@ character_decision 类只能等在场角色自己 proposal 才结算，不能替
                 f"Host 为语义结算遗漏的 Agent 动作应用了显式规则回退：{actors}。"
             )
             return
-        result.setdefault("simulation_error", {
-            "kind": "unresolved_intents",
-            "actors": sorted(missing_actors),
-            "message": "语义结算未覆盖全部主体意图，权威步骤应重试而非合成行动。",
-        })
+        # ``result["simulation_error"]`` is always present (as ``None``) from
+        # ``_empty_result()``, so ``setdefault`` here would be a silent no-op.
+        # Coverage gaps must win over a prior "no error" baseline.
+        if result.get("simulation_error") is None:
+            result["simulation_error"] = {
+                "kind": "unresolved_intents",
+                "actors": sorted(missing_actors),
+                "message": "语义结算未覆盖全部主体意图，权威步骤应重试而非合成行动。",
+            }
 
     def _infer_location(self, actor_name: Optional[str], input_payload: Dict[str, Any]) -> Optional[str]:
         if not actor_name:

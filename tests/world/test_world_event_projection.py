@@ -21,7 +21,7 @@ class SimulationControl(Component):
 
 
 def _world():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={"大厅": {}, "密室": {}},
         actor_states={
@@ -32,7 +32,7 @@ def _world():
     )
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "甲": create_agent("甲", "持有者", "谨慎", [], agent_runtime="llm"),
         "乙": create_agent("乙", "同场者", "敏锐", [], agent_runtime="llm"),
         "丙": create_agent("丙", "远处的人", "平静", [], agent_runtime="llm"),
@@ -391,7 +391,7 @@ def test_unchanged_object_property_does_not_create_transition_event():
 
 def test_simulation_derives_object_change_ledger_and_overwrites_forged_ledger():
     entities, scene = _world()
-    gm = entities["GameMaster"]
+    gm = entities["WorldHost"]
     gm.add_component(DramaState())
     gm.add_component(
         SimulationControl(

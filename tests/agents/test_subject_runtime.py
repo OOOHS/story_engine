@@ -392,11 +392,7 @@ def test_hermes_subject_keeps_mind_private_but_can_register_a_goal_watch():
         agent_runtime="hermes",
     )
     response = {
-        "action": {
-            "kind": "observe",
-            "detail": "检查信件上的印章。",
-            "target": "信件",
-        },
+        "action": "检查信件上的印章。",
         "plan": "不应写回 Host 的私人计划",
         "focus": "不应写回 Host 的私人关注点",
         "belief_updates": [{"statement": "不应写回 Host 的推断"}],
@@ -475,11 +471,7 @@ def test_hermes_subject_can_report_her_own_sentiment_toward_someone():
         agent_runtime="hermes",
     )
     response = {
-        "action": {
-            "kind": "observe",
-            "detail": "留意阿德里安的反应。",
-            "target": "阿德里安",
-        },
+        "action": "留意阿德里安的反应。",
         "sentiment_updates": [
             {
                 "toward": "阿德里安",

@@ -140,7 +140,7 @@ def _spawn_authorization():
 
 
 def _simulation_entities(result):
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         description="提交前",
         world_objects={"酒馆": {}},
@@ -157,7 +157,7 @@ def _simulation_entities(result):
     gm.add_component(SimulationControl(scripted_result=result, scenario=scenario))
     gm.add_component(scene)
     gm.add_component(drama)
-    return {"GameMaster": gm}, scene, drama
+    return {"WorldHost": gm}, scene, drama
 
 
 def _spawn_result():

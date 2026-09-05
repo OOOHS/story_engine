@@ -3,8 +3,8 @@ from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.core.entity import Entity
 
 
-def _control():
-    gm = Entity("GameMaster")
+def _control(*, fallback_mode: str = "fail_closed"):
+    gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
             world_objects={
@@ -17,7 +17,7 @@ def _control():
             },
         )
     )
-    control = SimulationControl(llm_config={})
+    control = SimulationControl(llm_config={}, fallback_mode=fallback_mode)
     gm.add_component(control)
     return control
 
@@ -67,7 +67,7 @@ def _payload():
 
 
 def test_host_fallback_resolves_each_agent_omitted_from_a_batch():
-    control = _control()
+    control = _control(fallback_mode="rule")
     payload = _payload()
 
     result = control._normalize_result(
@@ -92,8 +92,34 @@ def test_host_fallback_resolves_each_agent_omitted_from_a_batch():
     assert by_actor["乙"]["outcome"] == "success"
     assert result["state_updates"]["actor_states"]["乙"]["location"] == "走廊"
     assert result["simulation_notes"] == [
-        "Host 为语义结算遗漏的 Agent 动作应用了原子回退：乙。"
+        "Host 为语义结算遗漏的 Agent 动作应用了显式规则回退：乙。"
     ]
+
+
+def test_default_fail_closed_reports_unresolved_intents_instead_of_synthesizing():
+    control = _control()
+    payload = _payload()
+
+    result = control._normalize_result(
+        {
+            "resolved_actions": [
+                {
+                    "actor": "甲",
+                    "intent": "GM 改写的文本不具有权威性",
+                    "outcome": "success",
+                    "result": "甲等待。",
+                }
+            ]
+        },
+        payload,
+    )
+
+    assert result["simulation_error"] == {
+        "kind": "unresolved_intents",
+        "actors": ["乙"],
+        "message": "语义结算未覆盖全部主体意图，权威步骤应重试而非合成行动。",
+    }
+    assert [item["actor"] for item in result["resolved_actions"]] == ["甲"]
 
 
 def test_pending_host_check_counts_as_coverage_without_duplicate_resolution():

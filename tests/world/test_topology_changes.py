@@ -199,10 +199,10 @@ def test_committed_local_route_change_becomes_a_pov_safe_world_event():
         ],
         current_step=7,
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "旅人": create_agent("旅人", "行路者", "警觉", [], agent_runtime="llm"),
         "旁观者": create_agent("旁观者", "守卫", "沉着", [], agent_runtime="llm"),
         "远人": create_agent("远人", "居民", "平静", [], agent_runtime="llm"),
@@ -292,7 +292,7 @@ def test_topology_render_projection_hides_offscreen_and_hidden_changes():
 
 def test_runner_exposes_only_the_validated_host_topology_boundary():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     runner = Runner(random_seed="topology-runner")
     runner.add_entity(gm)
@@ -317,7 +317,7 @@ def test_runner_exposes_only_the_validated_host_topology_boundary():
 
 def test_legacy_world_edits_cannot_bypass_topology_authority():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     runner = Runner(random_seed="legacy-world-edit")
     runner.add_entity(gm)

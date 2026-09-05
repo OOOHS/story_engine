@@ -193,6 +193,7 @@ class SimulationSystem(System):
                 "storylet_opportunities": self._build_storylet_opportunities(
                     active_storylets
                 ),
+                "conflict_pressure": self._build_conflict_pressure_hint(conflict_packet),
                 "narrative_pressure": {
                     "directive": str(director_packet.get("directive", "") or ""),
                     "instruction": str(director_packet.get("instruction", "") or ""),
@@ -950,6 +951,45 @@ class SimulationSystem(System):
             timeline_packet,
             director_packet,
         )
+
+    @staticmethod
+    def _build_conflict_pressure_hint(
+        conflict_packet: Dict[str, Any] | None,
+    ) -> Dict[str, Any]:
+        """Advisory-only pacing hint surfaced to the semantic resolver.
+
+        Mirrors ``storylet_opportunities``: the resolver may notice this and
+        let a hostile watcher's action escalate accordingly, but nothing here
+        forces a conflict beat or lets the GM act for a non-proposing actor.
+        """
+        if not conflict_packet:
+            return {}
+        active_templates = [
+            {
+                "template_id": str(item.get("template_id", "")),
+                "instruction": str(item.get("instruction", "")),
+                "preferred_actors": list(item.get("preferred_actors", [])),
+                "tags": list(item.get("tags", [])),
+            }
+            for item in conflict_packet.get("active_templates", [])
+            if isinstance(item, dict) and str(item.get("template_id", "")).strip()
+        ]
+        if not (
+            conflict_packet.get("visible_conflict_opportunity")
+            or active_templates
+        ):
+            return {}
+        return {
+            "visible_conflict_opportunity": bool(
+                conflict_packet.get("visible_conflict_opportunity")
+            ),
+            "pressure_state": str(conflict_packet.get("pressure_state", "")),
+            "opportunity_reasons": list(conflict_packet.get("opportunity_reasons", [])),
+            "antagonist_names": list(conflict_packet.get("antagonist_names", [])),
+            "preferred_modes": list(conflict_packet.get("preferred_modes", [])),
+            "surface_style": str(conflict_packet.get("surface_style", "")),
+            "active_templates": active_templates,
+        }
 
     def _build_social_packet(
         self,

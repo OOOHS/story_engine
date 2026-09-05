@@ -574,9 +574,14 @@ class InputSystem(System):
         for proposal in intents_buffer or []:
             if not isinstance(proposal, dict) or proposal.get("actor") == actor_name:
                 continue
+            # Symmetry invariant: the player is just another proposer sharing
+            # this batch. Her still-uncommitted intent is exactly as invisible
+            # to peers deciding in the same batch as anyone else's, so no
+            # actor -- human or autonomous -- gets to read a decision before
+            # it settles. Only World-originated signals (already-authoritative
+            # environment events, not proposals) bypass this barrier.
             if (
                 proposal.get("actor") != "World"
-                and not proposal.get("is_player")
                 and proposal.get("proposal_batch_step") == step
             ):
                 continue

@@ -13,7 +13,7 @@ from src.story_engine.components.host_rule_simulation import (
 def test_real_multi_seed_investigation_sweep_meets_emergence_floor():
     probe = create_minimal_investigation_session("host-only-probe")
     assert isinstance(
-        probe.entities["GameMaster"].get_component("SimulationControl"),
+        probe.entities["WorldHost"].get_component("SimulationControl"),
         HostRuleSimulationControl,
     )
     sweep = EpisodeSweepRunner().run(

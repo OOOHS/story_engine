@@ -15,7 +15,7 @@ from src.story_engine_content.evaluation.minimal_navigation_recovery import (
 def test_stale_route_grows_a_recovery_goal_and_reaches_stable_closure():
     session = create_minimal_navigation_recovery_session("stale-map")
     assert isinstance(
-        session.entities["GameMaster"].get_component("SimulationControl"),
+        session.entities["WorldHost"].get_component("SimulationControl"),
         HostRuleSimulationControl,
     )
 
@@ -41,7 +41,7 @@ def test_stale_route_grows_a_recovery_goal_and_reaches_stable_closure():
     assert report.authoritative is True
     assert report.closure_reached is True
     assert len(report.steps) < 10
-    assert session.entities["GameMaster"].get_component(
+    assert session.entities["WorldHost"].get_component(
         "SceneState"
     ).get_actor_location(ACTOR) == DESTINATION
     assert len(agent_goals) == 1

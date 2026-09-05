@@ -47,7 +47,7 @@ def _update(
 
 
 def _entities():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
             world_objects={"房间": {}},
@@ -61,7 +61,7 @@ def _entities():
     first.add_component(ModifierState())
     second = Entity("乙")
     second.add_component(ModifierState())
-    return {"GameMaster": gm, "甲": first, "乙": second}
+    return {"WorldHost": gm, "甲": first, "乙": second}
 
 
 def test_modifier_state_uses_host_stacking_and_deterministic_expiry():
@@ -131,7 +131,7 @@ def test_modifier_updates_require_committed_action_evidence_and_known_kind():
 
     applied, errors = dynamics.apply(
         modifier_states=states,
-        scene_state=entities["GameMaster"].get_component("SceneState"),
+        scene_state=entities["WorldHost"].get_component("SceneState"),
         result={
             "resolved_actions": [_action("甲")],
             "modifier_updates": [
@@ -157,7 +157,7 @@ def test_gm_cannot_choose_duration_or_stacks():
 
     applied, errors = dynamics.apply(
         modifier_states=states,
-        scene_state=entities["GameMaster"].get_component("SceneState"),
+        scene_state=entities["WorldHost"].get_component("SceneState"),
         result={
             "resolved_actions": [_action("甲")],
             "modifier_updates": [
@@ -198,7 +198,7 @@ def test_modifier_system_publishes_batch_atomically():
 
 def test_external_modifier_uses_target_origin_observation_window():
     entities = _entities()
-    scene = entities["GameMaster"].get_component("SceneState")
+    scene = entities["WorldHost"].get_component("SceneState")
     scene.world_objects["走廊"] = {}
     scene.update_actor_state("乙", {"location": "走廊"})
     context = {

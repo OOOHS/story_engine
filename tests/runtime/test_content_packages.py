@@ -116,7 +116,7 @@ def test_bundled_sessions_do_not_share_runtime_registries_or_world_entities():
     assert first.runner.agent_registry is not second.runner.agent_registry
     assert first.entities is not second.entities
     assert set(first.entities).isdisjoint(
-        set(second.entities).difference({"GameMaster"})
+        set(second.entities).difference({"WorldHost"})
     )
 
 

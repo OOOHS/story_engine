@@ -50,8 +50,7 @@ def test_any_scenario_can_be_rebound_to_registered_hermes_characters():
             returncode=0,
             stdout=_marked(
                 json.dumps({
-                    "thought": "先观察环境。",
-                    "action": {"kind": "wait", "detail": "保持警觉。"},
+                    "action": "保持警觉。",
                 }, ensure_ascii=False),
                 request["agent_id"],
             ),
@@ -82,7 +81,7 @@ def test_any_scenario_can_be_rebound_to_registered_hermes_characters():
         isinstance(registered.runtime, HermesCharacterAgent)
         for registered in session.runner.agent_registry.agents()
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     assert isinstance(
         gm.get_component("SimulationControl"), HostRuleSimulationControl
     )

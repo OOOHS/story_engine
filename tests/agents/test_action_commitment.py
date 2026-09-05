@@ -81,7 +81,7 @@ def test_input_system_commits_the_runtime_action_and_updates_the_ledger():
     runtime = CommittedRuntime()
     registry = AgentRegistry()
     registry.register(entity, runtime)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -98,7 +98,7 @@ def test_input_system_commits_the_runtime_action_and_updates_the_ledger():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": entity}, context)
+    InputSystem().update({"WorldHost": gm, "甲": entity}, context)
 
     trace = context["policy_traces"]["甲"]
     assert trace["mode"] == "runtime_committed"

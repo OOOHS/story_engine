@@ -2,6 +2,7 @@ from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.narrative import ConflictDirector
 from src.story_engine.systems.rendering import RenderingSystem
+from src.story_engine.systems.simulation import SimulationSystem
 from src.story_engine.scenarios.config import (
     ConflictConfig,
     ConflictTemplateConfig,
@@ -120,6 +121,75 @@ def test_conflict_packet_combines_director_storylet_and_transition_pressure():
     assert "require_visible_conflict" not in packet
     assert packet["storylet_template_ids"] == ["late"]
     assert packet["active_templates"][0]["template_id"] == "late"
+
+
+def test_conflict_pressure_hint_reaches_the_semantic_resolver_input_payload():
+    conflict_packet = ConflictDirector().build_packet(
+        scene_state=SceneState(
+            scene_flags={
+                "day_phase": "night",
+                "quiet_turns_since_conflict": 2,
+                "visible_conflict_count": 0,
+            }
+        ),
+        scenario=_scenario(),
+        current_step=4,
+        reaction_context={
+            "requires_reaction": True,
+            "action_pressure": "high",
+            "hostile_watchers": ["对手"],
+        },
+        storylet_packet={},
+        timeline_packet={},
+        director_packet={"directive": "raise_pressure"},
+    )
+
+    hint = SimulationSystem._build_conflict_pressure_hint(conflict_packet)
+
+    assert hint["visible_conflict_opportunity"] is True
+    assert hint["pressure_state"] == "acute"
+    assert hint["active_templates"] == [
+        {
+            "template_id": "late",
+            "instruction": "后期压力",
+            "preferred_actors": [],
+            "tags": [],
+        }
+    ]
+    # Internal packet bookkeeping fields never leak into the resolver prompt.
+    assert "recent_template_ids" not in hint
+    assert "storylet_ids" not in hint
+
+
+def test_conflict_pressure_hint_is_empty_when_there_is_nothing_to_surface():
+    quiet_scenario = _scenario().model_copy(update={"conflict_templates": []})
+    quiet_packet = ConflictDirector().build_packet(
+        scene_state=SceneState(scene_flags={}),
+        scenario=quiet_scenario,
+        current_step=0,
+        reaction_context={},
+        storylet_packet={},
+        timeline_packet={},
+        director_packet=None,
+    )
+
+    assert SimulationSystem._build_conflict_pressure_hint(quiet_packet) == {}
+    assert SimulationSystem._build_conflict_pressure_hint({}) == {}
+    assert SimulationSystem._build_conflict_pressure_hint(None) == {}
+
+
+def test_gm_can_cite_a_conflict_template_it_actually_applied():
+    control = SimulationControl(llm_config={})
+
+    result = control._normalize_result(
+        {
+            "resolved_actions": [],
+            "applied_conflict_templates": ["late", "  ", "early"],
+        },
+        {"intents": []},
+    )
+
+    assert result["applied_conflict_templates"] == ["late", "early"]
 
 
 def test_conflict_opportunity_does_not_mutate_a_quiet_result_or_cast_an_npc():

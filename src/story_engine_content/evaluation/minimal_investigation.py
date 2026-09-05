@@ -135,6 +135,10 @@ def build_minimal_investigation_scenario() -> ScenarioConfig:
     return ScenarioConfig(
         name="最小调查与证据争夺",
         default_agent_runtime="investigation-policy",
+        # This harness swaps the GM to HostRuleSimulationControl after
+        # session creation for deterministic evaluation; the director must
+        # not sneak a live LLM call into an otherwise LLM-free host.
+        narrative_director_enabled=False,
         description="两名角色围绕一项秘密 Claim 和唯一证据自主行动。",
         environment="一间安静的档案室，桌上放着一本可以被调查和拿取的密封账册。",
         initial_state="调查者刚到场，保管人知道账册会把自己与一笔隐秘交易联系起来。",
@@ -237,7 +241,7 @@ def create_minimal_investigation_session(seed):
             )
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(HostRuleSimulationControl(scenario=scenario))
     gm.add_component(NarrativeRenderer())
     return session

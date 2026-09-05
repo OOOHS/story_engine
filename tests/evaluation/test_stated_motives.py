@@ -124,7 +124,7 @@ def _run_input(entity, registry):
     class SimulationControl(Component):
         pass
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -140,7 +140,7 @@ def _run_input(entity, registry):
         "inject_events": [],
         "intents": [],
     }
-    InputSystem().update({"GameMaster": gm, "甲": entity}, context)
+    InputSystem().update({"WorldHost": gm, "甲": entity}, context)
     return context
 
 

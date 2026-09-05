@@ -30,7 +30,7 @@ from src.story_engine.systems.input import InputSystem
 
 
 def test_event_response_can_ground_a_private_follow_up_goal():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SceneState())
     actor = Entity("甲")
     goals = GoalState.from_initial([])
@@ -62,7 +62,7 @@ def test_event_response_can_ground_a_private_follow_up_goal():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     goal = next(record for record in goals.goals.values() if record.origin == "agent")
     assert goal.source_kind == "event_response"
@@ -71,7 +71,7 @@ def test_event_response_can_ground_a_private_follow_up_goal():
 
 
 def test_event_response_goal_source_cannot_use_another_characters_private_response():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SceneState())
     actor = Entity("丙")
     actor.add_component(GoalState.from_initial([]))
@@ -90,7 +90,7 @@ def test_event_response_goal_source_cannot_use_another_characters_private_respon
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "丙": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "丙": actor}, context)
 
     assert actor.get_component("GoalState").goals == {}
     assert context["goal_errors"] == [
@@ -197,7 +197,7 @@ def test_conflicting_goal_locks_are_reported_without_arbitrary_resolution():
 
 
 def test_semantic_resolver_cannot_write_goal_status_directly():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(scene_flags={"door_open": False})
     gm.add_component(scene)
     actor = Entity("甲")
@@ -223,13 +223,13 @@ def test_semantic_resolver_cannot_write_goal_status_directly():
         },
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert context["goal_transitions"] == []
     assert state.goals["open_door"].status == "active"
 
     scene.update_scene_flags({"door_open": True})
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert context["goal_transitions"][0]["status"] == "achieved"
 
@@ -374,7 +374,7 @@ def test_agent_can_grow_a_secondary_goal_from_host_resolved_goal():
     )
     state = actor.get_component("GoalState")
     state.advance_to(step=3, scene_state=scene)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     marker = SimulationControl()
     gm.add_component(marker)
     gm.add_component(scene)
@@ -390,8 +390,8 @@ def test_agent_can_grow_a_secondary_goal_from_host_resolved_goal():
         "random_seed": 7,
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": actor}, context)
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    InputSystem().update({"WorldHost": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     adopted = [
         record for record in state.goals.values() if record.origin == "agent"
@@ -414,14 +414,14 @@ def test_agent_can_grow_a_secondary_goal_from_host_resolved_goal():
     scene.update_actor_state("甲", {"location": "走廊"})
     context["clock"] = SimpleNamespace(current_step=5)
     context["agent_goal_requests"] = []
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert adopted[0].status == "achieved"
     assert context["goal_transitions"][-1]["status"] == "achieved"
 
 
 def test_open_agent_goal_can_be_refined_into_host_verifiable_resolution():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "房间": {},
@@ -479,7 +479,7 @@ def test_open_agent_goal_can_be_refined_into_host_verifiable_resolution():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert len(goals.goals) == 1
     goal = goals.goals[goal_id]
@@ -506,7 +506,7 @@ def test_open_agent_goal_can_be_refined_into_host_verifiable_resolution():
 
     scene.update_object_state("钥匙", {"owner": "甲", "location": None})
     GoalSystem().update(
-        {"GameMaster": gm, "甲": actor},
+        {"WorldHost": gm, "甲": actor},
         {"clock": SimpleNamespace(current_step=3), "agent_goal_requests": []},
     )
 
@@ -551,7 +551,7 @@ def test_goal_refinement_cannot_rewrite_authored_or_already_bound_goal():
 
 
 def test_use_affordance_goal_resolves_only_after_matching_host_event():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "厨房": {},
@@ -569,7 +569,7 @@ def test_use_affordance_goal_resolves_only_after_matching_host_event():
     actor = Entity("甲")
     goals = GoalState.from_initial([])
     actor.add_component(goals)
-    entities = {"GameMaster": gm, "甲": actor}
+    entities = {"WorldHost": gm, "甲": actor}
     context = {
         "clock": SimpleNamespace(current_step=3),
         "agent_goal_requests": [
@@ -639,7 +639,7 @@ def test_use_affordance_goal_resolves_only_after_matching_host_event():
 
 
 def test_use_affordance_goal_rejects_forged_event_provenance():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SceneState())
     actor = Entity("甲")
     goals = GoalState.from_initial([])
@@ -684,7 +684,7 @@ def test_use_affordance_goal_rejects_forged_event_provenance():
     }
 
     GoalSystem().update(
-        {"GameMaster": gm, "甲": actor, forged.name: forged},
+        {"WorldHost": gm, "甲": actor, forged.name: forged},
         context,
     )
 
@@ -694,7 +694,7 @@ def test_use_affordance_goal_rejects_forged_event_provenance():
 
 
 def test_use_affordance_goal_rejects_an_unobserved_capability():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "厨房": {},
@@ -727,7 +727,7 @@ def test_use_affordance_goal_rejects_an_unobserved_capability():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert actor.get_component("GoalState").goals == {}
     assert context["goal_errors"] == [
@@ -870,7 +870,7 @@ def test_small_seed_grows_and_closes_an_affordance_goal_end_to_end():
             "eat-when-hungry": lambda entity, config: EatWhenHungryRuntime()
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(HostRuleSimulationControl(scenario=scenario))
     gm.add_component(HostRuleNarrativeRenderer(scenario=scenario))
 
@@ -895,7 +895,7 @@ def test_small_seed_grows_and_closes_an_affordance_goal_end_to_end():
     assert agent_goals[0].status == "achieved"
     assert agent_goals[0].source_kind == "drive_need"
     assert agent_goals[0].source_ref == "hunger"
-    assert "面包" not in session.entities["GameMaster"].get_component(
+    assert "面包" not in session.entities["WorldHost"].get_component(
         "SceneState"
     ).world_objects
     assert any(
@@ -918,7 +918,7 @@ def test_small_seed_grows_and_closes_an_affordance_goal_end_to_end():
 
 
 def test_possess_object_goal_template_requires_a_visible_portable_object():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "房间": {},
@@ -969,7 +969,7 @@ def test_possess_object_goal_template_requires_a_visible_portable_object():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     adopted = next(record for record in state.goals.values() if record.origin == "agent")
     assert adopted.completion_conditions[0]["target"] == "钥匙"
@@ -1005,14 +1005,14 @@ def test_possess_object_goal_template_requires_a_visible_portable_object():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "乙": other}, hidden_context)
+    GoalSystem().update({"WorldHost": gm, "乙": other}, hidden_context)
 
     assert all(record.origin != "agent" for record in other_state.goals.values())
     assert "not currently visible" in hidden_context["goal_errors"][0]
 
 
 def test_object_goal_fails_only_after_target_authoritatively_ceases_to_exist():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "房间": {},
@@ -1056,7 +1056,7 @@ def test_object_goal_fails_only_after_target_authoritatively_ceases_to_exist():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
     goal = next(record for record in goals.goals.values() if record.origin == "agent")
     assert goal.status == "active"
     assert goal.failure_conditions == [
@@ -1071,7 +1071,7 @@ def test_object_goal_fails_only_after_target_authoritatively_ceases_to_exist():
 
     scene.world_objects.pop("钥匙")
     GoalSystem().update(
-        {"GameMaster": gm, "甲": actor},
+        {"WorldHost": gm, "甲": actor},
         {"clock": SimpleNamespace(current_step=2), "agent_goal_requests": []},
     )
 
@@ -1088,7 +1088,7 @@ def test_object_goal_fails_only_after_target_authoritatively_ceases_to_exist():
 
 
 def test_agent_goal_source_must_exist_and_authored_goal_cannot_be_abandoned():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SceneState())
     actor = Entity("甲")
     state = GoalState.from_initial(["保护家园"])
@@ -1106,7 +1106,7 @@ def test_agent_goal_source_must_exist_and_authored_goal_cannot_be_abandoned():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert len(state.goals) == 1
     assert "source is not present" in context["goal_errors"][0]
@@ -1119,14 +1119,14 @@ def test_agent_goal_source_must_exist_and_authored_goal_cannot_be_abandoned():
             "reason": "现在不想做了",
         }
     ]
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert state.goals["goal-1"].status == "active"
     assert "authored goals cannot be abandoned" in context["goal_errors"][0]
 
 
 def test_navigation_problem_can_ground_a_remote_known_location_goal():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "村口": {"connected_to": ["南路"]},
@@ -1181,7 +1181,7 @@ def test_navigation_problem_can_ground_a_remote_known_location_goal():
         }],
     }
 
-    GoalSystem().update({"GameMaster": gm, "旅人": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "旅人": actor}, context)
 
     adopted = goals.active_records()[0]
     assert adopted.source_kind == "navigation_problem"
@@ -1198,7 +1198,7 @@ def test_navigation_problem_can_ground_a_remote_known_location_goal():
 
 
 def test_navigation_problem_goal_rejects_unknown_remote_location():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
             world_objects={"村口": {}, "秘密港口": {}},
@@ -1239,14 +1239,14 @@ def test_navigation_problem_goal_rejects_unknown_remote_location():
         }],
     }
 
-    GoalSystem().update({"GameMaster": gm, "旅人": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "旅人": actor}, context)
 
     assert goals.goals == {}
     assert "not currently known" in context["goal_errors"][0]
 
 
 def test_deliver_object_template_resolves_from_authoritative_ownership():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "房间": {},
@@ -1299,7 +1299,7 @@ def test_deliver_object_template_resolves_from_authoritative_ownership():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
     goal = next(record for record in state.goals.values() if record.origin == "agent")
     assert goal.status == "active"
     assert goal.completion_conditions[0]["value"] == "乙"
@@ -1309,13 +1309,13 @@ def test_deliver_object_template_resolves_from_authoritative_ownership():
         clock=SimpleNamespace(current_step=3),
         agent_goal_requests=[],
     )
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert goal.status == "achieved"
 
 
 def test_obtain_evidence_template_requires_linked_evidence_and_real_possession():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={
             "档案室": {},
@@ -1345,7 +1345,7 @@ def test_obtain_evidence_template_requires_linked_evidence_and_real_possession()
     actor.add_component(goals)
     actor.add_component(knowledge)
     claim_registry = ClaimRegistry()
-    world_entities = {"GameMaster": gm, "甲": actor}
+    world_entities = {"WorldHost": gm, "甲": actor}
     claim_registry.seed(
         [
             {
@@ -1402,7 +1402,7 @@ def test_obtain_evidence_template_requires_linked_evidence_and_real_possession()
 
 
 def test_become_acquainted_template_resolves_only_after_real_interaction_bit():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={"大厅": {}},
         actor_states={
@@ -1431,7 +1431,7 @@ def test_become_acquainted_template_resolves_only_after_real_interaction_bit():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
     goal = next(record for record in goals.goals.values() if record.origin == "agent")
     assert goal.status == "active"
 
@@ -1448,13 +1448,13 @@ def test_become_acquainted_template_resolves_only_after_real_interaction_bit():
         clock=SimpleNamespace(current_step=2),
         agent_goal_requests=[],
     )
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert goal.status == "achieved"
 
 
 def test_relationship_goal_uses_host_qualitative_state_not_numeric_threshold():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={"大厅": {}},
         actor_states={
@@ -1488,7 +1488,7 @@ def test_relationship_goal_uses_host_qualitative_state_not_numeric_threshold():
         ],
     }
 
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
     goal = next(record for record in goals.goals.values() if record.origin == "agent")
     assert goal.completion_conditions == [
         {
@@ -1508,7 +1508,7 @@ def test_relationship_goal_uses_host_qualitative_state_not_numeric_threshold():
         clock=SimpleNamespace(current_step=2),
         agent_goal_requests=[],
     )
-    GoalSystem().update({"GameMaster": gm, "甲": actor}, context)
+    GoalSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert goal.status == "achieved"
 
@@ -1532,7 +1532,7 @@ def test_relationship_goal_uses_host_qualitative_state_not_numeric_threshold():
         ],
     }
     scene.update_actor_state("丙", {"location": "大厅"})
-    GoalSystem().update({"GameMaster": gm, "丙": other}, invalid_context)
+    GoalSystem().update({"WorldHost": gm, "丙": other}, invalid_context)
 
     assert other_goals.goals == {}
     assert "unsupported qualitative" in invalid_context["goal_errors"][0]

@@ -86,7 +86,7 @@ def test_objective_event_grows_verified_social_and_spatial_response_chain():
     assert max(step.sentiment_count for step in report.steps) >= 1
     relationship = session.runner.relation_registry.to_relationship_book()
     assert relationship.get_metrics(RECIPIENT, MESSENGER).get("favor", 0.0) > 0
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     assert scene.get_actor_location(RECIPIENT) == HALL
     recipient_actions = [
         (kind, target)
@@ -100,7 +100,7 @@ def test_objective_event_grows_verified_social_and_spatial_response_chain():
 
 def test_closure_waits_for_a_future_timeline_seed_before_story_aftermath_runs():
     session = create_minimal_event_response_session("future-event-response")
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     commitments = scene.get_scene_flag("upcoming_commitments")
     commitments[0]["due_step"] = 4
 

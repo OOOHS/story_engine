@@ -12,7 +12,7 @@ from src.story_engine.systems.world_events import WorldEventSystem
 
 
 def _world():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = SceneState(
         world_objects={"住处": {}, "礼堂": {}},
         actor_states={
@@ -35,7 +35,7 @@ def _world():
     )
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "甲": create_agent("甲", "受邀者", "谨慎", [], agent_runtime="llm"),
         "乙": create_agent("乙", "旁观者", "敏锐", [], agent_runtime="llm"),
         "丙": create_agent("丙", "远处的人", "平静", [], agent_runtime="llm"),

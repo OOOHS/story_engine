@@ -74,7 +74,7 @@ class CountingRuntime:
 
 def test_runner_rejects_invalid_host_batch_before_agent_or_time_execution():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     runtime = CountingRuntime()
     runner = Runner(
@@ -110,6 +110,8 @@ def test_aborted_session_step_does_not_increment_count_and_retry_keeps_ids():
     scenario = ScenarioConfig(
         name="宿主事务测试",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="验证宿主步前事务",
         environment="测试环境",
         initial_state="甲位于大厅。",

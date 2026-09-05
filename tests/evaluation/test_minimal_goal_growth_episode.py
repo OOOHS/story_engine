@@ -16,7 +16,7 @@ from src.story_engine.components.host_rule_simulation import (
 def test_resolved_seed_goal_grows_a_followup_before_episode_closes():
     session = create_minimal_goal_growth_session("growth")
     assert isinstance(
-        session.entities["GameMaster"].get_component("SimulationControl"),
+        session.entities["WorldHost"].get_component("SimulationControl"),
         HostRuleSimulationControl,
     )
     report = EpisodeRunner().run(
@@ -42,6 +42,6 @@ def test_resolved_seed_goal_grows_a_followup_before_episode_closes():
     assert agent_goals[0].status == "achieved"
     assert any(change.startswith(f"goal_adopted:{ACTOR}:") for change in changes)
     assert any(change.endswith(":achieved") for change in changes)
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     assert scene.get_object_state(KEY)["owner"] == ACTOR
     assert scene.get_actor_location(ACTOR) == CORRIDOR

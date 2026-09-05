@@ -149,10 +149,10 @@ def test_host_world_edit_becomes_local_event_and_reactivates_dependent_goal():
         [("灯", {"powered": True})],
         current_step=4,
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "甲": create_agent("甲", "调查者", "谨慎", [], agent_runtime="llm"),
         "乙": create_agent("乙", "远方居民", "平静", [], agent_runtime="llm"),
     }
@@ -207,10 +207,10 @@ def test_hidden_host_world_edit_changes_truth_without_leaking_observation():
         [("暗格机关", {"condition": "松开"})],
         current_step=5,
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "甲": create_agent("甲", "调查者", "谨慎", [], agent_runtime="llm"),
         "乙": create_agent("乙", "远方居民", "平静", [], agent_runtime="llm"),
     }
@@ -234,7 +234,7 @@ def test_hidden_host_world_edit_changes_truth_without_leaking_observation():
 
 def test_runner_publishes_committed_host_world_edit_without_raw_patch_leakage():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     runner = Runner(random_seed="host-edit-runner")
     runner.add_entity(gm)

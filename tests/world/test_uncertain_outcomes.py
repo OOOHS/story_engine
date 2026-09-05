@@ -326,7 +326,7 @@ class SimulationControl(Component):
 
 def test_simulation_system_rolls_branch_before_authoritative_transaction():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=_result()))
     gm.add_component(scene)
     gm.add_component(DramaState())
@@ -336,7 +336,7 @@ def test_simulation_system_rolls_branch_before_authoritative_transaction():
         "check_resolver": HostCheckResolver(DeterministicRandomStreams("integration")),
     }
 
-    SimulationSystem().update({"GameMaster": gm, "甲": Entity("甲")}, context)
+    SimulationSystem().update({"WorldHost": gm, "甲": Entity("甲")}, context)
 
     assert context["state_transaction"]["committed"] is True
     assert len(context["outcome_check_traces"]) == 1
@@ -354,7 +354,7 @@ def test_simulation_system_audits_and_strips_uncertain_location_bypass():
             "actor_states"
         ] = {"甲": {"location": "月球"}}
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
     gm.add_component(DramaState())
@@ -366,7 +366,7 @@ def test_simulation_system_audits_and_strips_uncertain_location_bypass():
         ),
     }
 
-    SimulationSystem().update({"GameMaster": gm, "甲": Entity("甲")}, context)
+    SimulationSystem().update({"WorldHost": gm, "甲": Entity("甲")}, context)
 
     assert context["state_transaction"]["committed"] is True
     assert scene.get_actor_location("甲") == "大厅"
@@ -383,7 +383,7 @@ def test_invalid_selected_branch_is_rejected_atomically():
     scene = _scene()
     before_description = scene.description
     before_actors = deepcopy(scene.actor_states)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
     gm.add_component(DramaState())
@@ -393,7 +393,7 @@ def test_invalid_selected_branch_is_rejected_atomically():
         "check_resolver": HostCheckResolver(DeterministicRandomStreams("invalid")),
     }
 
-    SimulationSystem().update({"GameMaster": gm, "甲": Entity("甲")}, context)
+    SimulationSystem().update({"WorldHost": gm, "甲": Entity("甲")}, context)
 
     assert context["state_transaction"]["committed"] is False
     assert scene.description == before_description

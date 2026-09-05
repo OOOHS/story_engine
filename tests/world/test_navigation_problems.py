@@ -6,7 +6,7 @@ from src.story_engine.systems.navigation import NavigationSystem
 
 
 def _entities(with_alternative=True):
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
             world_objects={
@@ -33,7 +33,7 @@ def _entities(with_alternative=True):
         )
     )
     actor.add_component(NavigationState())
-    return {"GameMaster": gm, "旅人": actor}
+    return {"WorldHost": gm, "旅人": actor}
 
 
 def test_stale_route_creates_private_problem_with_alternative_and_deadline():

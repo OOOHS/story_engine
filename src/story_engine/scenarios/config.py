@@ -240,9 +240,13 @@ class ScenarioConfig(BaseModel):
     # fallback.
     simulation_mode: Literal["llm", "rules"] = "llm"
     narration_mode: Literal["llm", "rules"] = "llm"
-    # Post-commit narrative enrichment is opt-in because it may incur another
-    # model call and is not required for authoritative simulation.
-    narrative_director_enabled: bool = False
+    # Post-commit narrative enrichment is a designed part of the production
+    # experience, so it is on by default alongside ``simulation_mode="llm"``.
+    # It only ever attaches when the GM is LLM-backed (see
+    # ``scenario_loader.create_gm``): a ``rules`` profile is a deterministic,
+    # LLM-free host by construction and must not pick up a live director call
+    # just because this flag happens to still be true.
+    narrative_director_enabled: bool = True
     physics_profile: str = "mundane"
     # When non-empty, these fully replace LegalityEngine's built-in
     # "mundane" keyword table for this scenario's physics_profile: content

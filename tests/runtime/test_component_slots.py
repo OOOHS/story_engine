@@ -6,7 +6,7 @@ from src.story_engine.core.entity import Entity
 
 
 def test_component_variant_replaces_stable_slot_and_detaches_previous_instance():
-    entity = Entity("GameMaster")
+    entity = Entity("WorldHost")
     original = SimulationControl(llm_config={})
     variant = HostRuleSimulationControl(llm_config={})
 

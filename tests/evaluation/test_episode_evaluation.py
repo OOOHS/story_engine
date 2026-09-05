@@ -177,7 +177,7 @@ def _session(seed):
             "alternating": lambda entity, config: AlternatingRuntime()
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     control = SimulationControl(scenario=scenario)
     gm.add_component(control)
     gm.add_component(NarrativeRenderer())
@@ -211,7 +211,7 @@ def _idle_session(seed):
             "waiting": lambda entity, config: WaitingRuntime()
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(SimulationControl(scenario=scenario))
     gm.add_component(NarrativeRenderer())
     return session
@@ -244,7 +244,7 @@ def _choice_session(seed):
             "choice": lambda entity, config: ChoiceRuntime()
         },
     )
-    gm = session.entities["GameMaster"]
+    gm = session.entities["WorldHost"]
     gm.add_component(SimulationControl(scenario=scenario))
     gm.add_component(NarrativeRenderer())
     return session

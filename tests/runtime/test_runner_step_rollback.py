@@ -27,6 +27,8 @@ def _session():
     scenario = ScenarioConfig(
         name="步骤回滚测试",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="验证系统异常不会留下半状态",
         environment="一间安静的大厅。",
         initial_state="甲在大厅中。",
@@ -54,7 +56,7 @@ def _session():
 
 class FaultingAuthoritativeSystem(System):
     def update(self, entities, context):
-        scene = entities["GameMaster"].get_component("SceneState")
+        scene = entities["WorldHost"].get_component("SceneState")
         scene.update_object_state("大厅", {"lighting": "错误的半状态"})
         scene.update_actor_state("临时人", {"location": "大厅"})
         temporary = create_agent(
@@ -76,7 +78,7 @@ class FaultingAuthoritativeSystem(System):
 
 class FaultingDeliverySystem(System):
     def update(self, entities, context):
-        entities["GameMaster"].get_component("SceneState").update_object_state(
+        entities["WorldHost"].get_component("SceneState").update_object_state(
             "大厅", {"delivery_half_state": True}
         )
         context["rendered_text"] = "不应保留的半段渲染"
@@ -142,7 +144,7 @@ def test_authoritative_phase_exception_restores_entire_step_and_buffers_events()
     runner = session.runner
     original_systems = list(runner.systems)
     runner.systems[2] = FaultingAuthoritativeSystem()
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     cognition = session.entities["甲"].get_component("Cognition")
     controller = session.entities["甲"].get_component("AgentController")
     scene_identity = id(scene)
@@ -172,7 +174,7 @@ def test_authoritative_phase_exception_restores_entire_step_and_buffers_events()
     assert runner.relation_registry.binding_snapshot() == {}
     assert delivered == []
     assert runner.dispatcher.get_events() == []
-    restored_scene = session.entities["GameMaster"].get_component("SceneState")
+    restored_scene = session.entities["WorldHost"].get_component("SceneState")
     restored_cognition = session.entities["甲"].get_component("Cognition")
     assert id(restored_scene) == scene_identity
     assert id(restored_cognition) == cognition_identity
@@ -197,12 +199,12 @@ def test_authoritative_phase_exception_restores_entire_step_and_buffers_events()
 
 def test_callback_exception_before_commit_barrier_also_rolls_back():
     session, _ = _session()
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     before = deepcopy(scene.model_dump())
 
     def fail_after_scheduling(phase, context, entities):
         if phase == "ActionSchedulingSystem":
-            entities["GameMaster"].get_component("SceneState").update_object_state(
+            entities["WorldHost"].get_component("SceneState").update_object_state(
                 "大厅", {"lighting": "callback half-state"}
             )
             raise ValueError("callback failed")
@@ -227,7 +229,7 @@ def test_delivery_exception_after_world_event_keeps_committed_world():
     )
     original_renderer = runner.systems[rendering_index]
     runner.systems[rendering_index] = FaultingDeliverySystem()
-    scene = session.entities["GameMaster"].get_component("SceneState")
+    scene = session.entities["WorldHost"].get_component("SceneState")
     before_version = int(scene.get_scene_flag("world_version", 0) or 0)
 
     context = session.run_step()
@@ -277,7 +279,7 @@ def test_memory_delivery_retry_upserts_stable_episode_ids_without_duplicates():
     assert failed["step_failure_reason"] == "delivery_phase_exception"
     assert failed["phase_errors"][0]["phase"] == "MemorySystem"
     assert session.delivery_pending is True
-    gm_memory = session.entities["GameMaster"].get_component("Memory")
+    gm_memory = session.entities["WorldHost"].get_component("Memory")
     gm_before_retry = [
         item
         for item in gm_memory.list_memories()

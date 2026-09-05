@@ -16,9 +16,9 @@ def _public_world(count: int = 16, budget: int = 5, reverse: bool = False):
         actor_states={name: {"location": "城中"} for name in ordered},
         scene_flags={"public_event_attention_budget": budget},
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
-    entities = {"GameMaster": gm}
+    entities = {"WorldHost": gm}
     for name in ordered:
         entities[name] = create_agent(name, "居民", "平静", [], agent_runtime="llm")
     return entities, scene, names
@@ -160,10 +160,10 @@ def test_public_event_local_witness_bypasses_zero_general_budget():
         },
         scene_flags={"public_event_attention_budget": 0},
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     entities = {
-        "GameMaster": gm,
+        "WorldHost": gm,
         "现场者": create_agent("现场者", "旅人", "警觉", [], agent_runtime="llm"),
         "远方者": create_agent("远方者", "居民", "平静", [], agent_runtime="llm"),
     }

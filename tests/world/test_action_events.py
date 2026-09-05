@@ -213,7 +213,7 @@ def test_input_does_not_awaken_agent_while_external_action_is_in_progress():
     actor.add_component(AgentController(runtime="test"))
     actor.add_component(Cognition())
     registry.register(actor, Runtime())
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(world_objects={"房间": {}}, actor_states={"甲": {"location": "房间"}})
@@ -228,7 +228,7 @@ def test_input_does_not_awaken_agent_while_external_action_is_in_progress():
         "intents": [],
     }
 
-    InputSystem().update({"GameMaster": gm, "甲": actor}, context)
+    InputSystem().update({"WorldHost": gm, "甲": actor}, context)
 
     assert context["intents"] == []
     assert context["agent_activations"]["甲"]["reason"] == "action_in_progress"
@@ -301,7 +301,7 @@ def _busy_actor_world(*, priority, witness_mode="direct"):
     )
     actor.add_component(cognition)
     registry.register(actor, Runtime())
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -318,7 +318,7 @@ def _busy_actor_world(*, priority, witness_mode="direct"):
         "inject_events": [],
         "intents": [],
     }
-    return queue, {"GameMaster": gm, "甲": actor}, context
+    return queue, {"WorldHost": gm, "甲": actor}, context
 
 
 def test_critical_signal_interrupts_the_action_a_character_is_in_the_middle_of():
@@ -405,7 +405,7 @@ def test_perception_exposes_ongoing_action_shape_without_private_detail_or_hidde
 
 
 def test_active_observation_is_private_while_other_world_events_are_passive():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -446,7 +446,7 @@ def test_active_observation_is_private_while_other_world_events_are_passive():
     }
     context = {"simulation_result": result, "clock": GameClock()}
 
-    CognitionSystem().update({"GameMaster": gm, **actors}, context)
+    CognitionSystem().update({"WorldHost": gm, **actors}, context)
 
     a_events = actors["甲"].get_component("Cognition").experiences[-1]["events"]
     b_events = actors["乙"].get_component("Cognition").experiences[-1]["events"]
@@ -482,7 +482,7 @@ def test_active_observation_is_private_while_other_world_events_are_passive():
 
 
 def test_moving_actor_observes_origin_and_destination_without_remote_leak():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(
         SceneState(
@@ -540,7 +540,7 @@ def test_moving_actor_observes_origin_and_destination_without_remote_leak():
         },
     }
 
-    CognitionSystem().update({"GameMaster": gm, **actors}, context)
+    CognitionSystem().update({"WorldHost": gm, **actors}, context)
 
     mover_events = actors["移动者"].get_component("Cognition").experiences[-1][
         "events"
@@ -578,6 +578,8 @@ def test_runner_advances_by_completion_events_instead_of_global_one_action_round
     scenario = ScenarioConfig(
         name="事件测试",
         default_agent_runtime="llm",
+        simulation_mode="rules",
+        narration_mode="rules",
         description="两个动作具有不同耗时。",
         environment="房间与走廊",
         initial_state="甲与乙准备行动。",

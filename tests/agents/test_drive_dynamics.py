@@ -302,7 +302,7 @@ def test_drive_system_advances_each_component_once_per_clock_step():
 
 
 def test_simulation_system_commits_resource_use_and_private_need_effect_together():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = _resource_scene(quantity=2)
     gm.add_component(SimulationControl(scripted_result=_use_result()))
     gm.add_component(scene)
@@ -314,7 +314,7 @@ def test_simulation_system_commits_resource_use_and_private_need_effect_together
         ["活下去"],
         initial_needs=[{"name": "hunger", "pressure": 0.8}],
     agent_runtime="llm")
-    entities = {"GameMaster": gm, "旅人": traveler}
+    entities = {"WorldHost": gm, "旅人": traveler}
     context = {
         "intents": [{"actor": "旅人", "intent": "吃掉一份面包"}],
     }
@@ -327,7 +327,7 @@ def test_simulation_system_commits_resource_use_and_private_need_effect_together
 
 
 def test_simulation_system_reads_emergent_meter_budget_from_scenario():
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     scene = _resource_scene(quantity=2)
     scripted = _use_result()
     scripted["drive_creations"] = [
@@ -355,7 +355,7 @@ def test_simulation_system_reads_emergent_meter_budget_from_scenario():
         ["活下去"],
         initial_needs=[{"name": "hunger", "pressure": 0.8}],
     agent_runtime="llm")
-    entities = {"GameMaster": gm, "旅人": traveler}
+    entities = {"WorldHost": gm, "旅人": traveler}
     context = {
         "intents": [{"actor": "旅人", "intent": "吃掉一份面包"}],
     }

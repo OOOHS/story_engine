@@ -40,6 +40,16 @@
 - 同场角色逐回合运行，离屏角色低频或事件驱动运行，休眠角色不消耗推理。
 - Host 可验证的私人知识收据存放在 `Cognition/KnowledgeState`，不能混入公开或物理 `SceneState`；持久 Hermes 的回忆、解释、情绪、计划与秘密笔记属于其原生 subject memory，不在 ECS 双写。
 
+### 5. 玩家与 Agent 对称
+
+- 玩家不是特权 actor，而是共享同一套感知/行动接口的一个 proposer。`InputSystem.build_agent_perception()` 是玩家和 NPC 共用的唯一感知构造函数；`Runner.get_agent_decision_context()`（供人类 UI 使用）直接调用它，不另建一条"玩家专属"通路。
+- 行动语法同样共用：人类手输与 agent 决策都先落到同一个 `AgentAction`（`parse_natural_language_action`），再经过同一段 `bind_action_target` 与 affordance/claim/delivery/route 合法性校验；玩家不能引用 NPC 语法上引用不到的对象或人，反之亦然。
+- 感知的可见性边界对双方同规则：同地点过滤、同批次未结算 proposal 互相不可见（`InputSystem.build_agent_perception` 里的批次过滤，不为 `is_player` 开例外）、`ongoing_actions` 只暴露公开可见的动作类型与目标。
+- 允许存在、且应当保留的不对称，仅限于"注意力预算"这一层，不涉及世界模型或交互语法：
+  - `AgentScheduler` 让玩家永远 `foreground`（每步都被询问），后台 NPC 按周期/事件唤醒——这是响应性预算分配，不是信息或语法特权；
+  - `ProposalArbiter`/`_proposal_priority` 给玩家手动输入更高排序优先级——只影响同批次内的呈现顺序，不影响谁能看见什么、谁能做什么。
+- 新功能凡涉及"玩家如何感知世界/如何与世界交互"，必须先证明同一条路径对 NPC 也成立；反之亦然。任何一次只让其中一方可用的能力，都是需要显式论证的例外，而不是默认可接受的实现捷径。
+
 ### 6. 引擎不认识具体故事
 
 - 引擎系统不得通过角色姓名、地点名称或题材标签触发专属代码。
@@ -380,8 +390,8 @@ NeedConfig(
 
 ### ProposalArbiter
 
-- 同轮 NPC proposal 采用 simultaneous 语义，不按 Entity 插入顺序互相预知
-- 所有 NPC 都可以看到本轮玩家 proposal 与已经发生的世界信号
+- 同批次 proposal 采用 simultaneous 语义，不按 Entity 插入顺序互相预知；玩家和 NPC 遵守同一条规则——本批次内任何一方尚未结算的 proposal，对同批次决策的其他人一律不可见，直到它进入下一批（见"玩家/Agent 对称"）
+- 已经结算完成的历史意图与 World 信号（已经是权威环境事件，不是未决 proposal）不受此限制
 - 同优先级 proposal 保持稳定输入顺序，重放结果确定
 - 玩家手工输入是强锚点；自动玩家行动只是普通角色 proposal
 - Arbiter 只排序和标记意图，不决定行动成功与否
@@ -590,7 +600,7 @@ InputSystem 不再只用本轮措辞拼一个单一 query。`AgentMemoryContextB
 
 MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低，物品不可逆变化更高，Goal 结算、Claim 发现和强 Sentiment 属于高显著性事件。检索候选不会直接按 embedding 距离返回，而是由宿主综合 `route priority + salience + recency + vector relevance` 重排；旧但改变人物命运的事件可以压过近期措辞相似的普通日志。模型输出不能写入或覆盖 salience。
 
-长期运行时，`MemoryConsolidator` 每 12 step 扫描至少 24 step 前、`salience < 3` 的普通 `episodic_log`。累计至少 6 条后，宿主从原日志中确定性抽取简短片段，写成一个带 start/end step 和 source count 的 `consolidated_summary`。高显著事件、近期日志与已有摘要永不进入这一批删除。流程严格为“写摘要成功 → 删除源 id”；写入失败时不删除，删除失败时保留摘要和源日志形成可恢复重复，而不冒数据丢失风险。GameMaster 的完整诊断记忆暂不自动压缩。
+长期运行时，`MemoryConsolidator` 每 12 step 扫描至少 24 step 前、`salience < 3` 的普通 `episodic_log`。累计至少 6 条后，宿主从原日志中确定性抽取简短片段，写成一个带 start/end step 和 source count 的 `consolidated_summary`。高显著事件、近期日志与已有摘要永不进入这一批删除。流程严格为“写摘要成功 → 删除源 id”；写入失败时不删除，删除失败时保留摘要和源日志形成可恢复重复，而不冒数据丢失风险。WorldHost 的完整诊断记忆暂不自动压缩。
 
 ## 六、当前限制
 

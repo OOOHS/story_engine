@@ -40,13 +40,13 @@ def _world():
             "乙": {"location": "房间"},
         },
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(scene)
     first = Entity("甲")
     first.add_component(KnowledgeState())
     second = Entity("乙")
     second.add_component(KnowledgeState())
-    entities = {"GameMaster": gm, "甲": first, "乙": second}
+    entities = {"WorldHost": gm, "甲": first, "乙": second}
     registry = ClaimRegistry()
     registry.seed([_claim_config()], scene_state=scene, world_entities=entities)
     return scene, entities, registry

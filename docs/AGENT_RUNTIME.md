@@ -317,7 +317,7 @@ Timeline 结算的 provenance 同时保留 commitment、Host clock 与真实位�
 
 角色主导不仅依靠“GM 不得凭空增加 actor”这一条 prompt。SimulationSystem 在调用任何语义 resolver 前会从输入契约中物理移除 Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 与 motive pressure；社会上下文也会剥离 `bias / framing_style / territorial` 等导演字段。完整 packet 仍留在 Host context 供机会检测、Episode 评估和事后归因，但 GM 看不到它们，不能为了满足一个幕后节拍改变既有 proposal 的结算方向。
 
-这条隔离跨越长期记忆。GameMaster 的 `Memory` 只保存已提交行动及其权威事务后果，不归档完整 Timeline、Host 随机检查、私有 Goal/Modifier 诊断、宏剧情 pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
+这条隔离跨越长期记忆。WorldHost 的 `Memory` 只保存已提交行动及其权威事务后果，不归档完整 Timeline、Host 随机检查、私有 Goal/Modifier 诊断、宏剧情 pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
 
 动作完成批次中的移动使用逐角色观察窗口。SimulationSystem 在事务前保存每个角色的原位置，在提交后与新位置组成 `{origin, destination}`；CognitionSystem 只把发生在这两个端点的非 hidden 行动视为本轮可观察。未移动者仍只有单一地点，动态出生角色只有出生地点。这个窗口只解决离散提交顺序造成的观察丢失，不提供沿途全知，也不会让角色看到第三处事件。
 

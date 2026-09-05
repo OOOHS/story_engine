@@ -77,12 +77,11 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 
 - `world_change_steps` 只计算实质状态，`world_version`、时间阶段计数、渲染连续性缓存等内部记账不会伪装成剧情推进；
 - `goal_engagement_*` 只表示角色自己把该行动归因于某个目标，不声称自然语言目标已经完成；
-- `commitment_resolution_count` 目前为 0：跨时口头承诺不再由宿主状态机结算。没有条件证据时，评估器宁可报告“不知道”，不会让 LLM 自评成功。
+- 跨时口头承诺不再由宿主状态机结算，评估器也不报告一个恒为 0 的伪指标：没有条件证据时宁可不声称“已核验”，也不让 LLM 自评成功；
 - `goal_resolution_count`、`goal_achievement_count` 和 `goal_failure_count` 只统计 `GoalState` 根据权威世界条件产生的生命周期转换；普通自然语言目标没有验证条件时会继续保持 active。
 
 额外指标包括：
 
-- `causal_transition_steps`：宿主因果规则实际触发的轮数；
 - `causal_handoff_steps/count`：本轮新增多少条带权威 provenance 的后果承接边，例如 `world_event <- resolved_action/host_transition`、`event_response <- world_event`、`sentiment <- resolved_action`、`relationship track <- sentiment`、`goal_resolution <- goal`、`agent goal <- goal_resolution/world_event/event_response/sentiment/navigation_problem`；resolved Goal 使用带 actor/id/status 的结算事件节点，而不是长期存在的 Goal 实体，因此“上一轮完成旧目标、下一轮长出后续目标”会被正确识别为跨 step 因果；
 - `motive_handoff_count` / `motivated_action_count`：有多少条已提交的行动被角色自己说明了动机。宿主不再选择角色的行动，因此也无法重建“她为什么这么做”；这些边只来自角色自报的 `motive_refs`，且必须先通过 InputSystem 对照她实际持有的 Goal、Sentiment、Drive need 校验。引用她并不持有的东西会被丢弃而不是采信，评估器也不会从行动文案反猜动机；
 - `decision_count` / `stated_motive_count` / `rejected_motive_ref_count`：本 Episode 有多少次角色决策、其中多少条附带了通过校验的动机自述、以及多少条动机引用因为角色并不持有而被驳回。驳回数持续偏高说明 runtime 在编造自己的内部状态；

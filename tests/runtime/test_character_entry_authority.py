@@ -10,6 +10,7 @@ from src.story_engine.environment.character_entries import CharacterEntryAuthori
 from src.story_engine.environment.runner import Runner
 from src.story_engine.agents.registry import AgentRegistry
 from src.story_engine.prefabs.templates import create_agent
+from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
 from src.story_engine.systems.input import InputSystem
 from src.story_engine.systems.simulation import SimulationSystem
 
@@ -132,7 +133,7 @@ class SimulationControl(Component):
 
 def test_unauthorized_gm_spawn_is_ignored_without_losing_valid_action():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -174,7 +175,7 @@ def test_unauthorized_gm_spawn_is_ignored_without_losing_valid_action():
         "character_spawn_authorizations": [],
     }
 
-    SimulationSystem().update({"GameMaster": gm}, context)
+    SimulationSystem().update({"WorldHost": gm}, context)
 
     assert context["state_transaction"]["committed"] is True
     assert context["spawned_characters"] == []
@@ -187,7 +188,7 @@ def test_unauthorized_gm_spawn_is_ignored_without_losing_valid_action():
 
 def test_injected_world_event_issues_one_step_entry_authorization():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl())
     gm.add_component(scene)
     context = {
@@ -206,7 +207,7 @@ def test_injected_world_event_issues_one_step_entry_authorization():
         "player_name": "玩家",
     }
 
-    InputSystem().update({"GameMaster": gm}, context)
+    InputSystem().update({"WorldHost": gm}, context)
 
     assert context["character_spawn_authorizations"] == [
         {
@@ -219,7 +220,7 @@ def test_injected_world_event_issues_one_step_entry_authorization():
 
 def test_injected_entry_materializes_body_and_registered_agent_once():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -249,7 +250,7 @@ def test_injected_entry_materializes_body_and_registered_agent_once():
     )
     gm.add_component(scene)
     gm.add_component(DramaState())
-    entities = {"GameMaster": gm}
+    entities = {"WorldHost": gm}
     registry = AgentRegistry()
     context = {
         "intents": [],
@@ -291,7 +292,7 @@ def test_injected_entry_materializes_body_and_registered_agent_once():
 
 def test_runner_carries_entry_capability_across_discrete_action_completion():
     scene = _scene()
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(
             scripted_result={
@@ -316,12 +317,33 @@ def test_runner_carries_entry_capability_across_discrete_action_completion():
                     "personality": "一路赶来，仍保持警觉",
                     "goals": ["找到收信人"],
                 },
-            }
+            },
+            scenario=ScenarioConfig(
+                name="入场权测试",
+                description="验证注入事件携带的入场授权能跨离散动作完成传递",
+                environment="酒馆",
+                initial_state="玩家在酒馆中。",
+                default_agent_runtime="llm",
+                simulation_mode="rules",
+                characters=[
+                    CharacterConfig(
+                        name="玩家",
+                        role="在场者",
+                        personality="平静",
+                        goals=[],
+                        is_player=True,
+                        agent_runtime="llm",
+                    )
+                ],
+            ),
         )
     )
     gm.add_component(scene)
     gm.add_component(DramaState())
-    runner = Runner(random_seed="entry-runner")
+    runner = Runner(
+        random_seed="entry-runner",
+        agent_runtime_factories={"llm": lambda entity, config: object()},
+    )
     runner.add_entity(gm)
     player = create_agent(
         "玩家",

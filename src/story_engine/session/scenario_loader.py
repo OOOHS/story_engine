@@ -12,7 +12,6 @@ from src.story_engine.components.host_rule_simulation import HostRuleSimulationC
 from src.story_engine.components.host_rule_narrative import HostRuleNarrativeRenderer
 from src.story_engine.components.narrative_director import NarrativeDirector
 from src.story_engine.components.drama_state import DramaState
-from src.story_engine.components.public_pressure_state import PublicPressureState
 from src.story_engine.components.observation import Observation
 from src.story_engine.components.memory import Memory
 from src.story_engine.components.relationship import RelationshipBit
@@ -72,7 +71,7 @@ def _validate_behavioral_actor_seed(scenario: ScenarioConfig) -> None:
 
 def create_gm(scenario: ScenarioConfig, *, memory_namespace: str = "") -> Entity:
     """Create the world engine entity with simulation and rendering controls."""
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     initial_scene_flags = deepcopy(scenario.initial_scene_flags)
     initial_scene_flags.setdefault("initial_state", scenario.initial_state)
     gm.add_component(
@@ -103,16 +102,21 @@ def create_gm(scenario: ScenarioConfig, *, memory_namespace: str = "") -> Entity
             model_config=narrator_config,
             scenario=scenario,
         ))
-    if bool(getattr(scenario, "narrative_director_enabled", False)):
+    # Gated on simulation_mode, not just the flag: a "rules" profile is a
+    # deterministic, LLM-free host by construction (see PLAY_PROFILES /
+    # HostRuleSimulationControl), so it must never pick up a live director
+    # call even if a scenario left the flag at its default-on value.
+    if simulation_mode == "llm" and bool(
+        getattr(scenario, "narrative_director_enabled", True)
+    ):
         gm.add_component(NarrativeDirector(
             model_config=simulation_config,
             scenario=scenario,
         ))
     gm.add_component(DramaState.from_config(scenario.drama))
-    gm.add_component(PublicPressureState())
     gm.add_component(Observation())
     gm.add_component(
-        Memory(agent_name="GameMaster", namespace=memory_namespace)
+        Memory(agent_name="WorldHost", namespace=memory_namespace)
     )
     return gm
 

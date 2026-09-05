@@ -517,7 +517,7 @@ class Memory(Component):
 def test_gm_and_personal_memory_exclude_host_contest_trace():
     scene = _scene(quantity=1)
     resolved = _resolved(scene, _result([_use("甲"), _use("乙")]))
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(Memory())
     actor = Entity("甲")
     actor.add_component(Memory())
@@ -536,7 +536,7 @@ def test_gm_and_personal_memory_exclude_host_contest_trace():
         "clock": type("Clock", (), {"current_step": 1})(),
     }
 
-    MemorySystem().update({"GameMaster": gm, "甲": actor}, context)
+    MemorySystem().update({"WorldHost": gm, "甲": actor}, context)
 
     gm_text = gm.get_component("Memory").records[0]["content"]
     actor_text = actor.get_component("Memory").records[0]["content"]
@@ -589,7 +589,7 @@ def test_resource_contest_trace_is_engine_owned_and_cleared_on_rejection():
 
 def test_simulation_system_resolves_contest_before_authoritative_transaction():
     scene = _scene(quantity=1)
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(scripted_result=_result([_use("甲"), _use("乙")]))
     )
@@ -600,7 +600,7 @@ def test_simulation_system_resolves_contest_before_authoritative_transaction():
         entity = Entity(name)
         entity.add_component(_drive())
         actors[name] = entity
-    entities = {"GameMaster": gm, **actors}
+    entities = {"WorldHost": gm, **actors}
     context = {
         "intents": [
             {"actor": "甲", "intent": "吃面包"},
@@ -619,7 +619,7 @@ def test_simulation_system_resolves_contest_before_authoritative_transaction():
 
 def test_host_materializes_selected_affordance_when_semantic_gm_omits_operation():
     scene = _scene(quantity=1, actors=("甲",))
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(
         SimulationControl(scripted_result=_result([], actors=["甲"]))
     )
@@ -627,7 +627,7 @@ def test_host_materializes_selected_affordance_when_semantic_gm_omits_operation(
     gm.add_component(DramaState())
     actor = Entity("甲")
     actor.add_component(_drive())
-    entities = {"GameMaster": gm, "甲": actor}
+    entities = {"WorldHost": gm, "甲": actor}
     context = {
         "intents": [
             {

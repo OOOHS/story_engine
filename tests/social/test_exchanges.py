@@ -648,7 +648,7 @@ def test_rendering_hides_exchange_bundle_and_gm_memory_archives_it():
 
     assert visible["exchanges"] == []
 
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(Memory())
     actor = Entity("甲")
     actor.add_component(Memory())
@@ -662,7 +662,7 @@ def test_rendering_hides_exchange_bundle_and_gm_memory_archives_it():
         "visible_actor_names": [],
         "clock": type("Clock", (), {"current_step": 1})(),
     }
-    MemorySystem().update({"GameMaster": gm, "甲": actor}, context)
+    MemorySystem().update({"WorldHost": gm, "甲": actor}, context)
 
     gm_text = gm.get_component("Memory").records[0]["content"]
     actor_text = actor.get_component("Memory").records[0]["content"]
@@ -697,7 +697,7 @@ def test_simulation_system_commits_exchange_using_current_agent_proposals():
             )
         ]
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
     gm.add_component(DramaState())
@@ -711,7 +711,7 @@ def test_simulation_system_commits_exchange_using_current_agent_proposals():
     }
 
     SimulationSystem().update(
-        {"GameMaster": gm, "甲": alice, "乙": bob},
+        {"WorldHost": gm, "甲": alice, "乙": bob},
         context,
     )
 
@@ -730,14 +730,14 @@ def test_failed_runtime_exchange_is_sanitized_before_rendering():
             )
         ]
     )
-    gm = Entity("GameMaster")
+    gm = Entity("WorldHost")
     gm.add_component(SimulationControl(scripted_result=result))
     gm.add_component(scene)
     gm.add_component(DramaState())
     context = {"intents": [{"actor": "甲", "intent": "单方面声称交易"}]}
 
     SimulationSystem().update(
-        {"GameMaster": gm, "甲": Entity("甲"), "乙": Entity("乙")},
+        {"WorldHost": gm, "甲": Entity("甲"), "乙": Entity("乙")},
         context,
     )
 
