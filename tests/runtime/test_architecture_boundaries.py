@@ -310,6 +310,7 @@ def test_runner_has_authoritative_checkpoint_and_world_event_commit_barrier():
     assert "dispatcher.rollback_transaction()" in runner_source
     assert "dispatcher.commit_transaction()" in runner_source
     assert "agent_registry.restore_runtimes" in checkpoint_source
+    assert "restore_subject_checkpoint" in checkpoint_source
     assert "relation_registry.restore_bindings" in checkpoint_source
     assert "action_queue.restore" in checkpoint_source
 

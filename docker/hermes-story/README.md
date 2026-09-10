@@ -1,42 +1,26 @@
 # Hermes Story Runtime
 
-This directory contains the project-owned thin shell and the Hermes vendor
-snapshot at `docker/hermes-story/hermes-agent/`. Rebuild the image with:
+Story Engine 默认用本地 `--subject-server` 子进程跑每个角色。容器镜像仍可构建，但 Docker 传输已废弃：`docker run --rm` 没有可写 subject home，会话不能恢复。
 
 ```bash
-docker build -t hermes-story:latest docker/hermes-story
+python -m venv .hermes-venv
+.hermes-venv/bin/pip install -e docker/hermes-story/hermes-agent
+python main.py --scenario thirteenth-floor --hermes-python .hermes-venv/bin/python
 ```
 
 The vendor source is distributed under its upstream MIT license; see
 `hermes-agent/LICENSE`. Tests and Python bytecode caches are intentionally not
 copied into this image source tree.
 
-The Dockerfile installs that snapshot into the isolated `/opt/story-venv`
-environment. This is compatible with Hermes base images whose system Python is
-marked as externally managed (PEP 668), while keeping both the base environment
-and vendor source unchanged.
+The Dockerfile still exists for the deprecated container transport. It
+installs the vendor snapshot into `/opt/story-venv`.
 
-To reuse a local Hermes-derived image instead of the default Python base:
-
-```bash
-docker build \
-  --build-arg HERMES_BASE_IMAGE=hermes-seg:latest \
-  -t hermes-story:latest \
-  docker/hermes-story
-```
-
-Story Engine does not import Hermes on the host. In the production transport it
-starts one container per character with `--subject-server`, keeps one vendor
-`AIAgent` alive, sends one JSON-line `subject_packet` per turn on stdin, and
-reads one marker-delimited response per turn from stdout. Conversation, native
-JSON memory and tool context therefore survive across turns. The injected test
-transport may still execute one request per process.
-
-For local development, the same process boundary can be used without Docker:
-configure `HermesLocalProcessConfig` with a Hermes virtualenv Python, the
-project-owned `entrypoint.py`, and the vendor source directory. Story Engine
-starts one local `--subject-server` child process per character and reuses the
-same protocol; Docker remains the packaging and deployment option.
+Story Engine does not import Hermes on the host. Production starts one local
+`--subject-server` process per character, sends one JSON-line `subject_packet`
+per turn on stdin, and reads one marker-delimited response per turn from stdout.
+The process is bound to a stable `session_id` and an isolated `HERMES_HOME`,
+so a crash or Host step rollback can restore conversation and native memory.
+The injected test transport may still execute one request per process.
 
 The response envelope is strict and actor-bound:
 

@@ -4,7 +4,7 @@ from contextlib import redirect_stdout
 from threading import Lock
 from typing import Any, Dict, List, Optional
 
-from src.story_engine.agents import default_hermes_runtime_factories
+from src.story_engine.agents import default_local_hermes_config, default_local_hermes_runtime_factories
 from src.story_engine.session import create_session, Session
 from src.story_engine.scenarios.config import ScenarioConfig
 
@@ -24,12 +24,12 @@ class WebGameAdapter:
     ):
         self._scenario = scenario
         self._title = title or scenario.name
-        # Defaults to the real Hermes container runtime; callers (e.g. tests)
-        # may override with a stub without reintroducing a silent fallback.
+        # Defaults to the local Hermes process runtime so subject sessions
+        # can be checkpointed. Callers (e.g. tests) may override with a stub.
         self._agent_runtime_factories = (
             agent_runtime_factories
             if agent_runtime_factories is not None
-            else default_hermes_runtime_factories()
+            else default_local_hermes_runtime_factories(default_local_hermes_config())
         )
         self._lock = Lock()
         self._session: Session

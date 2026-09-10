@@ -39,7 +39,9 @@ python main.py --scenario thirteenth-floor --profile offline
 要让角色真正"思考"、叙述真正是文学性的语言，需要接入语言模型。有两层模型：
 
 1. **GM / 叙述器**——负责结算世界规则和渲染文字。
-2. **角色代理（Hermes）**——每个 NPC 独立的大脑，跑在单独的进程/容器里。
+2. **角色代理（Hermes）**——每个 NPC 独立的大脑，跑在单独的本地进程里。
+
+### 1. 配置 GM 与叙述器
 
 ### 1. 配置 GM 与叙述器
 
@@ -57,24 +59,21 @@ OPENAI_API_KEY=sk-xxxx
 
 ### 2. 启动角色代理
 
-两种方式任选一种：
-
-**Docker（推荐）**
-
-```bash
-docker build -t hermes-story:latest docker/hermes-story
-python main.py --scenario thirteenth-floor
-```
-
-**本地进程**（不需要 Docker，但需要一个独立的 Python 环境）
+生产默认是本地进程。每个角色一个 `--subject-server` 子进程，会话和原生记忆落在 `.story-hermes/subjects/<id>/`，Host 回滚 step 时会一并恢复。
 
 ```bash
 python -m venv .hermes-venv
 .hermes-venv/bin/pip install -e docker/hermes-story/hermes-agent
 
 python main.py --scenario thirteenth-floor \
-  --hermes-transport local \
   --hermes-python .hermes-venv/bin/python
+```
+
+Docker 传输已废弃（`docker run --rm`，会话无法恢复），仅供对照：
+
+```bash
+docker build -t hermes-story:latest docker/hermes-story
+python main.py --scenario thirteenth-floor --hermes-transport docker
 ```
 
 ### 3. 配置角色代理的 key
@@ -87,11 +86,19 @@ IKUN_API_KEY=sk-xxxx
 
 配好之后，直接运行 `python main.py --scenario false-heiress` 或 `python web_main.py --scenario false-heiress --port 8000`，就是完整体验。
 
-也可以跳过内置场景，从一段文字或 YAML 直接编译出新故事：
+也可以跳过内置场景，从 seed 编译新故事。seed 编译是确定性的（不经 LLM），接受三种写法：完整 JSON/YAML 的 ScenarioConfig、小型 mapping（`角色`/`地点`/`物品`/`规则`/`目标` 等字段），或行导向文本：
 
 ```bash
-python main.py --seed "三个陌生人被困在一座雪山小屋里，每个人都有秘密。" --profile offline
+python main.py --profile offline --seed "地点：雪山小屋->山道
+角色：甲|医生|谨慎|查明真相|地点=雪山小屋
+角色：乙|向导|急躁|带大家下山|地点=雪山小屋
+玩家：甲
+初始状态：暴雪封山，幸存者被困在小屋里，每个人都有秘密。"
 ```
+
+行导向词汇：`地点`（`A->B` 声明通路）、`角色`（管道分隔的 `名字|身份|性格|目标|地点=…`，每行一人）、`物品`、`规则`、`目标`、`玩家`、`初始状态`。未被结构化声明的散文只保留为开场前提，不会自动物化成角色、地点或物品。
+
+`--seed-file` 可从 UTF-8 文件读取 seed；`--scenario-ref module.path:attribute` 可指向外部 Python 模块里的 `ScenarioConfig` 对象或工厂。
 
 ## 项目结构
 

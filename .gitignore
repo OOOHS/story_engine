@@ -68,3 +68,6 @@ logs/
 
 # ChromaDB
 chroma_data/
+
+# Hermes subject homes
+.story-hermes/

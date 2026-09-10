@@ -1,10 +1,15 @@
 import json
+import os
 import re
 import select
+import shutil
+import sqlite3
 import subprocess
 import threading
 import time
-from dataclasses import dataclass, field
+import uuid
+import warnings
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Tuple
 
@@ -16,6 +21,106 @@ END_MARKER = "===STORY_AGENT_JSON_END==="
 _IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:-]*$")
 _NETWORK_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 MAX_STDOUT_CHARS = 2_000_000
+_DOCKER_DEPRECATED = (
+    "Hermes Docker transport is deprecated: containers use --rm with no "
+    "writable subject home, so agent sessions cannot be restored. Use "
+    "--hermes-transport local."
+)
+
+
+def warn_docker_transport_deprecated() -> None:
+    warnings.warn(_DOCKER_DEPRECATED, DeprecationWarning, stacklevel=3)
+
+
+def _safe_subject_id(agent_id: str) -> str:
+    text = str(agent_id or "").strip() or "subject"
+    return "".join(
+        ch if ch.isalnum() or ch in "-._" else "_"
+        for ch in text
+    )[:120]
+
+
+def story_hermes_home_root(home_root: str = "") -> Path:
+    raw = str(home_root or "").strip() or os.getenv("HERMES_STORY_HOME", "").strip()
+    if raw:
+        return Path(raw).expanduser().resolve()
+    return (Path.cwd() / ".story-hermes").resolve()
+
+
+def subject_home_for(agent_id: str, *, home_root: str = "") -> Path:
+    return story_hermes_home_root(home_root) / "subjects" / _safe_subject_id(agent_id)
+
+
+def subject_session_id(agent_id: str) -> str:
+    return f"story-subject-{_safe_subject_id(agent_id)}"
+
+
+def project_hermes_paths() -> tuple[Path, Path]:
+    project_root = Path(__file__).resolve().parents[3]
+    shell = project_root / "docker" / "hermes-story"
+    return shell / "entrypoint.py", shell / "hermes-agent"
+
+
+def _copy_sqlite_db(source: Path, dest: Path) -> None:
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        src = sqlite3.connect(str(source))
+        try:
+            dst = sqlite3.connect(str(dest))
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        finally:
+            src.close()
+    except sqlite3.Error:
+        shutil.copy2(source, dest)
+        for suffix in ("-wal", "-shm"):
+            sidecar = Path(str(source) + suffix)
+            if sidecar.is_file():
+                shutil.copy2(sidecar, Path(str(dest) + suffix))
+
+
+def _clear_sqlite_db(path: Path) -> None:
+    for suffix in ("", "-wal", "-shm"):
+        leftover = Path(str(path) + suffix)
+        if leftover.exists() or leftover.is_symlink():
+            leftover.unlink()
+
+
+def _copy_subject_snapshot(source: Path, dest: Path) -> None:
+    dest.mkdir(parents=True, exist_ok=True)
+    state_db = source / "state.db"
+    if state_db.is_file():
+        _copy_sqlite_db(state_db, dest / "state.db")
+    conversation = source / "conversation.json"
+    if conversation.is_file():
+        shutil.copy2(conversation, dest / "conversation.json")
+    memories = source / "memories"
+    if memories.is_dir():
+        target = dest / "memories"
+        if target.exists():
+            shutil.rmtree(target)
+        shutil.copytree(memories, target)
+
+
+def _restore_subject_snapshot(dest: Path, home: Path) -> None:
+    home.mkdir(parents=True, exist_ok=True)
+    live_db = home / "state.db"
+    snapshot_db = dest / "state.db"
+    _clear_sqlite_db(live_db)
+    if snapshot_db.is_file():
+        shutil.copy2(snapshot_db, live_db)
+    live_conversation = home / "conversation.json"
+    if live_conversation.exists() or live_conversation.is_symlink():
+        live_conversation.unlink()
+    if (dest / "conversation.json").is_file():
+        shutil.copy2(dest / "conversation.json", live_conversation)
+    target = home / "memories"
+    if target.exists():
+        shutil.rmtree(target)
+    if (dest / "memories").is_dir():
+        shutil.copytree(dest / "memories", target)
 
 
 class HermesInvocationBudgetExceeded(RuntimeError):
@@ -96,6 +201,7 @@ class HermesLocalProcessConfig:
     entrypoint_path: str = ""
     vendor_root: str = ""
     working_directory: str = ""
+    home_root: str = ""
     timeout_seconds: float = 180.0
     allowed_toolsets: Tuple[str, ...] = ("memory",)
     environment_keys: Tuple[str, ...] = (
@@ -169,6 +275,13 @@ class _HermesLocalProcessConversationMixin:
         self._subject_process = None
         self._subject_lock = threading.Lock()
         self._process_factory = subprocess.Popen
+        self.session_id = subject_session_id(self.agent_id)
+        self.subject_home = subject_home_for(
+            self.agent_id,
+            home_root=host_config.home_root,
+        )
+        self.subject_home.mkdir(parents=True, exist_ok=True)
+        self._birth_checkpoint = self._file_checkpoint("birth")
 
     @staticmethod
     def _required_file(value: str, label: str) -> str:
@@ -192,7 +305,10 @@ class _HermesLocalProcessConversationMixin:
         } | {
             key: value
             for key, value in env.items()
-            if key in {"PATH", "PYTHONPATH", "HERMES_VENDOR_ROOT", "HERMES_HOME"}
+            if key in {"PATH", "PYTHONPATH", "HERMES_VENDOR_ROOT"}
+        } | {
+            "HERMES_HOME": str(self.subject_home),
+            "HERMES_SESSION_ID": self.session_id,
         }
 
     def build_command(self, *, subject_server: bool = False) -> list[str]:
@@ -203,7 +319,10 @@ class _HermesLocalProcessConversationMixin:
 
     def _run_request(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = json.dumps(self._request_object(request_payload), ensure_ascii=False)
-        if self.local_config.invocation_budget is not None:
+        if (
+            self.local_config.invocation_budget is not None
+            and str(request_payload.get("op", "turn") or "turn") == "turn"
+        ):
             self.local_config.invocation_budget.consume()
         completed = subprocess.run(
             self.build_command(),
@@ -254,6 +373,57 @@ class _HermesLocalProcessConversationMixin:
 
     def close(self) -> None:
         super().close()
+
+    def _file_checkpoint(self, name: str) -> Dict[str, Any]:
+        dest = self.subject_home / "host-ckpts" / name
+        if dest.exists():
+            shutil.rmtree(dest)
+        dest.mkdir(parents=True, exist_ok=True)
+        _copy_subject_snapshot(self.subject_home, dest)
+        return {
+            "checkpoint_dir": str(dest),
+            "session_id": self.session_id,
+            "subject_home": str(self.subject_home),
+        }
+
+    def capture_checkpoint(self) -> Dict[str, Any]:
+        dest = self.subject_home / "host-ckpts" / uuid.uuid4().hex
+        dest.mkdir(parents=True, exist_ok=True)
+        live = (
+            self.local_config.persistent_subject
+            and self._subject_process is not None
+            and self._subject_process.poll() is None
+        )
+        if live:
+            try:
+                result = self._run_persistent_subject_request(
+                    {"op": "checkpoint", "checkpoint_dir": str(dest)}
+                )
+                content = result.get("content")
+                if not isinstance(content, str) or not content.strip():
+                    raise ValueError("Hermes checkpoint response is empty")
+                payload = json.loads(content)
+                if not payload.get("ok"):
+                    raise RuntimeError("Hermes subject checkpoint failed")
+                return {
+                    "checkpoint_dir": str(dest),
+                    "session_id": self.session_id,
+                    "subject_home": str(self.subject_home),
+                }
+            except Exception:
+                if dest.exists():
+                    shutil.rmtree(dest)
+        return self._file_checkpoint(dest.name)
+
+    def restore_checkpoint(self, payload: Dict[str, Any]) -> None:
+        dest = Path(str((payload or {}).get("checkpoint_dir", "")).strip())
+        if not dest.is_dir():
+            raise ValueError(f"subject checkpoint_dir is not a directory: {dest}")
+        self.close()
+        _restore_subject_snapshot(dest, self.subject_home)
+
+    def restore_birth_checkpoint(self) -> None:
+        self.restore_checkpoint(self._birth_checkpoint)
 
 
 class HermesContainerConversation:
@@ -340,7 +510,10 @@ class HermesContainerConversation:
     ) -> Dict[str, Any]:
         with self._subject_lock:
             process = self._ensure_subject_process()
-            if self.host_config.invocation_budget is not None:
+            if (
+                self.host_config.invocation_budget is not None
+                and str(request_payload.get("op", "turn") or "turn") == "turn"
+            ):
                 self.host_config.invocation_budget.consume()
             payload = json.dumps(
                 self._request_object(request_payload),
@@ -421,12 +594,16 @@ class HermesContainerConversation:
             process.wait(timeout=5.0)
 
     def _request_object(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
-        return {
+        payload = {
             "protocol_version": 1,
             "agent_id": self.agent_id,
             **request_payload,
             "enabled_toolsets": list(self.enabled_toolsets),
         }
+        session_id = str(getattr(self, "session_id", "") or "").strip()
+        if session_id:
+            payload["session_id"] = session_id
+        return payload
 
     def build_command(self, *, subject_server: bool = False) -> list[str]:
         command = [
@@ -501,19 +678,9 @@ def default_hermes_runtime_factories(
     config: HermesContainerConfig | None = None,
     command_runner: Callable[..., Any] | None = None,
 ) -> Dict[str, Callable[..., Any]]:
-    """Convenience wiring for non-evaluation callers (console, web) that just
-    want the standard Hermes container runtime registered under "hermes",
-    without the evaluation-only deterministic GM swap that
-    ``create_hermes_episode_session`` performs.
+    """Deprecated Docker transport. Local processes restore subject sessions."""
 
-    Bundled/production content declares ``agent_runtime="hermes"`` per
-    character (and a scenario-level ``default_agent_runtime`` for
-    runtime-spawned characters); this only supplies the matching factory.
-    With no Docker install and no vendored ``hermes-agent`` snapshot in this
-    environment, invoking a character backed by this factory will fail
-    loudly at the ``docker run`` step -- that is the intended fail-fast
-    behavior, not a bug in this helper.
-    """
+    warn_docker_transport_deprecated()
     return {
         "hermes": make_hermes_container_runtime_factory(
             config or HermesContainerConfig(),
@@ -528,6 +695,28 @@ def default_local_hermes_runtime_factories(
     """Register local Hermes for bundled scenarios and explicit local names."""
     factory = make_local_hermes_runtime_factory(config)
     return {"hermes": factory, "hermes-local": factory}
+
+
+def default_local_hermes_config(
+    *,
+    python_executable: str = "python",
+    entrypoint_path: str = "",
+    vendor_root: str = "",
+    working_directory: str = "",
+    home_root: str = "",
+) -> HermesLocalProcessConfig:
+    project_entrypoint, project_vendor_root = project_hermes_paths()
+    return HermesLocalProcessConfig(
+        python_executable=python_executable,
+        entrypoint_path=entrypoint_path or str(project_entrypoint),
+        vendor_root=(
+            vendor_root
+            or os.getenv("HERMES_VENDOR_ROOT", "")
+            or (str(project_vendor_root) if project_vendor_root.is_dir() else "")
+        ),
+        working_directory=working_directory,
+        home_root=home_root,
+    )
 
 
 def make_hermes_container_runtime_factory(

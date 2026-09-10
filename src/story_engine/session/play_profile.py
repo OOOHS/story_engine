@@ -6,10 +6,11 @@ from typing import Any
 
 from src.story_engine.agents import (
     HermesContainerConfig,
-    HermesLocalProcessConfig,
     default_hermes_runtime_factories,
+    default_local_hermes_config,
     default_local_hermes_runtime_factories,
     default_offline_runtime_factories,
+    warn_docker_transport_deprecated,
 )
 from src.story_engine.scenarios.config import ScenarioConfig
 
@@ -61,11 +62,12 @@ def bind_play_profile(scenario: ScenarioConfig, profile: str) -> ScenarioConfig:
 def runtime_factories_for_profile(
     profile: str,
     *,
-    hermes_transport: str = "docker",
+    hermes_transport: str = "local",
     hermes_python: str = "python",
     hermes_entrypoint: str = "",
     hermes_vendor_root: str = "",
     hermes_working_directory: str = "",
+    hermes_home: str = "",
 ) -> dict[str, Any]:
     """Build the explicit runtime registry for an application profile."""
 
@@ -76,16 +78,18 @@ def runtime_factories_for_profile(
         raise ValueError(
             f"unknown play profile {profile!r}; choose one of: {', '.join(PLAY_PROFILES)}"
         )
-    transport = str(hermes_transport or "docker").strip().casefold()
+    transport = str(hermes_transport or "local").strip().casefold()
     if transport == "docker":
+        warn_docker_transport_deprecated()
         return default_hermes_runtime_factories(HermesContainerConfig())
     if transport == "local":
         return default_local_hermes_runtime_factories(
-            HermesLocalProcessConfig(
+            default_local_hermes_config(
                 python_executable=hermes_python,
                 entrypoint_path=hermes_entrypoint,
                 vendor_root=hermes_vendor_root,
                 working_directory=hermes_working_directory,
+                home_root=hermes_home,
             )
         )
     raise ValueError("hermes_transport must be 'docker' or 'local'")

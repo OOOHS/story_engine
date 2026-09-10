@@ -36,6 +36,7 @@ class RunnerStepCheckpoint:
     action_queue: Any
     clock_step: int
     clock_time: datetime
+    subject_checkpoints: Dict[str, Any]
 
     @classmethod
     def capture(cls, runner: Any) -> "RunnerStepCheckpoint":
@@ -58,14 +59,21 @@ class RunnerStepCheckpoint:
                     components=components,
                 )
             )
+        runtimes = runner.agent_registry.runtime_snapshot()
+        subject_checkpoints: Dict[str, Any] = {}
+        for name, runtime in runtimes.items():
+            capture = getattr(runtime, "capture_subject_checkpoint", None)
+            if callable(capture):
+                subject_checkpoints[name] = capture()
         return cls(
             entities=tuple(entity_rows),
-            agent_runtimes=runner.agent_registry.runtime_snapshot(),
+            agent_runtimes=runtimes,
             relation_bindings=runner.relation_registry.binding_snapshot(),
             claim_bindings=runner.claim_registry.binding_snapshot(),
             action_queue=runner.action_queue.checkpoint(),
             clock_step=int(runner.clock.current_step),
             clock_time=runner.clock.current_time,
+            subject_checkpoints=subject_checkpoints,
         )
 
     def restore(self, runner: Any) -> None:
@@ -108,3 +116,12 @@ class RunnerStepCheckpoint:
             self.agent_runtimes,
             runner.entities,
         )
+        for name, payload in dict(self.subject_checkpoints or {}).items():
+            registered = runner.agent_registry.get(name)
+            restore = getattr(
+                getattr(registered, "runtime", None),
+                "restore_subject_checkpoint",
+                None,
+            )
+            if callable(restore):
+                restore(payload)

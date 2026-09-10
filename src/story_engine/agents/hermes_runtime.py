@@ -92,6 +92,70 @@ class HermesCharacterAgent:
         self._bootstrapped.add(entity.id)
         return decision
 
+    def capture_subject_checkpoint(self) -> Dict[str, Any]:
+        conversations: Dict[str, Any] = {}
+        for entity_id, conversation in self._conversations.items():
+            capture = getattr(conversation, "capture_checkpoint", None)
+            if callable(capture):
+                conversations[entity_id] = capture()
+        return {
+            "bootstrapped": sorted(self._bootstrapped),
+            "turn_counts": dict(self._turn_counts),
+            "decision_ledgers": {
+                key: [dict(item) for item in items]
+                for key, items in self._decision_ledgers.items()
+            },
+            "projectors": {
+                entity_id: projector.export_state()
+                for entity_id, projector in self._ledger_projectors.items()
+            },
+            "conversation_ids": sorted(self._conversations),
+            "conversations": conversations,
+        }
+
+    def restore_subject_checkpoint(self, payload: Dict[str, Any] | None) -> None:
+        data = dict(payload or {})
+        self._bootstrapped = set(data.get("bootstrapped", []))
+        self._turn_counts = {
+            str(key): int(value)
+            for key, value in dict(data.get("turn_counts", {})).items()
+        }
+        self._decision_ledgers = {
+            str(key): [dict(item) for item in items]
+            for key, items in dict(data.get("decision_ledgers", {})).items()
+            if isinstance(items, list)
+        }
+        projector_state = dict(data.get("projectors", {}))
+        keep = set(projector_state)
+        for entity_id in list(self._ledger_projectors):
+            if entity_id not in keep:
+                self._ledger_projectors.pop(entity_id, None)
+        for entity_id, state in projector_state.items():
+            projector = self._ledger_projectors.setdefault(
+                entity_id, SubjectLedgerProjector()
+            )
+            projector.restore_state(state)
+        conversations = dict(data.get("conversations", {}))
+        if "conversation_ids" in data:
+            known = {str(item) for item in list(data.get("conversation_ids") or [])}
+        else:
+            known = set(self._conversations)
+        for entity_id in list(self._conversations):
+            if entity_id not in known:
+                conversation = self._conversations.pop(entity_id)
+                restore_birth = getattr(conversation, "restore_birth_checkpoint", None)
+                if callable(restore_birth):
+                    restore_birth()
+                else:
+                    close = getattr(conversation, "close", None)
+                    if callable(close):
+                        close()
+        for entity_id, checkpoint in conversations.items():
+            conversation = self._conversations.get(entity_id)
+            restore = getattr(conversation, "restore_checkpoint", None)
+            if callable(restore):
+                restore(checkpoint)
+
     def subject_snapshot(self, entity_or_id: Entity | str) -> Dict[str, Any]:
         entity_id = entity_or_id.id if isinstance(entity_or_id, Entity) else str(entity_or_id)
         return {

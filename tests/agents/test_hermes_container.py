@@ -331,6 +331,7 @@ def test_container_entrypoint_maps_host_model_environment_to_agent(
     monkeypatch.setenv("IKUN_API_KEY", "secret-value")
     monkeypatch.delenv("HERMES_PROVIDER", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("HERMES_SESSION_ID", raising=False)
 
     module._construct_agent(["file"])
 
@@ -658,3 +659,80 @@ def test_hermes_runtime_rejects_non_protocol_result_aliases():
 
     with pytest.raises(ValueError, match="protocol content"):
         runtime.decide(entity, AgentPerception(actor_name="观察者", step=1))
+
+
+def test_entrypoint_reuses_conversation_history(monkeypatch, capsys):
+    module = _entrypoint_module()
+    histories = []
+
+    class FakeAgent:
+        def run_conversation(self, user_message, conversation_history=None):
+            histories.append(list(conversation_history or []))
+            self._session_messages = list(conversation_history or []) + [
+                {"role": "user", "content": user_message},
+                {"role": "assistant", "content": '{"action":"等待。"}'},
+            ]
+            return {
+                "final_response": '{"action":"等待。"}',
+                "messages": list(self._session_messages),
+            }
+
+    def request(step):
+        return json.dumps({
+            "protocol_version": 1,
+            "agent_id": "actor-7",
+            "session_id": "story-subject-actor-7",
+            "enabled_toolsets": ["memory"],
+            "subject_packet": {
+                "subject_protocol_version": 1,
+                "subject_id": "actor-7",
+                "wake": {"step": step},
+            },
+        }, ensure_ascii=False)
+
+    monkeypatch.setattr(module.sys, "stdin", io.StringIO(request(1) + "\n" + request(2) + "\n"))
+    monkeypatch.setattr(module, "_construct_agent", lambda toolsets: FakeAgent())
+
+    module.serve()
+
+    assert histories[0] == []
+    assert len(histories[1]) == 2
+    assert histories[1][0]["role"] == "user"
+
+
+def test_entrypoint_checkpoint_and_restore(monkeypatch, tmp_path, capsys):
+    module = _entrypoint_module()
+    home = tmp_path / "home"
+    home.mkdir()
+    dest = tmp_path / "ckpt"
+    monkeypatch.setenv("HERMES_HOME", str(home))
+
+    class FakeAgent:
+        def __init__(self):
+            self._story_history = [{"role": "user", "content": "one"}]
+            self.session_id = "story-subject-actor-7"
+
+    agent = FakeAgent()
+    parsed = {
+        "agent_id": "actor-7",
+        "prompt": "",
+        "toolsets": ["memory"],
+        "op": "checkpoint",
+        "session_id": "story-subject-actor-7",
+        "checkpoint_dir": str(dest),
+    }
+    result = module._handle_request(agent, parsed, construct=lambda toolsets: agent)
+    assert result["ok"] is True
+    assert (dest / "conversation.json").is_file()
+
+    agent._story_history = [{"role": "user", "content": "two"}]
+    (home / "state.db").write_text("late", encoding="utf-8")
+    leftover = home / "memories"
+    leftover.mkdir()
+    (leftover / "late.txt").write_text("nope", encoding="utf-8")
+    parsed["op"] = "restore"
+    restored = module._handle_request(agent, parsed, construct=lambda toolsets: agent)
+    assert restored["ok"] is True
+    assert agent._story_history == [{"role": "user", "content": "one"}]
+    assert not (home / "state.db").exists()
+    assert not leftover.exists()

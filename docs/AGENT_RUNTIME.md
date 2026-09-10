@@ -78,12 +78,14 @@ Agent 不能填写权威结果或动作耗时。环境将同一逻辑时间的 p
 
 ## Hermes 接入方式
 
-Hermes transport 有两种等价的进程边界实现：生产环境可使用
-`HermesContainerConversation`，由 Docker 打包 vendor runtime；本地开发或单机试玩
-可使用 `HermesLocalProcessConversation`，直接启动宿主机上的 Hermes entrypoint。
-两者都为每个角色维护一个长期 `--subject-server` 子进程，复用同一套 marker JSON
-协议、subject memory、超时和关闭语义。Docker 是依赖/资源封装，不是角色主体协议的
-必要条件；本地模式仍然不是把多个角色 import 到 Story Engine 同一进程里共享线程。
+Hermes transport 有两种进程边界实现：默认且可恢复的是
+`HermesLocalProcessConversation`，在宿主机上为每个角色启动一个 `--subject-server`
+子进程，并把该角色的 `HERMES_HOME` 和稳定 `session_id` 隔离在
+`.story-hermes/subjects/<id>/`。Docker 传输（`HermesContainerConversation`）已废弃：
+容器使用 `docker run --rm`，没有可写 subject home，进程一死会话无法恢复。
+
+两者仍复用同一套 marker JSON 协议。Docker 只是历史打包方式，不再是生产默认。
+本地模式仍然不是把多个角色 import 到 Story Engine 同一进程里共享线程。
 
 Story Engine 不应 import 或修改 vendor Hermes。Hermes 仍然遵守“项目薄壳 / vendor runtime / host launcher”的边界。项目薄壳只需提供一个 conversation factory：
 
@@ -118,35 +120,31 @@ CharacterConfig(
 )
 ```
 
-`project_owned_hermes_conversation_factory` 实现窄 `run_subject_turn(packet)` 边界；仅实现旧 `run_conversation(prompt)` 的测试/兼容适配器会收到同一 packet 的 JSON 编码。仓库默认和评测支持路径始终代理到容器；宿主进程不 import、实例化或修改 vendor `AIAgent`。若实验者另建 host-import 对照线，必须放在独立应用/评测模块并明确标注，不能与默认容器结果混报。Story Engine 核心不关心 Hermes 的配置目录、工具集或内部 loop。
+`project_owned_hermes_conversation_factory` 实现窄 `run_subject_turn(packet)` 边界；仅实现旧 `run_conversation(prompt)` 的测试/兼容适配器会收到同一 packet 的 JSON 编码。仓库默认走本地 Hermes 子进程；宿主进程不 import、实例化或修改 vendor `AIAgent`。Docker 传输仍可用于对照实验，但已废弃，不能与默认可恢复的本地结果混报。Story Engine 核心不关心 Hermes 的配置目录、工具集或内部 loop。
 
-当前仓库已经提供默认的容器黑盒实现：
+当前仓库的默认接入：
 
-- `src/story_engine/agents/hermes_container.py`：宿主 launcher/conversation
-- `docker/hermes-story/entrypoint.py`：项目自有容器入口
-- `docker/hermes-story/config.yaml`：无密钥的容器配置
-- `docker/hermes-story/Dockerfile`：封装 vendor Hermes
+- `src/story_engine/agents/hermes_container.py`：宿主 launcher/conversation（本地为主，Docker 废弃）
+- `docker/hermes-story/entrypoint.py`：项目自有 Hermes 入口（本地子进程与废弃的容器共用）
+- `docker/hermes-story/hermes-agent/`：vendor Hermes 源码
 
-使用方式：
+本地使用方式：
 
 ```python
 from src.story_engine.agents import (
-    HermesContainerConfig,
-    make_hermes_container_runtime_factory,
+    default_local_hermes_config,
+    default_local_hermes_runtime_factories,
 )
-
-factory = make_hermes_container_runtime_factory(
-        HermesContainerConfig(
-            image="hermes-story:latest",
-            allowed_toolsets=("memory",),
-        )
-    )
 
 session = create_session(
     scenario,
-    agent_runtime_factories={"hermes": factory},
+    agent_runtime_factories=default_local_hermes_runtime_factories(
+        default_local_hermes_config()
+    ),
 )
 ```
+
+废弃的容器接入仍可用 `make_hermes_container_runtime_factory(HermesContainerConfig(...))`。
 
 宿主通过 stdin 发送：
 
@@ -169,7 +167,7 @@ session = create_session(
 }
 ```
 
-默认生产 transport 以 `--subject-server` 启动每个角色的容器进程，并通过 JSON-lines 连续发送 turn；入口只构造一次 vendor `AIAgent`，所以 conversation 和 Hermes 原生 memory/tool 上下文可跨轮持续。角色注销、同名实体替换或 registry 关闭时会关闭对应进程。显式注入 `command_runner` 的单元测试仍使用 one-shot transport，不应与生产生命周期混报。
+默认生产 transport 以 `--subject-server` 启动每个角色的本地子进程，并通过 JSON-lines 连续发送 turn；入口只构造一次 vendor `AIAgent`，并把 conversation 续进同一 `session_id`。角色注销、同名实体替换、registry 关闭或 Host step 回滚时会关闭并按 checkpoint 恢复对应进程。显式注入 `command_runner` 的单元测试仍使用 one-shot transport，不应与生产生命周期混报。
 
 容器只在 stdout marker 中返回：
 
@@ -349,7 +347,7 @@ Runtime 可以依据 `private_sentiments` 理解“为什么我刚刚对乙感�
 
 语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。Storylet 只由已提交世界状态满足条件时进入机会层，长期关系只能由宿主社会规则沉淀。
 
-Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系、Plot 和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
+Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
 
 若 background 角色自己的私有 need pressure 达到该 meter 的 critical threshold，调度器会跳过普通错峰等待并以 `critical_need:<name>` 原因唤醒一次后台决策。这个判断只读取角色自己的 DriveState，不公开给玩家或其他 agent；`autonomous=False` 的角色不会被需求压力自动唤醒。
 

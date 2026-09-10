@@ -16,8 +16,10 @@ from .hermes_container import (
     HermesInvocationBudgetExceeded,
     default_hermes_runtime_factories,
     default_local_hermes_runtime_factories,
+    default_local_hermes_config,
     make_hermes_container_runtime_factory,
     make_local_hermes_runtime_factory,
+    warn_docker_transport_deprecated,
 )
 from .commitment import (
     RuntimeCommitment,
@@ -67,6 +69,8 @@ __all__ = [
     "HermesConversation",
     "default_hermes_runtime_factories",
     "default_local_hermes_runtime_factories",
+    "default_local_hermes_config",
+    "warn_docker_transport_deprecated",
     "ObservationMode",
     "RegisteredAgent",
     "RuntimeCommitment",

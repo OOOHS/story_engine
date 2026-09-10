@@ -161,6 +161,42 @@ class SubjectLedgerProjector:
             self._pov_last_step = step
             self._pov_staged = None
 
+    def export_state(self) -> Dict[str, Any]:
+        return {
+            "current": [
+                {"category": category, "ref": ref, "digest": digest}
+                for (category, ref), digest in sorted(self._current.items())
+            ],
+            "revisions": [
+                {"category": category, "ref": ref, "revision": revision}
+                for (category, ref), revision in sorted(self._revisions.items())
+            ],
+            "pov_last_location": self._pov_last_location,
+            "pov_last_step": self._pov_last_step,
+        }
+
+    def restore_state(self, state: Dict[str, Any] | None) -> None:
+        payload = dict(state or {})
+        current: Dict[tuple[str, str], str] = {}
+        for item in payload.get("current", []):
+            if not isinstance(item, dict):
+                continue
+            key = (str(item.get("category", "")), str(item.get("ref", "")))
+            current[key] = str(item.get("digest", ""))
+        revisions: Dict[tuple[str, str], int] = {}
+        for item in payload.get("revisions", []):
+            if not isinstance(item, dict):
+                continue
+            key = (str(item.get("category", "")), str(item.get("ref", "")))
+            revisions[key] = int(item.get("revision", 0) or 0)
+        self._current = current
+        self._revisions = revisions
+        self._staged = {}
+        self._pov_staged = None
+        self._pov_last_location = payload.get("pov_last_location")
+        step = payload.get("pov_last_step")
+        self._pov_last_step = None if step is None else int(step)
+
     def _project_ledger(
         self, perception: AgentPerception
     ) -> list["SubjectMessage"]:

@@ -12,7 +12,7 @@
 
 角色 runtime 在模型不可用时应抛出运行时错误，不代替角色生成 observe、wait 或 schedule move。这样角色不会因为基础设施故障自行改变故事。引擎不自带任何进程内 LLM runtime 作为兜底；若需要离线角色行为，应注册一个明确命名的规则 runtime。
 
-Hermes 的协议错误继续 fail-closed；Hermes 自己的主体上下文、收件箱和决策账本由 runtime 保留，下一次重试从同一主体状态继续。
+Hermes 的协议错误继续 fail-closed。本地 Hermes 的主体上下文落在隔离的 `HERMES_HOME` 里；权威 step 回滚会恢复 Host ledger 与这份 subject 快照，下一次调用从回滚后的主体状态继续。Docker 传输已废弃，不能用于需要恢复会话的生产路径。
 
 ## 协议边界
 

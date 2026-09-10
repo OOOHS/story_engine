@@ -6,15 +6,13 @@ Usage:
     python web_main.py --host 0.0.0.0 --port 8000
 """
 import argparse
-import os
-from pathlib import Path
 
 from dotenv import load_dotenv
 
 from src.story_engine.agents import (
     HermesContainerConfig,
-    HermesLocalProcessConfig,
     default_hermes_runtime_factories,
+    default_local_hermes_config,
     default_local_hermes_runtime_factories,
     default_offline_runtime_factories,
 )
@@ -64,13 +62,18 @@ def parse_args(argv=None) -> argparse.Namespace:
     parser.add_argument(
         "--hermes-transport",
         choices=("docker", "local"),
-        default="docker",
-        help="Hermes transport for the production profile.",
+        default="local",
+        help="Hermes transport. Docker is deprecated and cannot restore sessions.",
     )
     parser.add_argument("--hermes-python", default="python")
     parser.add_argument("--hermes-entrypoint", default="")
     parser.add_argument("--hermes-vendor-root", default="")
     parser.add_argument("--hermes-working-directory", default="")
+    parser.add_argument(
+        "--hermes-home",
+        default="",
+        help="Host-owned subject home root. Defaults to ./.story-hermes.",
+    )
     return parser.parse_args(argv)
 
 
@@ -88,22 +91,18 @@ def main(argv=None) -> None:
     scenario = bind_play_profile(scenario, args.profile)
     if args.profile == "offline":
         factories = default_offline_runtime_factories()
-    elif args.hermes_transport == "local":
-        project_entrypoint = Path(__file__).resolve().parent / "docker" / "hermes-story" / "entrypoint.py"
-        project_vendor_root = project_entrypoint.parent / "hermes-agent"
-        local_config = HermesLocalProcessConfig(
-            python_executable=args.hermes_python,
-            entrypoint_path=args.hermes_entrypoint or str(project_entrypoint),
-            vendor_root=(
-                args.hermes_vendor_root
-                or os.getenv("HERMES_VENDOR_ROOT", "")
-                or (str(project_vendor_root) if project_vendor_root.is_dir() else "")
-            ),
-            working_directory=args.hermes_working_directory,
-        )
-        factories = default_local_hermes_runtime_factories(local_config)
-    else:
+    elif args.hermes_transport == "docker":
         factories = default_hermes_runtime_factories(HermesContainerConfig())
+    else:
+        factories = default_local_hermes_runtime_factories(
+            default_local_hermes_config(
+                python_executable=args.hermes_python,
+                entrypoint_path=args.hermes_entrypoint,
+                vendor_root=args.hermes_vendor_root,
+                working_directory=args.hermes_working_directory,
+                home_root=args.hermes_home,
+            )
+        )
     adapter = WebGameAdapter(
         scenario,
         title=args.title,

@@ -73,7 +73,8 @@ Hermes 不向 Host 输出或同步 `plan`、`focus`、`belief_updates`、私人 
 
 - Hermes 内部的 Appraisal、Global Workspace、刺激衰减和注意竞争仍需实现；
 - Host 的 `SentimentState` 仍参与长期 Relationship 规则，未来应改名为更准确的 social-response proxy，或用直接社会证据替代；
-- 外部 Hermes 进程崩溃后的原生记忆恢复、identity replay 和幂等重试尚未形成完整协议；
 - 目前 ledger 在 Hermes 被调用时投影，并非 WorldEvent commit 时真正异步推送。
+
+本地 Hermes 崩溃后由隔离的 `HERMES_HOME` + 稳定 `session_id` 续上 `state.db` 与原生记忆；权威 step 回滚会同时恢复 ledger projector 和这份 subject 快照。Docker 传输已废弃，没有这条恢复路径。
 
 这些缺口不能通过重新把完整 Host cognition 拼进 prompt 来规避。

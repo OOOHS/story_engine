@@ -100,11 +100,11 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 负责 Simulation 阶段：
 
 - 输入：GM semantic snapshot、已提交 `intents`、合法性、当前参与者自身的 Drive、可见关系定性状态，以及 Claim/角色入口等结算目录
-- 输出：`resolved_actions`、`state_updates`、`social_impacts`、定性 `conflict_level` 等语义候选；Storylet hit、Plot、长期关系、Drive magnitude 和 Drama tension 数值不属于该层输出
+- 输出：`resolved_actions`、`state_updates`、`social_impacts`、定性 `conflict_level` 等语义候选；Storylet hit、长期关系、Drive magnitude 和 Drama tension 数值不属于该层输出
 - 不确定结果的 success/failure 只是语义补丁候选。宿主在随机选择前同时清理两边的 actor.location：只有当前 move actor 的原位置或 LegalityEngine 授权目的地可保留，其他角色、非 move 坐标和替换目的地全部进入 authority rejection
 - Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 和角色导演字段只保留在 Host context 中用于检测、评估与事后归因，不进入任何语义 resolver。GM 因而只能回答“这些角色已经提出的行动在世界中发生了什么”，不能根据剧情压力把中性行动故意扭成预定节拍
 - `ScenarioConfig.rules` 只描述客观世界法则与题材常识；叙事节奏、语言风格和揭示方式属于 `ScenarioConfig.narration`。公开 `environment` 只能包含角色可观察环境，不能混入“仅 GM 参考”的隐藏设定
-- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断、Plot pressure 或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
+- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
 
 ### NarrativeRenderer
 
@@ -120,7 +120,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 ### Episode 完结边界
 
 - 完结是 evaluation 层的宿主派生状态，不是 Agent/GM 动作，也不是世界关机指令。
-- 默认要求可验证 Goal 全部结算、没有尚未出席/错过/取消的 Timeline commitment、动作队列为空；内容可选择同时要求 Plot 完结。
+- 默认要求可验证 Goal 全部结算、没有尚未出席/错过/取消的 Timeline commitment、动作队列为空。
 - 场景中仍为 `scheduled/due` 的 Timeline commitment 默认也阻塞 Episode closure；否则眼前目标刚完成时，未来宴会、仪式或约定可能尚未发生，评估器却会制造假结局。它们必须先由真实位置与时间结算为出席、错过或取消；需要章节式截断时可在 closure policy 中显式关闭该条件。
 - 条件需连续稳定若干 step 才提前停止，避免把临时空窗当成故事结局；未启用策略时仍执行固定步数。
 - Sentiment、Relationship Track 和普通记忆不要求清空。一个完整 Episode 可以带着感谢、怨恨或新的长期关系结束，而世界之后仍可继续演化。
@@ -192,9 +192,9 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 宿主对象补丁同样从 before/after 生成稳定 `host_object_state_changes`，no-op 不递增 `world_version`；真实差分进入普通 `object_state_changed` Event、typed impacts、目标重激活与 POV Rendering，不再存在“状态已经改了但世界中无人能观察”的静默旁路
 - `HostMutationTransaction` 是 `world_edits + topology_changes` 的外层提交边界：两者在同一 Scene 副本执行，任一子事务非法则共同回滚；成功批次无论包含几类变化都只递增一次版本
 - 步前宿主批次被拒绝时 Runner fail closed：设置 `step_aborted / step_abort_reason` 后在 Input 之前返回，AgentRegistry、ActionEventQueue、GameClock、WorldEvent 与 Session step_count 均不消费这次无效调用；修正后的 retry 保持原 step 和稳定 id
-- 宿主命令通过后，Runner 在 Input 前捕获整步 checkpoint；它按原对象恢复全部 ECS model fields，并恢复 Entity 集合、Agent runtime bindings、Relation/Claim bindings、离散行动堆、busy map、sequence 与 GameClock
+- 宿主命令通过后，Runner 在 Input 前捕获整步 checkpoint；它按原对象恢复全部 ECS model fields，并恢复 Entity 集合、Agent runtime bindings、Relation/Claim bindings、离散行动堆、busy map、sequence、GameClock，以及本地 Hermes 的 ledger projector 与 subject home 快照
 - Dispatcher 在权威 phase 中只缓冲消息；Input～WorldEvent 的 System 或 callback 抛出未预期异常时，后续 phase 不运行，checkpoint 与 dispatcher 一起 rollback，`authoritative_step_failed=true` 且 Session 不计步
-- WorldEventSystem 完成是 authoritative commit barrier。Rendering/Memory 属于交付层且各自在执行前捕获短 checkpoint；异常只撤销失败 phase 新增的内部 Component/context 半状态，返回 `delivery_phase_exception + step_committed=true` 而不倒转合法世界或更早成功的交付。外部文字/回调和 Agent runtime 推理调用不可逆，但会被标记为 delivery error，未提交 proposal 永远不成为事实
+- WorldEventSystem 完成是 authoritative commit barrier。Rendering/Memory 属于交付层且各自在执行前捕获短 checkpoint；异常只撤销失败 phase 新增的内部 Component/context 半状态，返回 `delivery_phase_exception + step_committed=true` 而不倒转合法世界或更早成功的交付。已经发出的外部文字、订阅副作用和模型调用不能假装没发生，但本地 Hermes 的 subject home 会随权威 checkpoint 一起恢复；未提交 proposal 永远不成为事实
 - 产品适配器不得把失败 context 当普通 turn。`public_step_status` 只投影 `aborted / rolled_back / delivery_failed / committed`、是否提交及 phase/type；异常 message 留在宿主日志。Web 对未提交尝试写 system history 且不增加 step，delivery failure 保留已提交 turn；Console 使用同一投影提示
 - delivery failure 创建 `DeliveryReceipt(start_index, committed_context, attempts)`；存在 receipt 时禁止开始下一权威 step。retry 只能遍历 WorldEvent barrier 之后的 phase，失败时更新同一 receipt，成功时清除，不触碰 Agent/queue/clock/event/step_count
 - episodic memory id 由 memory namespace、actor、step 和类型确定并使用 upsert；Memory retry 可以覆盖同一条而不能追加副本。一个 receipt context 已记录的 consolidation actor 不在同次 retry 重复 compact。Web retry 原地修复最后一条 turn，EpisodeRunner 自动尝试恢复并审计持续 pending
@@ -509,7 +509,7 @@ NeedConfig(
 - 成功与失败条件同时成立时拒绝任意裁决并报告错误；
 - Agent 能看到目标、优先级和生命周期结果，但看不到精确条件锁；
 - 已终结目标不再参与宿主行动策略；
-- Goal 是角色私有动机，不是全局 Plot。
+- Goal 是角色私有动机，不构成全局剧情线。
 
 初始目标结算后，角色还可以从自己真正持有的结构化来源继续形成私人目标，包括 resolved Goal、Claim、WorldEvent/EventResponse、Drive need、Sentiment、可见对象/角色、既有 Relationship 或 NavigationProblem。Agent 只提交自然语言 `goal_requests`；宿主核验 source id、覆盖 actor、防重复与刷目标、限制冷却和 active 数量，并自行决定 priority。新目标不能携带模型编造的完成条件，也不能由 Agent 自报 achieved/failed。宿主模板目前覆盖 `reach_location`、`possess_object`、`deliver_object`、`use_affordance`、`verify_claim`、`obtain_evidence`、`become_acquainted`、`reach_relationship_state`、`communicate_event` 和 `respond_to_event`：地点、对象、能力和人物必须通过形成决策时的 POV 校验，交付要求角色真实持有物品且接收者当前可见，`use_affordance` 只能逐字引用当时 Host 提供的对象机会，并等待之后真正提交的 object WorldEvent 才完成；该事件还必须同时匹配 Host 固定的 `object:<step>:<index>:<operation>:<target>` id、对象操作 kind、精确 `resolved_action:step/actor` 来源、subject、object 和 affordance id，单独伪造 event metadata 或由另一角色执行均不能完成。以 Drive need 为来源时，该能力还必须确实降低同一个 need。来源验证使用形成决策时的 Host 快照，而不是动作结算后的状态，避免“同轮吃掉食物后饥饿已经下降”反过来抹掉目标动机。Claim 证据必须由 Claim Entity 预先关联且最终同时进入角色 KnowledgeState 与真实资产持有状态，相识、关系与事件回应则分别等待真实 Relationship 或 WorldEventResponses 证据。GoalSystem 通过受限的权威证据视图编译隐藏的成功/失败条件；没有安全模板的自然目标仍诚实地保持不可自证。若后续世界变化让具体做法进入角色 POV，Agent 可以对同一个开放目标提交一次 `refine`；Host 只允许修改 `origin=agent + active + 尚无条件锁` 的目标，并以当前受限 POV 编译模板，不创建第二个目标、不接受模型条件，也不允许改写已有锁。只有 `origin=agent` 的目标可被角色明确细化或放弃。普通来源默认只能产生一次目标；Drive need 是可复发状态，旧目标终结、冷却结束且压力重新出现后可以生成新的目标实例，但不能同时复制 active 目标。这样故事可以从后果和身体压力继续生长，同时不把主观愿望升级成世界真相。
 
