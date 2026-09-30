@@ -87,7 +87,18 @@ class ActionEventQueue:
         action = AgentAction.from_value(
             proposal.get("action") or proposal.get("intent", "")
         )
-        duration = self._duration_policy.duration_for(action)
+        # A manual player command is the input that opened this interactive
+        # turn. It must receive a result in that turn instead of sitting behind
+        # a two-tick coarse duration while shorter NPC speech actions resolve
+        # first. Autonomous proposals keep the normal environment-owned
+        # duration policy and therefore retain discrete-event semantics.
+        if (
+            proposal.get("source") == "manual"
+            and bool(proposal.get("is_player"))
+        ):
+            duration = 1
+        else:
+            duration = self._duration_policy.duration_for(action)
         immune = actor in self._owed_immunity
         self._owed_immunity.discard(actor)
         self._sequence += 1

@@ -18,6 +18,7 @@ import ast
 import importlib
 import json
 import logging
+import os
 import threading
 import time
 from pathlib import Path
@@ -66,6 +67,12 @@ def discover_builtin_tools(tools_dir: Optional[Path] = None) -> List[str]:
 
     imported: List[str] = []
     for mod_name in module_names:
+        if (
+            os.getenv("HERMES_STORY_DISABLE_WEB", "").strip() == "1"
+            and mod_name == "tools.web_tools"
+        ):
+            logger.info("Skipping web tool module in Story Engine subject mode")
+            continue
         try:
             importlib.import_module(mod_name)
             imported.append(mod_name)

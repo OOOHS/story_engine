@@ -14,6 +14,8 @@ from src.story_engine.agents import (
     HermesCharacterAgent,
     HermesInvocationBudget,
     HermesInvocationBudgetExceeded,
+    HermesLocalProcessConfig,
+    HermesLocalProcessConversation,
     make_hermes_container_runtime_factory,
 )
 from src.story_engine.prefabs.templates import create_agent
@@ -308,6 +310,90 @@ def test_container_builds_persistent_subject_server_command():
         "hermes-story:latest",
         "--subject-server",
     ]
+
+
+def test_local_persistent_subject_reads_buffered_multiline_response(tmp_path):
+    entrypoint = tmp_path / "buffered_subject.py"
+    entrypoint.write_text(
+        """import json
+import sys
+
+for raw in sys.stdin:
+    request = json.loads(raw)
+    envelope = {
+        "protocol_version": 1,
+        "agent_id": request["agent_id"],
+        "content": '{"action":"等待。"}',
+    }
+    sys.stdout.write(
+        "debug line\\n"
+        "===STORY_AGENT_JSON_BEGIN===\\n"
+        + json.dumps(envelope, ensure_ascii=False)
+        + "\\n===STORY_AGENT_JSON_END===\\n"
+    )
+    sys.stdout.flush()
+""",
+        encoding="utf-8",
+    )
+    conversation = HermesLocalProcessConversation(
+        "x",
+        HermesLocalProcessConfig(
+            python_executable=sys.executable,
+            entrypoint_path=str(entrypoint),
+            home_root=str(tmp_path / "homes"),
+            timeout_seconds=2.0,
+        ),
+    )
+
+    try:
+        result = conversation.run_subject_turn(
+            {"subject_protocol_version": 1, "subject_id": "x"}
+        )
+    finally:
+        conversation.close()
+
+    assert json.loads(result["content"])["action"] == "等待。"
+
+
+def test_local_persistent_subject_drains_stderr_while_running(tmp_path):
+    entrypoint = tmp_path / "noisy_subject.py"
+    entrypoint.write_text(
+        """import json
+import sys
+
+for raw in sys.stdin:
+    request = json.loads(raw)
+    sys.stderr.write("diagnostic\\n" * 20000)
+    sys.stderr.flush()
+    envelope = {
+        "protocol_version": 1,
+        "agent_id": request["agent_id"],
+        "content": '{"action":"等待。"}',
+    }
+    print("===STORY_AGENT_JSON_BEGIN===")
+    print(json.dumps(envelope, ensure_ascii=False))
+    print("===STORY_AGENT_JSON_END===", flush=True)
+""",
+        encoding="utf-8",
+    )
+    conversation = HermesLocalProcessConversation(
+        "x",
+        HermesLocalProcessConfig(
+            python_executable=sys.executable,
+            entrypoint_path=str(entrypoint),
+            home_root=str(tmp_path / "homes"),
+            timeout_seconds=2.0,
+        ),
+    )
+
+    try:
+        result = conversation.run_subject_turn(
+            {"subject_protocol_version": 1, "subject_id": "x"}
+        )
+    finally:
+        conversation.close()
+
+    assert json.loads(result["content"])["action"] == "等待。"
 
 
 def test_container_entrypoint_maps_host_model_environment_to_agent(

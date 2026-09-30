@@ -23,9 +23,6 @@ class SocialDynamics:
         return {
             "viewer": viewer,
             "visible_relations": relations,
-            "allow_unsignaled_touch": False,
-            "prefer_noncontact_signals": True,
-            "max_unsignaled_touch_per_turn": 0,
         }
 
     def build_reaction_context(self, player_name, pov, player_intent, social, timeline):

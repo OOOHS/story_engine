@@ -1,5 +1,6 @@
 """Explicit bundled-content console entry point."""
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -75,7 +76,13 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    load_dotenv()
+    # Resolve the project-owned .env explicitly instead of relying on the
+    # caller's current working directory.  This matters for local Hermes:
+    # the Web/console process must load credentials before it forks one child
+    # subject process per character.  Values are only inherited by the child
+    # through the existing allowlist; they are never put into the Story Agent
+    # protocol or logs.
+    load_dotenv(Path(__file__).resolve().parent / ".env")
     if args.scenario_ref:
         scenario = load_scenario_reference(args.scenario_ref)
     elif args.seed is not None:

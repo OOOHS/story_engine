@@ -99,6 +99,11 @@ def _construct_agent(toolsets):
     if not VENDOR_ROOT.exists():
         raise RuntimeError("Hermes vendor runtime is not present at /opt/hermes-agent")
     sys.path.insert(0, str(VENDOR_ROOT))
+    # Story Engine characters are deliberately sandboxed from network tools.
+    # Keep this guard at the entrypoint so web provider modules are not even
+    # imported when the vendored Hermes snapshot contains optional web shims
+    # without their provider plugins.
+    os.environ["HERMES_STORY_DISABLE_WEB"] = "1"
     from run_agent import AIAgent  # type: ignore
 
     signature = inspect.signature(AIAgent)
@@ -115,7 +120,15 @@ def _construct_agent(toolsets):
     if not provider and base_url:
         provider = "custom"
     elif not provider and openai_key:
-        provider = "openai"
+        model_lower = model.lower()
+        base_lower = base_url.lower()
+        provider = (
+            "deepseek"
+            if model_lower.startswith("deepseek/")
+            or model_lower.startswith("deepseek-")
+            or "api.deepseek.com" in base_lower
+            else "openai"
+        )
     candidates = {
         "enabled_toolsets": toolsets,
         "quiet_mode": True,

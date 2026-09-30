@@ -1,7 +1,7 @@
 import json
 import os
+import queue
 import re
-import select
 import shutil
 import sqlite3
 import subprocess
@@ -9,6 +9,7 @@ import threading
 import time
 import uuid
 import warnings
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, Tuple
@@ -21,6 +22,8 @@ END_MARKER = "===STORY_AGENT_JSON_END==="
 _IMAGE_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._/@:-]*$")
 _NETWORK_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 MAX_STDOUT_CHARS = 2_000_000
+_SUBJECT_STREAM_EOF = object()
+_STDERR_TAIL_LINES = 200
 _DOCKER_DEPRECATED = (
     "Hermes Docker transport is deprecated: containers use --rm with no "
     "writable subject home, so agent sessions cannot be restored. Use "
@@ -176,6 +179,9 @@ class HermesContainerConfig:
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
+        "ACTOR_API_KEY",
+        "ACTOR_MODEL",
+        "ACTOR_MODEL_BASE_URL",
         "HERMES_BASE_URL",
         "HERMES_MODEL",
         "HERMES_PROVIDER",
@@ -207,6 +213,9 @@ class HermesLocalProcessConfig:
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
+        "ACTOR_API_KEY",
+        "ACTOR_MODEL",
+        "ACTOR_MODEL_BASE_URL",
         "HERMES_BASE_URL",
         "HERMES_MODEL",
         "HERMES_PROVIDER",
@@ -274,6 +283,10 @@ class _HermesLocalProcessConversationMixin:
         )
         self._subject_process = None
         self._subject_lock = threading.Lock()
+        self._subject_stdout_queue = None
+        self._subject_stdout_thread = None
+        self._subject_stderr_thread = None
+        self._subject_stderr_tail = deque(maxlen=_STDERR_TAIL_LINES)
         self._process_factory = subprocess.Popen
         self.session_id = subject_session_id(self.agent_id)
         self.subject_home = subject_home_for(
@@ -298,7 +311,7 @@ class _HermesLocalProcessConversationMixin:
             env["HERMES_VENDOR_ROOT"] = self.vendor_root
         # Keep the allowlist semantics of Docker's -e KEY: no credentials are
         # copied into the child by the Story Engine itself.
-        return {
+        selected = {
             key: env[key]
             for key in self.environment_keys
             if key in env
@@ -310,6 +323,39 @@ class _HermesLocalProcessConversationMixin:
             "HERMES_HOME": str(self.subject_home),
             "HERMES_SESSION_ID": self.session_id,
         }
+        # Story Engine's actor model is configured independently from the GM
+        # and narrator.  Hermes' vendored CLI reads the generic HERMES_* names,
+        # so map the explicitly scoped ACTOR_* settings at the process
+        # boundary.  The secret itself is only inherited by the child process;
+        # it is never logged or serialized into the Story Agent protocol.
+        if not selected.get("HERMES_MODEL") and selected.get("ACTOR_MODEL"):
+            selected["HERMES_MODEL"] = selected["ACTOR_MODEL"]
+        if not selected.get("HERMES_BASE_URL") and selected.get("ACTOR_MODEL_BASE_URL"):
+            selected["HERMES_BASE_URL"] = selected["ACTOR_MODEL_BASE_URL"]
+        if not selected.get("HERMES_PROVIDER") and selected.get("HERMES_BASE_URL"):
+            # Let Hermes use its native DeepSeek profile when the configured
+            # actor model/endpoint is DeepSeek.  That profile supplies the
+            # correct thinking-mode wire parameters for V4 models; treating it
+            # as generic ``openai`` can leave the long-running subject loop
+            # waiting on an incompatible request shape.
+            model_name = str(selected.get("HERMES_MODEL", "")).lower()
+            base_url = str(selected.get("HERMES_BASE_URL", "")).lower()
+            selected["HERMES_PROVIDER"] = (
+                "deepseek"
+                if model_name.startswith("deepseek/")
+                or model_name.startswith("deepseek-")
+                or "api.deepseek.com" in base_url
+                else "openai"
+            )
+        if not selected.get("OPENAI_API_KEY") and selected.get("ACTOR_API_KEY"):
+            selected["OPENAI_API_KEY"] = selected["ACTOR_API_KEY"]
+        # Story characters do not need browsing or remote web extraction.  The
+        # vendored Hermes snapshot contains the web_tools shim but not the
+        # matching plugins/web provider tree, so disable discovery before the
+        # subject imports model_tools.  This is a hard process boundary, not a
+        # prompt-level instruction.
+        selected["HERMES_STORY_DISABLE_WEB"] = "1"
+        return selected
 
     def build_command(self, *, subject_server: bool = False) -> list[str]:
         command = [self.python_executable, self.entrypoint_path]
@@ -362,6 +408,7 @@ class _HermesLocalProcessConversationMixin:
             process.terminate()
             raise RuntimeError("Local Hermes process did not expose stdin/stdout")
         self._subject_process = process
+        self._start_subject_readers(process)
         return process
 
     def _run_persistent_subject_request(
@@ -459,6 +506,10 @@ class HermesContainerConversation:
         self._process_factory = subprocess.Popen if command_runner is None else None
         self._subject_process = None
         self._subject_lock = threading.Lock()
+        self._subject_stdout_queue = None
+        self._subject_stdout_thread = None
+        self._subject_stderr_thread = None
+        self._subject_stderr_tail = deque(maxlen=_STDERR_TAIL_LINES)
         self._bind_mounts = tuple(
             mount
             for source, destination in (
@@ -524,9 +575,14 @@ class HermesContainerConversation:
                 process.stdin.write(payload + "\n")
                 process.stdin.flush()
             except (BrokenPipeError, OSError) as exc:
+                self.close()
                 raise RuntimeError("Hermes subject process closed its input") from exc
 
             deadline = time.monotonic() + float(self.host_config.timeout_seconds)
+            stdout_queue = self._subject_stdout_queue
+            if stdout_queue is None:
+                self.close()
+                raise RuntimeError("Hermes subject stdout reader is not running")
             output = []
             total_chars = 0
             saw_begin = False
@@ -538,15 +594,18 @@ class HermesContainerConversation:
                         self.build_command(subject_server=True),
                         float(self.host_config.timeout_seconds),
                     )
-                readable, _, _ = select.select([process.stdout], [], [], remaining)
-                if not readable:
-                    continue
-                line = process.stdout.readline()
-                if line == "":
+                try:
+                    line = stdout_queue.get(timeout=remaining)
+                except queue.Empty:
+                    self.close()
+                    raise subprocess.TimeoutExpired(
+                        self.build_command(subject_server=True),
+                        float(self.host_config.timeout_seconds),
+                    )
+                if line is _SUBJECT_STREAM_EOF:
                     returncode = process.poll()
-                    stderr = ""
-                    if returncode is not None and process.stderr is not None:
-                        stderr = str(process.stderr.read() or "").strip()
+                    stderr = self._subject_stderr_diagnostic()
+                    self.close()
                     raise RuntimeError(
                         "Hermes subject process exited"
                         + (f" with code {returncode}" if returncode is not None else "")
@@ -561,6 +620,52 @@ class HermesContainerConversation:
                     saw_begin = True
                 if saw_begin and END_MARKER in line:
                     return self.parse_output("".join(output))
+
+    @staticmethod
+    def _read_subject_stdout(stream, output_queue) -> None:
+        try:
+            for line in stream:
+                output_queue.put(line)
+        finally:
+            output_queue.put(_SUBJECT_STREAM_EOF)
+
+    @staticmethod
+    def _read_subject_stderr(stream, tail) -> None:
+        if stream is None:
+            return
+        try:
+            for line in stream:
+                tail.append(line)
+        except (OSError, ValueError):
+            pass
+
+    def _start_subject_readers(self, process) -> None:
+        stdout_queue = queue.Queue()
+        stderr_tail = deque(maxlen=_STDERR_TAIL_LINES)
+        stdout_thread = threading.Thread(
+            target=self._read_subject_stdout,
+            args=(process.stdout, stdout_queue),
+            name=f"hermes-stdout-{_safe_subject_id(self.agent_id)}",
+            daemon=True,
+        )
+        stderr_thread = threading.Thread(
+            target=self._read_subject_stderr,
+            args=(process.stderr, stderr_tail),
+            name=f"hermes-stderr-{_safe_subject_id(self.agent_id)}",
+            daemon=True,
+        )
+        self._subject_stdout_queue = stdout_queue
+        self._subject_stdout_thread = stdout_thread
+        self._subject_stderr_thread = stderr_thread
+        self._subject_stderr_tail = stderr_tail
+        stdout_thread.start()
+        stderr_thread.start()
+
+    def _subject_stderr_diagnostic(self) -> str:
+        thread = self._subject_stderr_thread
+        if thread is not None:
+            thread.join(timeout=0.1)
+        return "".join(self._subject_stderr_tail).strip()[-1000:]
 
     def _ensure_subject_process(self):
         process = self._subject_process
@@ -579,19 +684,27 @@ class HermesContainerConversation:
             process.terminate()
             raise RuntimeError("Hermes subject process did not expose stdin/stdout")
         self._subject_process = process
+        self._start_subject_readers(process)
         return process
 
     def close(self) -> None:
         process = self._subject_process
+        stdout_thread = self._subject_stdout_thread
+        stderr_thread = self._subject_stderr_thread
         self._subject_process = None
-        if process is None or process.poll() is not None:
-            return
-        process.terminate()
-        try:
-            process.wait(timeout=5.0)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=5.0)
+        self._subject_stdout_queue = None
+        self._subject_stdout_thread = None
+        self._subject_stderr_thread = None
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=5.0)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=5.0)
+        for thread in (stdout_thread, stderr_thread):
+            if thread is not None and thread is not threading.current_thread():
+                thread.join(timeout=1.0)
 
     def _request_object(self, request_payload: Dict[str, Any]) -> Dict[str, Any]:
         payload = {

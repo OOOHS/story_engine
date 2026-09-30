@@ -1028,9 +1028,6 @@ class SimulationSystem(System):
         return {
             "viewer": social_packet.get("viewer"),
             "visible_relations": visible_relations,
-            "allow_unsignaled_touch": bool(
-                social_packet.get("allow_unsignaled_touch", False)
-            ),
         }
 
     def _build_motive_packet(

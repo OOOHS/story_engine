@@ -6,6 +6,7 @@ Usage:
     python web_main.py --host 0.0.0.0 --port 8000
 """
 import argparse
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -79,7 +80,11 @@ def parse_args(argv=None) -> argparse.Namespace:
 
 def main(argv=None) -> None:
     args = parse_args(argv)
-    load_dotenv()
+    # Load the repository's .env by absolute path so launching the Web UI
+    # from another directory still passes the configured Actor/GM/Narrator
+    # provider settings to their respective subprocesses.  Secrets remain in
+    # process environment only and are not serialized or logged.
+    load_dotenv(Path(__file__).resolve().parent / ".env")
     if args.scenario_ref:
         scenario = load_scenario_reference(args.scenario_ref)
     elif args.seed is not None:

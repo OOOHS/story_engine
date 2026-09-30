@@ -84,13 +84,25 @@ class RenderingSystem(System):
             if visible_location:
                 allowed_locations.append(visible_location)
         allowed_location_set = set(allowed_locations)
+        viewer = str(player_pov.get("viewer", "")).strip()
         visible_actions: List[Dict[str, Any]] = []
         for item in simulation_result.get("resolved_actions", []):
-            visibility = item.get("visibility", "public")
-            item_location = item.get("location")
-            if visibility != "public":
+            if not isinstance(item, dict):
                 continue
-            if allowed_location_set and item_location and str(item_location).strip() not in allowed_location_set:
+            actor = str(item.get("actor", "")).strip()
+            visibility = str(item.get("visibility", "public")).strip()
+            item_location = str(item.get("location", "")).strip()
+            # An actor always receives her own settled outcome. ``hidden``
+            # controls observation by other actors; it must never make the
+            # player's own action disappear from the player-facing result.
+            if actor == viewer:
+                visible_actions.append(item)
+                continue
+            if visibility == "hidden":
+                continue
+            if visibility not in {"public", "local"}:
+                continue
+            if allowed_location_set and item_location not in allowed_location_set:
                 continue
             visible_actions.append(item)
         visible_actions = [
@@ -288,12 +300,6 @@ class RenderingSystem(System):
         return {
             "viewer": social.get("viewer"),
             "visible_relations": relations,
-            "allow_unsignaled_touch": bool(
-                social.get("allow_unsignaled_touch", False)
-            ),
-            "prefer_noncontact_signals": bool(
-                social.get("prefer_noncontact_signals", True)
-            ),
         }
 
     @staticmethod

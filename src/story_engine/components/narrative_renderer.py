@@ -29,6 +29,7 @@ class NarrativeRenderer(Component):
         max_sentences = narration.max_sentences if narration else 6
         max_characters = narration.max_characters if narration else 220
         guidance = list(narration.guidance) if narration else []
+        player_resolution_anchors = self._player_resolution_anchors(render_payload)
         render_contract = {
             "visible_facts_only": True,
             "player_pov_locked": True,
@@ -37,7 +38,7 @@ class NarrativeRenderer(Component):
             "offscreen_events_return_as_aftereffects": True,
             "max_sentences": max_sentences,
             "max_characters": max_characters,
-            "allow_unsignaled_touch": bool(render_payload.get("social", {}).get("allow_unsignaled_touch", False)),
+            "required_player_resolution_anchors": player_resolution_anchors,
         }
 
         prompt = f"""
@@ -48,11 +49,12 @@ class NarrativeRenderer(Component):
 2. 只能写玩家此刻能直接感到的内容；禁止全知旁白，禁止切去异地补拍过程。
 3. 若玩家没亲眼见到异地事件，只能写余波、传话、催促、态度变化或场面残响，不要写成共享回忆。
 4. 若没有明确锚点，不要用“刚才那句……”“方才那个动作……”之类的精确回指。
-5. 若 `simulation_result.resolved_actions` 里已有他人对玩家造成的 `public` 且 `complication/blocked` 动作，应明确写出，不要全部融成泛泛的气氛描写。
-6. 若 `social.allow_unsignaled_touch` 为 false，就不要凭空补肢体动作；只描述结构化输入中已经成立的站位、交流和对象变化。
-7. 不要把不同角色渲染成重复的同一种动作。
-8. 除非结构化输入里已经明确给出了原话，否则不要写直接引号台词；优先改写成间接描述。
-9. 没有场景风格指导时保持中立、清楚，不自行选择题材腔调或叙事节奏。
+5. `required_player_resolution_anchors` 中的每条文本都是已经提交的权威结算结果，必须逐字出现在叙述中，不得省略、改写或与其他事实融合。
+6. 若 `simulation_result.resolved_actions` 里已有他人对玩家造成的 `public` 且 `complication/blocked` 动作，应明确写出，不要全部融成泛泛的气氛描写。
+7. 不得添加 `simulation_result` 中没有成立的新动作，包括任何肢体接触；是否成立已经由 Simulation 决定，不要再次裁定。
+8. 不要把不同角色渲染成重复的同一种动作。
+9. 除非结构化输入里已经明确给出了原话，否则不要写直接引号台词；优先改写成间接描述。
+10. 没有场景风格指导时保持中立、清楚，不自行选择题材腔调或叙事节奏。
 
 剧本：{self.scenario.name if self.scenario else "通用剧本"}
 环境基调：{self.scenario.environment if self.scenario else ""}
@@ -71,22 +73,36 @@ class NarrativeRenderer(Component):
         content = (response.get("content", "") or "").strip()
         if not content or content.startswith("[LLM disabled]") or content.startswith("[LLM error"):
             return self._fallback_render(render_payload)
-        return self._ground_render_text(
+        grounded = self._ground_render_text(
             self._trim_render_text(content, max_sentences, max_characters),
             render_payload,
+        )
+        return self._ensure_player_resolution_anchors(
+            grounded,
+            player_resolution_anchors,
+            max_sentences=max_sentences,
+            max_characters=max_characters,
         )
 
     def _fallback_render(self, render_payload: Dict[str, Any]) -> str:
         text = self._build_fallback_text(render_payload)
         narration = self.scenario.narration if self.scenario else None
-        return self._ground_render_text(
+        max_sentences = narration.max_sentences if narration else 6
+        max_characters = narration.max_characters if narration else 220
+        grounded = self._ground_render_text(
             self._trim_render_text(
                 text,
-                narration.max_sentences if narration else 6,
-                narration.max_characters if narration else 220,
+                max_sentences,
+                max_characters,
             ),
             render_payload,
             allow_fallback=False,
+        )
+        return self._ensure_player_resolution_anchors(
+            grounded,
+            self._player_resolution_anchors(render_payload),
+            max_sentences=max_sentences,
+            max_characters=max_characters,
         )
 
     def _build_fallback_text(self, render_payload: Dict[str, Any]) -> str:
@@ -102,7 +118,11 @@ class NarrativeRenderer(Component):
         visible_actions = [
             item
             for item in simulation.get("resolved_actions", [])
-            if isinstance(item, dict) and item.get("visibility", "public") == "public"
+            if isinstance(item, dict)
+            and (
+                item.get("visibility", "public") != "hidden"
+                or item.get("actor") == player_name
+            )
         ]
         concrete_actions = [
             item
@@ -214,16 +234,8 @@ class NarrativeRenderer(Component):
             return "局面暂时没有显著变化。"
 
         source_text = json.dumps(render_payload, ensure_ascii=False)
-        current_fact_text = json.dumps(
-            {
-                "simulation_result": render_payload.get("simulation_result", {}),
-                "current_visible_facts": render_payload.get("current_visible_facts", []),
-            },
-            ensure_ascii=False,
-        )
         if allow_fallback and (
-            self._has_ungrounded_touch(grounded, current_fact_text)
-            or self._has_ungrounded_dialogue(grounded, source_text)
+            self._has_ungrounded_dialogue(grounded, source_text)
         ):
             narration = self.scenario.narration if self.scenario else None
             fallback_text = self._trim_render_text(
@@ -258,22 +270,47 @@ class NarrativeRenderer(Component):
         )
         return grounded
 
-    def _has_ungrounded_touch(self, text: str, source_text: str) -> bool:
-        touch_patterns = [
-            r"搭在[^。！？]{0,12}(肩|手|手背|背上)",
-            r"按在[^。！？]{0,12}(肩|手|手背|背上)",
-            r"扶着[^。！？]{0,12}(坐|入席|起身)",
-            r"扶住",
-            r"握住",
-            r"覆上[^。！？]{0,12}(手|手背)",
-            r"缩进[^。！？]{0,12}怀里",
-            r"揽住",
-            r"揽到",
-        ]
-        has_touch = any(re.search(pattern, text) for pattern in touch_patterns)
-        if not has_touch:
-            return False
-        return not any(re.search(pattern, source_text) for pattern in touch_patterns)
+    def _player_resolution_anchors(self, render_payload: Dict[str, Any]) -> List[str]:
+        player_name = str(
+            render_payload.get("player_pov", {}).get("viewer", "")
+        ).strip()
+        if not player_name:
+            return []
+        anchors: List[str] = []
+        for item in render_payload.get("simulation_result", {}).get(
+            "resolved_actions", []
+        ):
+            if not isinstance(item, dict) or item.get("actor") != player_name:
+                continue
+            result = re.sub(r"\s+", " ", str(item.get("result", "")).strip())
+            if result and result not in anchors:
+                anchors.append(result)
+        return anchors
+
+    def _ensure_player_resolution_anchors(
+        self,
+        text: str,
+        anchors: List[str],
+        *,
+        max_sentences: int,
+        max_characters: int,
+    ) -> str:
+        missing = [anchor for anchor in anchors if anchor not in text]
+        if not missing:
+            return text
+
+        prefix = " ".join(missing)
+        if not text:
+            return prefix
+        remaining = max_characters - len(prefix) - 1
+        if remaining <= 0:
+            return prefix
+        suffix = self._trim_render_text(
+            text,
+            max(1, max_sentences - len(missing)),
+            remaining,
+        )
+        return f"{prefix} {suffix}".strip()
 
     def _has_ungrounded_dialogue(self, text: str, source_text: str) -> bool:
         quotes = re.findall(r"[“\"]([^”\"]{2,36})[”\"]", text or "")

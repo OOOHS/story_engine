@@ -310,8 +310,7 @@ proposal 的角色的行动是否应当升级为冲突（比如把一次 observe
         if parsed is None:
             return self._failure_result("结构化模拟输出解析失败，权威结算已暂停。")
         normalized = self._normalize_result(parsed, input_payload)
-        normalized = self._enforce_legality(normalized, input_payload)
-        return self._enforce_social_realism(normalized, input_payload)
+        return self._enforce_legality(normalized, input_payload)
 
     def _parse_json_response(self, content: str) -> Optional[Dict[str, Any]]:
         content = (content or "").strip()
@@ -803,63 +802,6 @@ proposal 的角色的行动是否应当升级为冲突（比如把一次 observe
 
         return result
 
-    def _enforce_social_realism(self, result: Dict[str, Any], input_payload: Dict[str, Any]) -> Dict[str, Any]:
-        social_packet = input_payload.get("social", {})
-        if not isinstance(social_packet, dict):
-            return result
-
-        if social_packet.get("allow_unsignaled_touch", True):
-            return result
-
-        notes = result.setdefault("simulation_notes", [])
-        rewritten_touch = False
-        for action in result.get("resolved_actions", []):
-            if not isinstance(action, dict):
-                continue
-            detail = str(action.get("result", "")).strip()
-            if not detail or not self._contains_touch_motif(detail):
-                continue
-            if self._touch_is_explicitly_supported(action, input_payload):
-                continue
-            action["outcome"] = "blocked"
-            action["result"] = "该肢体接触没有对应行动提议支持，因此未发生。"
-            rewritten_touch = True
-
-        if rewritten_touch:
-            note = "未获 proposal 支持的肢体接触已被拒绝。"
-            if note not in notes:
-                notes.append(note)
-        return result
-
-    def _contains_touch_motif(self, text: str) -> bool:
-        patterns = [
-            r"搭在[^。！？]{0,10}(肩|手|手背|背上)",
-            r"按在[^。！？]{0,10}(肩|手|手背|背上)",
-            r"扶住",
-            r"握住",
-            r"覆上[^。！？]{0,10}(手|手背)",
-            r"缩进[^。！？]{0,12}怀里",
-            r"揽住",
-            r"揽到",
-        ]
-        return any(re.search(pattern, text) for pattern in patterns)
-
-    def _touch_is_explicitly_supported(self, action: Dict[str, Any], input_payload: Dict[str, Any]) -> bool:
-        actor = str(action.get("actor", "")).strip()
-        intent = str(action.get("intent", "")).strip()
-        text = f"{intent} {action.get('result', '')}"
-        if any(token in text for token in ["扶", "拉住", "抱", "搂", "握住", "按住", "搭肩"]):
-            return True
-        for item in input_payload.get("intents", []):
-            if not isinstance(item, dict):
-                continue
-            if str(item.get("actor", "")).strip() != actor:
-                continue
-            intent_text = str(item.get("intent", "")).strip()
-            if any(token in intent_text for token in ["扶", "拉住", "抱", "搂", "握住", "按住", "搭肩"]):
-                return True
-        return False
-
     def _find_matching_action(
         self,
         actions: List[Dict[str, Any]],
@@ -948,8 +890,7 @@ proposal 的角色的行动是否应当升级为冲突（比如把一次 observe
             result["state_updates"]["actor_states"] = actor_updates
         result["storylet_hits"] = []
         result["simulation_notes"] = [note] if note else []
-        result = self._enforce_legality(result, input_payload)
-        return self._enforce_social_realism(result, input_payload)
+        return self._enforce_legality(result, input_payload)
 
     def _summarize_world_intent(self, intent: str) -> str:
         normalized = " ".join(str(intent or "").split())
@@ -1022,5 +963,4 @@ proposal 的角色的行动是否应当升级为冲突（比如把一次 observe
             "visible_actors": visible_actors,
             "actor_states": visible_actor_states,
             "relations": relations,
-            "allow_touch": social.get("allow_unsignaled_touch", False),
         }

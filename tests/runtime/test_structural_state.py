@@ -613,6 +613,76 @@ def test_renderer_detects_ungrounded_dialogue():
     ) is True
 
 
+def test_renderer_cannot_omit_the_committed_player_resolution():
+    renderer = NarrativeRenderer(llm_config={})
+    narrator = Entity("Narrator")
+    narrator.add_component(renderer)
+
+    class FakeLLM:
+        def generate(self, prompt):
+            assert '"required_player_resolution_anchors"' in prompt
+            assert "林见微亲了沈昭宁一口。" in prompt
+            return {
+                "content": (
+                    "沈夫人端起茶盏，沈砚川站在客厅中央，"
+                    "所有人都等着下一句话。"
+                )
+            }
+
+    renderer._llm = FakeLLM()
+    text = renderer.render(
+        {
+            "player_pov": {"viewer": "林见微", "location": "沈宅客厅"},
+            "simulation_result": {
+                "resolved_actions": [
+                    {
+                        "actor": "林见微",
+                        "intent": "我亲了沈昭宁一口",
+                        "action_kind": "interact",
+                        "action_target": "沈昭宁",
+                        "outcome": "success",
+                        "location": "沈宅客厅",
+                        "result": "林见微亲了沈昭宁一口。",
+                        "visibility": "public",
+                    },
+                    {
+                        "actor": "沈夫人",
+                        "outcome": "success",
+                        "location": "沈宅客厅",
+                        "result": "沈夫人端起茶盏。",
+                        "visibility": "public",
+                    },
+                ]
+            },
+        }
+    )
+
+    assert text.startswith("林见微亲了沈昭宁一口。")
+    assert "沈夫人端起茶盏" in text
+
+
+def test_fallback_renderer_also_preserves_a_long_player_resolution():
+    renderer = NarrativeRenderer(llm_config={})
+    result = "林见微完成了一个超过普通渲染预算但仍然必须完整交付的行动结果。" * 8
+
+    text = renderer._fallback_render(
+        {
+            "player_pov": {"viewer": "林见微", "location": "沈宅客厅"},
+            "simulation_result": {
+                "resolved_actions": [
+                    {
+                        "actor": "林见微",
+                        "result": result,
+                        "visibility": "public",
+                    }
+                ]
+            },
+        }
+    )
+
+    assert result in text
+
+
 def test_renderer_uses_content_narration_policy_without_core_pacing_default():
     scenario = ScenarioConfig(
         name="安静场景",
@@ -1090,3 +1160,44 @@ def test_rendering_keeps_reactions_from_pre_move_location_visible_for_that_turn(
     )
 
     assert len(visible["resolved_actions"]) == 2
+
+
+def test_rendering_keeps_local_and_own_hidden_results_without_leaking_offscreen_actions():
+    system = RenderingSystem()
+    visible = system._build_visible_simulation(
+        simulation_result={
+            "resolved_actions": [
+                {
+                    "actor": "林见微",
+                    "location": "沈宅客厅",
+                    "result": "林见微把信藏进了袖口。",
+                    "visibility": "hidden",
+                },
+                {
+                    "actor": "沈昭宁",
+                    "location": "沈宅客厅",
+                    "result": "沈昭宁后退了一步。",
+                    "visibility": "local",
+                },
+                {
+                    "actor": "周姨",
+                    "location": "厨房",
+                    "result": "周姨关上了厨房门。",
+                    "visibility": "local",
+                },
+                {
+                    "actor": "沈砚川",
+                    "location": "沈宅客厅",
+                    "result": "沈砚川暗中收起了钥匙。",
+                    "visibility": "hidden",
+                },
+            ]
+        },
+        player_pov={"viewer": "林见微", "location": "沈宅客厅"},
+        visible_locations=["沈宅客厅"],
+    )
+
+    assert [item["actor"] for item in visible["resolved_actions"]] == [
+        "林见微",
+        "沈昭宁",
+    ]

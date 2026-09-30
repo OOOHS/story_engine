@@ -164,6 +164,29 @@ def test_action_scheduling_system_exposes_only_next_completion_to_simulation():
     assert queue.pending_for("甲")["completes_at"] == 2
 
 
+def test_manual_player_action_completes_with_the_current_interactive_batch():
+    queue = ActionEventQueue()
+    clock = GameClock()
+    context = {
+        "action_queue": queue,
+        "clock": clock,
+        "intents": [
+            {
+                **_proposal("玩家", {"kind": "interact", "detail": "亲了乙一口", "target": "乙"}),
+                "source": "manual",
+                "is_player": True,
+            },
+            _proposal("乙", {"kind": "communicate", "detail": "问玩家怎么回事"}),
+        ],
+    }
+
+    ActionSchedulingSystem().update({}, context)
+
+    assert [item["actor"] for item in context["intents"]] == ["乙", "玩家"]
+    assert queue.current_time == 1
+    assert queue.pending_for("玩家") == {}
+
+
 def test_stated_reason_follows_long_action_without_leaking_to_semantic_intent():
     queue = ActionEventQueue()
     clock = GameClock()
