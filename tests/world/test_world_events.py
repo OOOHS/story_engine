@@ -3,7 +3,6 @@ from types import SimpleNamespace
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.cognition import Cognition
 from src.story_engine.core.entity import Entity
-from src.story_engine.narrative.timeline import TimelineEngine
 from src.story_engine.agents import AgentScheduler
 from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.systems.cognition import CognitionSystem
@@ -14,23 +13,11 @@ from src.story_engine.systems.world_events import WorldEventSystem
 def _world():
     gm = Entity("WorldHost")
     scene = SceneState(
-        world_objects={"住处": {}, "礼堂": {}},
+        world_objects={"住处": {}, "礼堂": {}, "木匣": {"is_location": False, "location": "礼堂", "is_container": True, "container_open": True}},
         actor_states={
-            "甲": {"location": "住处"},
+            "甲": {"location": "礼堂"},
             "乙": {"location": "礼堂"},
             "丙": {"location": "住处"},
-        },
-        scene_flags={
-            "upcoming_commitments": [
-                {
-                    "commitment_id": "ceremony",
-                    "title": "公开仪式",
-                    "participants": ["甲"],
-                    "location": "礼堂",
-                    "due_step": 2,
-                    "grace_steps": 0,
-                }
-            ]
         },
     )
     gm.add_component(scene)
@@ -43,40 +30,8 @@ def _world():
     return entities, scene
 
 
-def _finalized_timeline(scene):
-    clock = SimpleNamespace(current_step=2)
-    engine = TimelineEngine()
-    engine.refresh(scene, {"clock": clock})
-    return engine.finalize(scene, {"clock": clock}, player_name=None)
 
 
-def test_missed_attendance_becomes_objective_event_with_limited_witnesses():
-    entities, scene = _world()
-    timeline = _finalized_timeline(scene)
-    context = {"timeline": timeline}
-
-    WorldEventSystem().update(entities, context)
-
-    event = entities["WorldEvent:timeline:ceremony:missed"]
-    fact = event.get_component("WorldEventFact")
-    witnesses = event.get_component("WorldEventWitnesses")
-    assert fact.kind == "timeline_attendance_missed"
-    assert fact.source_type == "timeline_resolution"
-    assert fact.source_ref == "ceremony:missed"
-    assert fact.subjects == ["甲"]
-    assert fact.metadata["missing_participants"] == ["甲"]
-    assert witnesses.direct_witnesses == ["乙"]
-    assert witnesses.self_witnesses == ["甲"]
-    assert entities["甲"].get_component("Cognition").knows_event(fact.event_id)
-    assert entities["乙"].get_component("Cognition").knows_event(fact.event_id)
-    assert entities["甲"].get_component("Cognition").world_event_attention[
-        fact.event_id
-    ].priority == 85
-    assert entities["乙"].get_component("Cognition").world_event_attention[
-        fact.event_id
-    ].priority == 80
-    assert not entities["丙"].get_component("Cognition").knows_event(fact.event_id)
-    assert context["world_event_errors"] == []
 
 
 def test_object_event_preserves_host_validated_affordance_identity():
@@ -126,9 +81,9 @@ def test_object_event_preserves_host_validated_affordance_identity():
 
 def test_event_report_uses_authoritative_statement_and_does_not_telepathically_spread():
     entities, scene = _world()
-    context = {"timeline": _finalized_timeline(scene)}
+    context = _settled_object_context()
     WorldEventSystem().update(entities, context)
-    event_id = "timeline:ceremony:missed"
+    event_id = "object:2:0:set_container_state:木匣"
     fact = entities[f"WorldEvent:{event_id}"].get_component("WorldEventFact")
 
     # 乙后来与丙同场并主动转述。模型试图改写 statement，但宿主从
@@ -144,7 +99,7 @@ def test_event_report_uses_authoritative_statement_and_does_not_telepathically_s
                     "outcome": "success",
                     "location": "住处",
                     "visibility": "local",
-                    "result": "乙向丙说明了仪式缺席的情况。",
+                    "result": "乙向丙说明了木匣打开的情况。",
                 }
             ],
             "knowledge_updates": [
@@ -152,9 +107,9 @@ def test_event_report_uses_authoritative_statement_and_does_not_telepathically_s
                     "source": "乙",
                     "target": "丙",
                     "event_id": event_id,
-                    "statement": "甲其实参加了仪式。",
+                    "statement": "木匣仍然关着。",
                     "mode": "told",
-                    "reason": "乙主动转述自己目击的缺席",
+                    "reason": "乙主动转述自己目击的开匣",
                 }
             ],
         },
@@ -165,16 +120,16 @@ def test_event_report_uses_authoritative_statement_and_does_not_telepathically_s
     cognition = entities["丙"].get_component("Cognition")
     assert cognition.knows_event(event_id)
     assert cognition.event_statement(event_id) == fact.statement
-    assert "甲其实参加了仪式" not in cognition.event_statement(event_id)
-    assert cognition.world_event_attention[event_id].priority == 80
+    assert "木匣仍然关着" not in cognition.event_statement(event_id)
+    assert cognition.world_event_attention[event_id].priority == 55
     assert transfer_context["knowledge_transfers"][0]["confidence"] == 0.65
 
 
 def test_nonwitness_cannot_forge_event_report():
     entities, scene = _world()
-    context = {"timeline": _finalized_timeline(scene)}
+    context = _settled_object_context()
     WorldEventSystem().update(entities, context)
-    event_id = "timeline:ceremony:missed"
+    event_id = "object:2:0:set_container_state:木匣"
     scene.update_actor_state("丙", {"location": "礼堂"})
     transfer_context = {
         "clock": SimpleNamespace(current_step=3),
@@ -208,24 +163,24 @@ def test_nonwitness_cannot_forge_event_report():
 
 def test_known_world_event_can_seed_agent_goal_but_unknown_event_cannot():
     entities, scene = _world()
-    event_context = {"timeline": _finalized_timeline(scene)}
+    event_context = _settled_object_context()
     WorldEventSystem().update(entities, event_context)
-    event_id = "timeline:ceremony:missed"
+    event_id = "object:2:0:set_container_state:木匣"
     goal_context = {
         "clock": SimpleNamespace(current_step=3),
         "agent_goal_requests": [
             {
                 "actor": "甲",
                 "operation": "adopt",
-                "title": "向主持人解释缺席原因",
+                "title": "向主持人解释开匣原因",
                 "source_kind": "world_event",
                 "source_ref": event_id,
-                "reason": "甲知道自己错过了公开仪式",
+                "reason": "甲知道自己打开了木匣",
             },
             {
                 "actor": "丙",
                 "operation": "adopt",
-                "title": "利用甲缺席仪式",
+                "title": "利用甲打开木匣",
                 "source_kind": "world_event",
                 "source_ref": event_id,
                 "reason": "丙并不知道这件事",
@@ -238,7 +193,7 @@ def test_known_world_event_can_seed_agent_goal_but_unknown_event_cannot():
     goals_a = entities["甲"].get_component("GoalState")
     goals_c = entities["丙"].get_component("GoalState")
     assert any(
-        record.title == "向主持人解释缺席原因"
+        record.title == "向主持人解释开匣原因"
         for record in goals_a.goals.values()
     )
     assert not goals_c.goals
@@ -247,9 +202,9 @@ def test_known_world_event_can_seed_agent_goal_but_unknown_event_cannot():
 
 def test_event_communication_goal_resolves_only_from_verified_transfer():
     entities, scene = _world()
-    event_context = {"timeline": _finalized_timeline(scene)}
+    event_context = _settled_object_context()
     WorldEventSystem().update(entities, event_context)
-    event_id = "timeline:ceremony:missed"
+    event_id = "object:2:0:set_container_state:木匣"
     scene.update_actor_state("乙", {"location": "住处"})
     adopt_context = {
         "clock": SimpleNamespace(current_step=3),
@@ -257,7 +212,7 @@ def test_event_communication_goal_resolves_only_from_verified_transfer():
             {
                 "actor": "乙",
                 "operation": "adopt",
-                "title": "把甲缺席仪式的事实告诉丙",
+                "title": "把甲打开木匣的事实告诉丙",
                 "source_kind": "world_event",
                 "source_ref": event_id,
                 "reason": "丙需要知道这件已经发生的事",
@@ -293,7 +248,7 @@ def test_event_communication_goal_resolves_only_from_verified_transfer():
                     "outcome": "success",
                     "location": "住处",
                     "visibility": "local",
-                    "result": "乙把甲缺席仪式的事实告诉了丙。",
+                    "result": "乙把甲打开木匣的事实告诉了丙。",
                 }
             ],
             "knowledge_updates": [
@@ -324,8 +279,8 @@ def test_event_communication_goal_resolves_only_from_verified_transfer():
 
 def test_noncommunication_action_cannot_forge_event_response():
     entities, scene = _world()
-    WorldEventSystem().update(entities, {"timeline": _finalized_timeline(scene)})
-    event_id = "timeline:ceremony:missed"
+    WorldEventSystem().update(entities, _settled_object_context())
+    event_id = "object:2:0:set_container_state:木匣"
     scene.update_actor_state("乙", {"location": "住处"})
     context = {
         "clock": SimpleNamespace(current_step=4),
@@ -365,8 +320,8 @@ def test_noncommunication_action_cannot_forge_event_response():
 
 def test_new_response_to_already_known_event_wakes_recipient_once():
     entities, scene = _world()
-    WorldEventSystem().update(entities, {"timeline": _finalized_timeline(scene)})
-    event_id = "timeline:ceremony:missed"
+    WorldEventSystem().update(entities, _settled_object_context())
+    event_id = "object:2:0:set_container_state:木匣"
     fact = entities[f"WorldEvent:{event_id}"].get_component("WorldEventFact")
     recipient = entities["丙"].get_component("Cognition")
     recipient.record_world_event(
@@ -379,7 +334,7 @@ def test_new_response_to_already_known_event_wakes_recipient_once():
     recipient.acknowledge_world_events()
     goals = entities["丙"].get_component("GoalState")
     transition, error = goals.adopt_agent_goal(
-        title="前往礼堂处理缺席后果",
+        title="前往礼堂处理开匣后果",
         description="事件仍需要进一步处理",
         source_kind="world_event",
         source_ref=event_id,
@@ -421,7 +376,7 @@ def test_new_response_to_already_known_event_wakes_recipient_once():
                     "source": "乙",
                     "target": "丙",
                     "event_id": event_id,
-                    "response_kind": "accuse",
+                    "response_kind": "apologize",
                     "mode": "told",
                     "reason": "乙围绕双方都知道的事件作出新的道歉",
                 }
@@ -643,3 +598,28 @@ def test_unseen_container_impact_does_not_reactivate_nested_object_goal():
     assert controller.repeated_goal_action_count == 3
     assert controller.goal_reactivation_count == 0
     assert context.get("goal_reactivations", []) == []
+
+
+def _settled_object_context():
+    return {
+        "clock": SimpleNamespace(current_step=2),
+        "state_transaction": {"committed": True},
+        "simulation_result": {
+            "resolved_actions": [{"actor": "甲", "action_kind": "interact", "action_target": "木匣", "outcome": "success", "location": "礼堂", "visibility": "local", "result": "甲打开了木匣。"}],
+            "object_lifecycle": [{"operation": "set_container_state", "object_id": "木匣", "actor": "甲", "open": True}],
+        },
+    }
+
+
+def test_committed_object_event_has_limited_witnesses():
+    entities, scene = _world()
+    context = _settled_object_context()
+    WorldEventSystem().update(entities, context)
+    fact = entities["WorldEvent:object:2:0:set_container_state:木匣"].get_component("WorldEventFact")
+    witnesses = entities[f"WorldEvent:{fact.event_id}"].get_component("WorldEventWitnesses")
+    assert fact.subjects == ["甲"]
+    assert witnesses.direct_witnesses == ["乙", "甲"]
+    assert witnesses.self_witnesses == ["甲"]
+    assert entities["甲"].get_component("Cognition").knows_event(fact.event_id)
+    assert entities["乙"].get_component("Cognition").knows_event(fact.event_id)
+    assert not entities["丙"].get_component("Cognition").knows_event(fact.event_id)

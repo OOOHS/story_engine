@@ -82,7 +82,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
     storylets=[
         StoryletConfig(
             storylet_id="innkeeper_slips_harbor_hint",
-            intent="让旅馆老板在压力下吐露关于码头仓库的含糊线索。",
+            intent="旅馆柜台上的旧货运单被风吹开，露出码头仓库的地址与一段模糊的夜间交货记录。",
             priority=80,
             one_shot=True,
             tags=["clue", "harbor"],
@@ -95,7 +95,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
         ),
         StoryletConfig(
             storylet_id="library_occult_warning",
-            intent="当调查员接近禁书线索时，让图书馆管理员给出警告或晦涩指引。",
+            intent="图书馆的一本旧目录从书架上落下，夹页露出关于禁书区域的警告和索引。",
             priority=70,
             one_shot=False,
             tags=["clue", "library"],
@@ -108,7 +108,7 @@ cthulhu_arkham_scenario = ScenarioConfig(
         ),
         StoryletConfig(
             storylet_id="warehouse_pressure_rises",
-            intent="在张力偏低时，从码头仓库方向制造更直接的危险征兆。",
+            intent="码头仓库方向突然传来沉重撞击声，封闭的仓库窗缝里闪过异常冷光。",
             priority=60,
             one_shot=False,
             tags=["pressure", "harbor"],

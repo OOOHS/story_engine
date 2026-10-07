@@ -6,7 +6,7 @@ from src.story_engine.systems.system import System
 from src.story_engine.common.action_features import resolve_social_response_kind
 from src.story_engine.common.observation_window import (
     actor_observation_locations,
-    shares_action_location,
+    receives_communication,
 )
 from src.story_engine.agents.observations import observation_mode_for_action
 from src.story_engine.components.world_event import WorldEventResponses
@@ -113,7 +113,7 @@ class CognitionSystem(System):
                 if event_fact is None:
                     continue
                 statement = event_fact.statement
-            elif not statement or not source_cognition.knows(statement):
+            elif not statement:
                 continue
             communication = next((
                 action
@@ -133,13 +133,7 @@ class CognitionSystem(System):
             communication_location = str(
                 communication.get("location", "")
             ).strip()
-            if not shares_action_location(
-                source,
-                target,
-                communication_location,
-                scene_state,
-                observation_windows,
-            ):
+            if not receives_communication(communication, target, scene_state, observation_windows):
                 continue
             if event_id:
                 response_kind = resolve_social_response_kind(
@@ -229,22 +223,9 @@ class CognitionSystem(System):
             else:
                 response_kind = ""
                 response_id = ""
-                try:
-                    confidence = min(1.0, max(0.0, float(update.get("confidence", 0.8))))
-                except (TypeError, ValueError):
-                    confidence = 0.8
-                target_cognition.apply_agent_updates(
-                    {
-                        "belief_updates": [
-                            {
-                                "statement": statement,
-                                "confidence": confidence,
-                                "source": f"told_by:{source}",
-                            }
-                        ]
-                    },
-                    step=step,
-                )
+                # The actual utterance is archived below as a sourced experience.
+                # The listener's native Agent decides what to believe.
+                confidence = None
             applied.append(
                 {
                     "source": source,
@@ -282,7 +263,10 @@ class CognitionSystem(System):
                 and item.get("location")
                 and str(item.get("location")).strip() in locations
             )
-            if not personal and (visibility == "hidden" or not same_location):
+            recipient = observer_name in item.get("recipients", [])
+            if (not personal and not recipient
+                    and (visibility == "hidden" or not same_location
+                         or (item.get("action_kind") == "communicate" and "recipients" in item))):
                 continue
             observed = dict(item)
             observed["personal"] = personal

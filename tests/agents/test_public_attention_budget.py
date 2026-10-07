@@ -27,11 +27,11 @@ def _public_world(count: int = 16, budget: int = 5, reverse: bool = False):
 def _publish_phase(entities, step: int = 3):
     context = {
         "clock": SimpleNamespace(current_step=step),
-        "timeline": {"phase_transition": {"from": "白昼", "to": "夜晚"}},
-        "simulation_result": {},
+        "state_transaction": {"committed": True},
+        "simulation_result": {"scene_state_changes": [{"path": "day_phase", "value": "夜晚"}]},
     }
     WorldEventSystem().update(entities, context)
-    return context, f"scene-phase:{step}:白昼->夜晚"
+    return context, f"scene-state:{step}:0:day_phase"
 
 
 def test_public_fact_reaches_everyone_but_only_budgeted_agents_are_interrupted():
@@ -109,42 +109,6 @@ def test_goal_dependency_precedes_hash_selection_under_public_budget():
     ).pending_world_events
 
 
-def test_public_subject_and_local_witness_bypass_zero_general_budget():
-    entities, scene, names = _public_world(count=4, budget=0)
-    subject = names[2]
-    context = {
-        "clock": SimpleNamespace(current_step=4),
-        "timeline": {
-            "attendance_events": [
-                {
-                    "event_id": "public-subject-event",
-                    "kind": "timeline_attendance_missed",
-                    "statement": f"{subject}错过了公开集合。",
-                    "occurred_step": 4,
-                    "location": "",
-                    "subjects": [subject],
-                    "objects": [],
-                    "direct_witnesses": names,
-                    "self_witnesses": [subject],
-                    "visibility": "public",
-                }
-            ]
-        },
-        "simulation_result": {},
-    }
-
-    WorldEventSystem().update(entities, context)
-
-    witnesses = entities["WorldEvent:public-subject-event"].get_component(
-        "WorldEventWitnesses"
-    )
-    assert witnesses.attention_recipients == [subject]
-    assert all(
-        entities[name].get_component("Cognition").knows_event(
-            "public-subject-event"
-        )
-        for name in names
-    )
 
 
 def test_public_event_local_witness_bypasses_zero_general_budget():

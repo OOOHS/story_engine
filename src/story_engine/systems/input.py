@@ -15,13 +15,8 @@ from src.story_engine.agents.commitment import (
 )
 from src.story_engine.agents.memory_context import AgentMemoryContextBuilder
 from src.story_engine.motivation import NeedDynamics
-from src.story_engine.narrative import TimelineEngine
 from src.story_engine.environment.physical_affordances import (
     PhysicalAffordanceEngine,
-)
-from src.story_engine.common.action_target import bind_action_target
-from src.story_engine.environment.narrative_candidates import (
-    drain_due_director_authorizations,
 )
 from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
@@ -38,7 +33,6 @@ class InputSystem(System):
         self.needs = NeedDynamics()
         self.physical_affordances = PhysicalAffordanceEngine()
         self.memory_context = AgentMemoryContextBuilder()
-        self.timeline = TimelineEngine()
 
     def update(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
         overrides = context.get("overrides", {})
@@ -66,7 +60,6 @@ class InputSystem(System):
         context["storylet_definition_authorizations"] = []
         context["topology_candidate_authorizations"] = []
         context["interrupted_actions"] = []
-        self._drain_director_authorizations(scene_state, context, current_step)
 
         for event in context.get("inject_events", []):
             event_data = event if isinstance(event, dict) else {"intent": str(event)}
@@ -121,7 +114,6 @@ class InputSystem(System):
                 }
             )
 
-        self._inject_commitment_events(scene_state, context, intents_buffer, player_location)
 
         ordered_entities = self._order_entities(entities, player_name)
         for name, entity in ordered_entities:
@@ -217,37 +209,15 @@ class InputSystem(System):
                 controller = entity.get_component("AgentController")
                 if controller is not None:
                     controller.record_decision(current_step)
-                self._acknowledge_perception_attention(entity, perception)
+                self._acknowledge_perception_attention(
+                    entity, perception,
+                    suggestion_ids=(result.metadata.get("delivered_director_suggestions", [])
+                                    if runtime_owns_subjective_state(entity) else None),
+                )
                 thought = result.thought
                 commitment = commit_runtime_action(result)
                 action_spec = commitment.action
                 intent = action_spec.detail
-                if controller is not None:
-                    controller.record_policy_action(
-                        repetition_signature(action_spec),
-                        repetition_target(action_spec),
-                    )
-                if activation.reason.startswith("agent_goal:"):
-                    controller = entity.get_component("AgentController")
-                    if controller is not None:
-                        goal_id = activation.reason.removeprefix("agent_goal:")
-                        signature = (
-                            f"{action_spec.kind}|"
-                            f"{str(action_spec.target or '').strip().casefold()}"
-                        )
-                        if controller.last_goal_wakeup_id != goal_id:
-                            controller.goal_continuation_attempts = 0
-                            controller.repeated_goal_action_count = 0
-                            controller.last_goal_action_signature = ""
-                        controller.goal_continuation_attempts += 1
-                        controller.repeated_goal_action_count = (
-                            controller.repeated_goal_action_count + 1
-                            if controller.last_goal_action_signature == signature
-                            else 1
-                        )
-                        controller.last_goal_action_signature = signature
-                        controller.last_goal_wakeup_step = int(current_step)
-                        controller.last_goal_wakeup_id = goal_id
                 context.setdefault("policy_traces", {})[name] = commitment.trace
                 self._apply_agent_private_updates(
                     entity,
@@ -291,26 +261,41 @@ class InputSystem(System):
             if action_spec is None:
                 action_spec = parse_natural_language_action(intent, field=f"action for {name}")
 
-            target_binding = bind_action_target(
-                action_spec,
-                actor_name=name,
-                perception=perception,
-            )
-            action_spec = target_binding.action
-            if target_binding.status in {"ambiguous", "absent"} and action_spec.kind in {
-                "move",
-                "interact",
-                "communicate",
-            }:
-                context.setdefault("action_target_bindings", []).append(
-                    {
-                        "actor": name,
-                        "status": target_binding.status,
-                        "candidates": list(target_binding.candidates),
-                        "detail": action_spec.detail,
-                    }
-                )
+            simulation = next((e.get_component("SimulationControl") for e in entities.values()
+                               if e.get_component("SimulationControl") is not None), None)
+            interpret = getattr(simulation, "interpret_action", None)
+            from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
+            internal_offline_action = (isinstance(simulation, HostRuleSimulationControl)
+                                       and source == "ai" and result.action_spec is not None)
+            if callable(interpret) and not internal_offline_action:
+                action_spec = interpret(intent, name, perception)
+            controller = entity.get_component("AgentController")
+            if controller is not None:
+                controller.record_policy_action(repetition_signature(action_spec), repetition_target(action_spec))
+            if name in context.get("policy_traces", {}):
+                context["policy_traces"][name]["committed_action"] = action_spec.to_dict()
 
+            if activation.reason.startswith("agent_goal:"):
+                controller = entity.get_component("AgentController")
+                if controller is not None:
+                    goal_id = activation.reason.removeprefix("agent_goal:")
+                    signature = (
+                        f"{action_spec.kind}|"
+                        f"{str(action_spec.target or '').strip().casefold()}"
+                    )
+                    if controller.last_goal_wakeup_id != goal_id:
+                        controller.goal_continuation_attempts = 0
+                        controller.repeated_goal_action_count = 0
+                        controller.last_goal_action_signature = ""
+                    controller.goal_continuation_attempts += 1
+                    controller.repeated_goal_action_count = (
+                        controller.repeated_goal_action_count + 1
+                        if controller.last_goal_action_signature == signature
+                        else 1
+                    )
+                    controller.last_goal_action_signature = signature
+                    controller.last_goal_wakeup_step = int(current_step)
+                    controller.last_goal_wakeup_id = goal_id
             action_payload = action_spec.to_dict()
             affordance_id = self._validated_affordance_reference(
                 action_spec, perception
@@ -569,42 +554,10 @@ class InputSystem(System):
         self_state = scene_state.get_self_actor_state(actor_name) if scene_state else {}
         actor_location = self_state.get("location") if isinstance(self_state, dict) else None
 
+        # The entire buffer is pending settlement, including entries without
+        # batch metadata. Observable outcomes arrive through Cognition/events.
         visible_proposals = []
         world_signals = []
-        for proposal in intents_buffer or []:
-            if not isinstance(proposal, dict) or proposal.get("actor") == actor_name:
-                continue
-            # Symmetry invariant: the player is just another proposer sharing
-            # this batch. Her still-uncommitted intent is exactly as invisible
-            # to peers deciding in the same batch as anyone else's, so no
-            # actor -- human or autonomous -- gets to read a decision before
-            # it settles. Only World-originated signals (already-authoritative
-            # environment events, not proposals) bypass this barrier.
-            if (
-                proposal.get("actor") != "World"
-                and proposal.get("proposal_batch_step") == step
-            ):
-                continue
-            location = proposal.get("location")
-            if actor_location and location and location != actor_location:
-                continue
-            public_item = {
-                "actor": proposal.get("actor"),
-                "intent": proposal.get("intent", ""),
-                "source": proposal.get("source", ""),
-                "event_id": proposal.get("event_id"),
-                "tags": list(proposal.get("tags", []) or []),
-            }
-            if proposal.get("actor") == "World":
-                world_signals.append(public_item)
-            else:
-                visible_proposals.append(public_item)
-
-        director_signals = (
-            scene_state.pop_director_signals(actor_name, step)
-            if scene_state and hasattr(scene_state, "pop_director_signals")
-            else []
-        )
 
         observation = entity.get_component("Observation")
         recent_observations = (
@@ -770,14 +723,6 @@ class InputSystem(System):
             if navigation and hasattr(navigation, "private_snapshot")
             else {}
         )
-        private_schedule = self.timeline.private_schedule(
-            scene_state,
-            actor_name,
-            step,
-            include_player_relevant=bool(
-                context.get("player_name") == actor_name
-            ),
-        )
         ongoing_actions = self._visible_ongoing_actions(
             actor_name,
             actor_location,
@@ -795,7 +740,6 @@ class InputSystem(System):
                 visible_proposals=visible_proposals,
                 world_signals=world_signals,
                 private_goals=private_goals,
-                private_schedule=private_schedule,
                 private_knowledge=private_knowledge,
                 private_navigation=private_navigation,
                 private_sentiments=private_sentiments,
@@ -826,7 +770,6 @@ class InputSystem(System):
             private_sentiments=private_sentiments,
             relationship_context=relationship_context,
             affordance_opportunities=affordance_opportunities,
-            private_schedule=private_schedule,
             private_goals=private_goals,
             private_modifiers=private_modifiers,
             private_knowledge=private_knowledge,
@@ -839,17 +782,24 @@ class InputSystem(System):
             current_plan=current_plan,
             visible_proposals=visible_proposals,
             world_signals=world_signals,
-            director_signals=director_signals,
         )
 
     @staticmethod
     def _acknowledge_perception_attention(
         entity: Entity,
         perception: AgentPerception,
+        suggestion_ids: Any = None,
     ) -> None:
         cognition = entity.get_component("Cognition")
         if cognition is None:
             return
+        delivered = set(suggestion_ids if suggestion_ids is not None else [
+            item["suggestion_id"] for item in perception.private_cognition.get("director_suggestions", [])
+        ])
+        if delivered:
+            cognition.pending_director_suggestions = [
+                item for item in cognition.pending_director_suggestions if item["suggestion_id"] not in delivered
+            ]
         pending_world_events = list(
             perception.private_cognition.get("pending_world_events", []) or []
         )
@@ -1130,65 +1080,6 @@ class InputSystem(System):
 
         return sorted(ordered, key=sort_key)
 
-    def _inject_commitment_events(
-        self,
-        scene_state: Any,
-        context: Dict[str, Any],
-        intents_buffer: Any,
-        player_location: Any,
-    ) -> None:
-        if not scene_state:
-            return
-
-        clock = context.get("clock")
-        current_step = clock.current_step if clock else 0
-        for item in scene_state.get_scene_flag("upcoming_commitments", []):
-            if not isinstance(item, dict):
-                continue
-            if int(item.get("due_step", -1)) != current_step:
-                continue
-            if item.get("status") in {"resolved", "missed", "cancelled"}:
-                continue
-
-            title = str(item.get("title", "")).strip()
-            summary = str(item.get("summary", "")).strip()
-            content = f"{title}：{summary}" if title and summary else (summary or title)
-            if not content:
-                continue
-
-            intents_buffer.append(
-                {
-                    "actor": "World",
-                    "intent": content,
-                    "thought": "",
-                    "source": "timeline",
-                    "location": item.get("location") or player_location,
-                    "proposal_role": "world_pressure",
-                    "proposal_priority": 0.78,
-                }
-            )
-            self._register_character_entry_authorization(
-                context,
-                item.get("character_entry"),
-                fallback_id=item.get("commitment_id"),
-                source="timeline",
-                current_step=current_step,
-            )
-            self._register_storylet_definition_authorization(
-                context,
-                item.get("storylet_definition"),
-                fallback_id=item.get("commitment_id"),
-                source="timeline",
-                current_step=current_step,
-            )
-            self._register_topology_candidate_authorization(
-                context,
-                item.get("topology_candidate"),
-                fallback_id=item.get("commitment_id"),
-                source="timeline",
-                current_step=current_step,
-            )
-
     def _register_character_entry_authorization(
         self,
         context: Dict[str, Any],
@@ -1246,45 +1137,6 @@ class InputSystem(System):
             error_key="topology_candidate_authorization_errors",
         )
 
-    def _drain_director_authorizations(
-        self,
-        scene_state: Any,
-        context: Dict[str, Any],
-        current_step: int,
-    ) -> None:
-        """Surface NarrativeDirector-queued authorizations that are due this
-        step into the same per-kind pools ``inject_events``/timeline
-        authorizations land in, so a downstream ``Authority.resolve()`` call
-        cannot tell the difference between the three sources.
-        """
-        if scene_state is None:
-            return
-        for kind, authorizations_key, consumed_flag in (
-            (
-                "character",
-                "character_spawn_authorizations",
-                "consumed_character_entry_authorizations",
-            ),
-            (
-                "storylet_definition",
-                "storylet_definition_authorizations",
-                "consumed_storylet_definition_authorizations",
-            ),
-            (
-                "topology",
-                "topology_candidate_authorizations",
-                "consumed_topology_authorizations",
-            ),
-        ):
-            due = drain_due_director_authorizations(
-                scene_state,
-                kind=kind,
-                consumed_flag=consumed_flag,
-                current_step=current_step,
-            )
-            if due:
-                context.setdefault(authorizations_key, []).extend(deepcopy(due))
-
     def _register_candidate_authorization(
         self,
         context: Dict[str, Any],
@@ -1299,7 +1151,7 @@ class InputSystem(System):
         """Shared plumbing for every narrative-candidate authorization kind.
 
         Character entries and storylet definitions both get issued the same
-        way -- via ``inject_events``/timeline commitment payloads carrying a
+        way -- via explicitly authorized ``inject_events`` payloads carrying a
         kind-specific dict -- and only differ in which pool the resulting
         authorization lands in.
         """
@@ -1347,8 +1199,6 @@ class InputSystem(System):
             return "player_override"
         if source == "manual":
             return "manual_override"
-        if source == "timeline":
-            return "world_pressure"
         if source == "injected":
             return "world_event"
         if activation_scope == "background":
@@ -1365,8 +1215,6 @@ class InputSystem(System):
             return 1.0
         if source == "manual":
             return 0.7
-        if source == "timeline":
-            return 0.78
         if source == "injected":
             return 0.9
         if activation_scope == "background":

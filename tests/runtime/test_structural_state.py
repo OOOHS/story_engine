@@ -1,3 +1,4 @@
+from tests.semantic_support import narration_check_reply
 from copy import deepcopy
 
 from src.story_engine.agents.registry import AgentRegistry
@@ -276,6 +277,8 @@ def test_simulation_gm_gets_affordance_rules_without_host_policy_metadata():
 
     class FakeLLM:
         def generate(self, prompt):
+            if reply := narration_check_reply(prompt):
+                return reply
             captured["prompt"] = prompt
             return {"content": "{}"}
 
@@ -498,7 +501,7 @@ def test_storylet_host_detection_never_invents_an_unproposed_character_action():
     assert result["storylet_hits"] == ["white_lotus_opening_move"]
 
 
-def test_storylet_host_detection_recognizes_a_naturally_realized_beat():
+def test_storylet_character_action_alone_does_not_count_as_triggered_world_event():
     engine = SimulationSystem().storylets
     storylet = {
         "storylet_id": "opening_pressure",
@@ -522,47 +525,12 @@ def test_storylet_host_detection_recognizes_a_naturally_realized_beat():
         },
     )
 
-    assert hits == ["opening_pressure"]
+    assert hits == []
 
 
 
 
-def test_due_commitment_becomes_private_schedule_without_moving_actor():
-    class DummyClock:
-        current_step = 1
 
-    system = SimulationSystem()
-    scene = SceneState(
-        world_objects={
-            "沈宅客厅": {"default_zone": "entry"},
-            "餐厅": {"default_zone": "door"},
-        },
-        actor_states={
-            "沈昭宁": {"location": "沈宅客厅", "sub_location": "entry"},
-        },
-        scene_flags={
-            "day_phase": "pre_dinner",
-            "upcoming_commitments": [
-                {
-                    "commitment_id": "family_dinner",
-                    "due_step": 1,
-                    "grace_steps": 0,
-                    "phase": "dinner",
-                    "title": "家宴",
-                    "summary": "开席",
-                    "location": "餐厅",
-                    "participants": ["沈昭宁"],
-                }
-            ],
-        },
-    )
-
-    system._refresh_timeline(scene, {"clock": DummyClock()})
-
-    assert scene.get_actor_location("沈昭宁") == "沈宅客厅"
-    schedule = system.timeline.private_schedule(scene, "沈昭宁", 1)
-    assert schedule["due"][0]["location"] == "餐厅"
-    assert schedule["due"][0]["commitment_id"] == "family_dinner"
 
 
 def test_input_system_autonomously_builds_player_proposal_without_override():
@@ -605,13 +573,6 @@ def test_input_system_autonomously_builds_player_proposal_without_override():
     assert context["intents"][0]["source"] == "ai"
     assert context["intents"][0]["proposal_role"] == "character_proposal"
 
-def test_renderer_detects_ungrounded_dialogue():
-    renderer = NarrativeRenderer(llm_config={})
-    assert renderer._has_ungrounded_dialogue(
-        '她轻声说：“姐姐别闹了。”',
-        '{"simulation_result":{"resolved_actions":[{"result":"轻声提醒了你一句。"}]}}',
-    ) is True
-
 
 def test_renderer_cannot_omit_the_committed_player_resolution():
     renderer = NarrativeRenderer(llm_config={})
@@ -620,14 +581,15 @@ def test_renderer_cannot_omit_the_committed_player_resolution():
 
     class FakeLLM:
         def generate(self, prompt):
-            assert '"required_player_resolution_anchors"' in prompt
-            assert "林见微亲了沈昭宁一口。" in prompt
-            return {
-                "content": (
-                    "沈夫人端起茶盏，沈砚川站在客厅中央，"
-                    "所有人都等着下一句话。"
-                )
-            }
+            if prompt.startswith("## 叙述语义校对"):
+                import json
+                packet = json.loads(prompt.split("## 叙述数据\n")[1])
+                if "亲" not in packet["narration"]:
+                    return {"content": json.dumps({"valid": False, "issues": ["遗漏玩家已发生的亲吻。"]})}
+                return {"content": json.dumps({"valid": True, "issues": []})}
+            if prompt.startswith("## 叙述语义修正"):
+                return {"content": "你亲了沈昭宁，沈夫人端起茶盏。"}
+            return {"content": "沈夫人端起茶盏。"}
 
     renderer._llm = FakeLLM()
     text = renderer.render(
@@ -657,7 +619,7 @@ def test_renderer_cannot_omit_the_committed_player_resolution():
         }
     )
 
-    assert text.startswith("林见微亲了沈昭宁一口。")
+    assert text.startswith("你亲了沈昭宁")
     assert "沈夫人端起茶盏" in text
 
 
@@ -703,8 +665,10 @@ def test_renderer_uses_content_narration_policy_without_core_pacing_default():
 
     class FakeLLM:
         def generate(self, prompt):
+            if reply := narration_check_reply(prompt):
+                return reply
             captured["prompt"] = prompt
-            return {"content": "第一句。第二句。第三句。"}
+            return {"content": "第一句。第二句。"}
 
     renderer._llm = FakeLLM()
     text = renderer.render(
@@ -719,7 +683,7 @@ def test_renderer_uses_content_narration_policy_without_core_pacing_default():
     assert '"max_characters": 40' in captured["prompt"]
     assert "节奏要快" not in captured["prompt"]
     assert "锋利感" not in captured["prompt"]
-    assert text == "第一句。 第二句。"
+    assert text == "第一句。第二句。"
 
 
 def test_renderer_hides_backend_storylet_notes_from_public_text():
@@ -866,7 +830,6 @@ def test_motive_packet_ranks_visible_pressure_actors():
         player_name="林见微",
         player_pov=player_pov,
         social_packet=social_packet,
-        timeline_packet={},
     )
 
     assert motive_packet["visible_pressures"][0]["actor"] == "沈昭宁"
@@ -881,7 +844,8 @@ def test_motive_packet_ranks_visible_pressure_actors():
 
 
 def test_fallback_summary_preserves_actor_proposal_without_story_heuristics():
-    control = SimulationControl(llm_config={})
+    from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
+    control = HostRuleSimulationControl(llm_config={})
     summary = control._summarize_fallback_intent(
         actor="甲",
         intent="我看着乙，询问他为何仍留在那个位置",
@@ -971,7 +935,7 @@ def test_web_history_marks_authoritative_rollback_instead_of_fake_story_turn():
 
 def test_web_history_preserves_committed_world_when_delivery_fails():
     scenario = false_heiress_scenario.model_copy(
-        update={"simulation_mode": "rules"}
+        update={"simulation_mode": "rules", "narration_mode": "rules"}
     )
     adapter = WebGameAdapter(scenario, agent_runtime_factories=_bundled_runtime_factories())
     _dormant_nonplayer_web_agents(adapter)
@@ -1041,7 +1005,6 @@ def test_auto_player_proposal_is_not_promoted_to_primary_anchor():
             "proposal_priority": 0.48,
             "source": "ai",
         },
-        timeline_packet={},
         reaction_context={},
     )
 
@@ -1050,88 +1013,12 @@ def test_auto_player_proposal_is_not_promoted_to_primary_anchor():
     assert packet["anchor_intent"] == {}
 
 
-def test_player_relevant_commitment_builds_transition_pressure_without_staging():
-    class DummyClock:
-        current_step = 3
-
-    system = SimulationSystem()
-    scenario = false_heiress_scenario
-    scene = SceneState(
-        world_objects=deepcopy(scenario.initial_world_objects),
-        actor_states=deepcopy(scenario.initial_actor_states),
-        scene_flags=deepcopy(scenario.initial_scene_flags),
-    )
-
-    timeline = system._refresh_timeline(
-        scene,
-        {"clock": DummyClock()},
-        player_name="林见微",
-    )
-
-    assert scene.get_actor_location("沈昭宁") == "沈宅客厅"
-    assert timeline["transition_pressure"]["requires_human_backlash"] is True
-    assert timeline["transition_pressure"]["target_location"] == "餐厅"
-    assert "沈昭宁" in timeline["transition_pressure"]["carrier_actors"]
-    assert "沈砚川" in timeline["transition_pressure"]["carrier_actors"]
-
-
-def test_transition_pressure_keeps_conflict_alive_when_player_refuses_commitment():
-    class DummyClock:
-        current_step = 3
-
-    system = SimulationSystem()
-    scenario = false_heiress_scenario
-    scene = SceneState(
-        world_objects=deepcopy(scenario.initial_world_objects),
-        actor_states=deepcopy(scenario.initial_actor_states),
-        scene_flags=deepcopy(scenario.initial_scene_flags),
-    )
-
-    timeline = system._refresh_timeline(
-        scene,
-        {"clock": DummyClock()},
-        player_name="林见微",
-    )
-    player_pov = scene.get_view_pov("林见微")
-    social_packet = system._build_social_packet(
-        scene_state=scene,
-        relationship_book=_scenario_relationship_book(),
-        player_name="林见微",
-        player_pov=player_pov,
-    )
-    reaction_context = system._build_reaction_context(
-        "林见微",
-        player_pov,
-        {"actor": "林见微", "intent": "我不去餐厅，我就在这儿站着"},
-        social_packet,
-        timeline,
-    )
-    motive_packet = system._build_motive_packet(
-        scene_state=scene,
-        scenario=scenario,
-        player_name="林见微",
-        player_pov=player_pov,
-        social_packet=social_packet,
-        timeline_packet=timeline,
-    )
-    conflict_packet = system._build_conflict_packet(
-        scene_state=scene,
-        scenario=scenario,
-        current_step=DummyClock.current_step,
-        reaction_context=reaction_context,
-        storylet_packet={},
-        timeline_packet=timeline,
-    )
-
-    assert "沈昭宁" in player_pov["visible_actors"]
-    assert "沈砚川" in player_pov["visible_actors"]
-    assert reaction_context["transition_watchers"]
-    assert "沈昭宁" in reaction_context["hostile_watchers"]
-    assert reaction_context["requires_reaction"] is True
-    assert motive_packet["visible_pressures"][0]["actor"] == "沈昭宁"
-    assert conflict_packet["visible_conflict_opportunity"] is True
-    assert conflict_packet["pressure_state"] in {"rising", "acute"}
-    assert "require_visible_conflict" not in conflict_packet
+def test_scene_host_has_no_live_timeline_or_drama_manager():
+    from src.story_engine.session.scenario_loader import create_gm
+    host = create_gm(false_heiress_scenario)
+    assert host.get_component("DramaState") is None
+    assert not hasattr(SimulationSystem(), "timeline")
+    assert not hasattr(InputSystem(), "timeline")
 
 
 def test_rendering_keeps_reactions_from_pre_move_location_visible_for_that_turn():

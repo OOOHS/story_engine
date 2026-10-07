@@ -1,11 +1,13 @@
 from copy import deepcopy
+from src.story_engine.components.simulation_control import SettlementRejected, SimulationControl
+from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
+from src.story_engine.environment.delivery import clone_delivery_context
 from typing import Dict, Any, List
 from src.story_engine.systems.system import System
 from src.story_engine.core.entity import Entity
 from src.story_engine.environment.character_lifecycle import CharacterLifecycle
 from src.story_engine.environment.character_entries import CharacterEntryAuthority
 from src.story_engine.environment.narrative_candidates import (
-    queue_director_authorization,
     record_candidate_audit,
 )
 from src.story_engine.environment.world_transaction import (
@@ -13,10 +15,10 @@ from src.story_engine.environment.world_transaction import (
     WorldStateTransaction,
 )
 from src.story_engine.narrative import (
-    ConflictDirector,
+    ConflictPressure,
     StoryletEngine,
-    TimelineEngine,
 )
+from src.story_engine.narrative.storylet_execution import StoryletExecution
 from src.story_engine.narrative.storylet_definitions import (
     StoryletDefinitionAuthority,
     StoryletDefinitionLifecycle,
@@ -48,9 +50,9 @@ class SimulationSystem(System):
     def __init__(self) -> None:
         super().__init__()
         self.storylets = StoryletEngine()
-        self.timeline = TimelineEngine()
+        self.storylet_execution = StoryletExecution()
         self.legality = LegalityEngine()
-        self.conflicts = ConflictDirector()
+        self.conflicts = ConflictPressure()
         self.social = SocialDynamics()
         self.characters = CharacterLifecycle()
         self.character_entries = CharacterEntryAuthority()
@@ -71,23 +73,49 @@ class SimulationSystem(System):
         self.authority = SemanticAuthorityFilter()
 
     def update(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
+        baseline = clone_delivery_context(context)
+        scenes = [(scene, deepcopy(scene.model_dump())) for entity in entities.values()
+                  if (scene := entity.get_component("SceneState")) is not None]
+        feedback = None
+        for attempt in range(2):
+            if feedback is not None:
+                context["settlement_feedback"] = feedback
+            try:
+                self._settle_once(entities, context)
+                context.pop("settlement_feedback", None)
+                context["settlement_attempts"] = attempt + 1
+                return
+            except SettlementRejected as exc:
+                for scene, snapshot in scenes:
+                    restored = scene.__class__(**deepcopy(snapshot))
+                    for field in scene.__class__.model_fields:
+                        setattr(scene, field, deepcopy(getattr(restored, field)))
+                context.clear()
+                context.update(clone_delivery_context(baseline))
+                if attempt == 1:
+                    raise
+                feedback = {"issues": exc.issues, "rejected_candidate": exc.candidate}
+
+    def _settle_once(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
         for name, entity in list(entities.items()):
             simulation = entity.get_component("SimulationControl")
             if not simulation:
                 continue
 
             scene_state = entity.get_component("SceneState")
-            drama_state = entity.get_component("DramaState")
+            drama_state = None
             relation_registry = context.get("relation_registry")
             relation_before = relation_registry.snapshot() if relation_registry else None
             relationship_book = (
                 relation_registry.to_relationship_book() if relation_registry else None
             )
             scenario = getattr(simulation, "scenario", None)
+            semantic_settlement = isinstance(simulation, SimulationControl) and not isinstance(simulation, HostRuleSimulationControl)
+            story_tracking = entity.get_component("StoryTracking")
+            if story_tracking is not None:
+                story_tracking.reconcile(scene_state)
             player_name = scenario.player_character_name if scenario else None
             current_step = context.get("clock").current_step if context.get("clock") else 0
-            timeline_packet = self._refresh_timeline(scene_state, context, player_name=player_name)
-            phase_transition = dict(timeline_packet.get("phase_transition", {}) or {})
             player_pov = scene_state.get_view_pov(player_name) if scene_state else {}
             pre_resolution_location = player_pov.get("location") if isinstance(player_pov, dict) else None
             pre_resolution_actor_locations = {
@@ -104,7 +132,6 @@ class SimulationSystem(System):
                 scene_state=scene_state,
                 player_name=player_name,
                 player_pov=player_pov,
-                timeline_packet=timeline_packet,
                 current_step=current_step,
             )
             player_intent = next(
@@ -115,6 +142,7 @@ class SimulationSystem(System):
                 scene_state,
                 scenario,
                 situation_packet=situation_packet,
+                tracking=story_tracking,
             )
             storylet_packet = self._build_storylet_packet(
                 scene_state=scene_state,
@@ -122,6 +150,11 @@ class SimulationSystem(System):
                 current_step=current_step,
                 situation_packet=situation_packet,
             )
+            storylet_triggers = self.storylet_execution.prepare(
+                scene_state, active_storylets, current_step, tracking=story_tracking,
+            )
+            context["intents"] = list(context.get("intents", [])) + storylet_triggers
+            context["storylet_triggers"] = storylet_triggers
             social_packet = self._build_social_packet(
                 scene_state=scene_state,
                 relationship_book=relationship_book,
@@ -134,7 +167,6 @@ class SimulationSystem(System):
                 player_name=player_name,
                 player_pov=player_pov,
                 social_packet=social_packet,
-                timeline_packet=timeline_packet,
                 entities=entities,
                 relationship_book=relationship_book,
             )
@@ -143,13 +175,11 @@ class SimulationSystem(System):
                 player_pov,
                 player_intent,
                 social_packet,
-                timeline_packet=timeline_packet,
             )
             intent_focus = self._build_intent_focus_packet(
                 intents=context.get("intents", []),
                 player_name=player_name,
                 player_intent=player_intent,
-                timeline_packet=timeline_packet,
                 reaction_context=reaction_context,
             )
             legality_context = self._build_legality_context(
@@ -158,19 +188,18 @@ class SimulationSystem(System):
                 intents=context.get("intents", []),
                 entities=entities,
             )
-            director_packet = drama_state.build_directive() if drama_state else {}
+            legality_context["advisory_only"] = semantic_settlement
             conflict_packet = self._build_conflict_packet(
                 scene_state=scene_state,
                 scenario=scenario,
                 current_step=current_step,
                 reaction_context=reaction_context,
                 storylet_packet=storylet_packet,
-                timeline_packet=timeline_packet,
-                director_packet=director_packet,
             )
             semantic_social = self._build_semantic_social_packet(social_packet)
             input_payload = {
                 "current_step": current_step,
+                "settlement_feedback": context.get("settlement_feedback"),
                 "player_name": player_name,
                 "player_pov": player_pov,
                 "player_intent": player_intent or {},
@@ -190,17 +219,15 @@ class SimulationSystem(System):
                 "character_entry_authorizations": list(
                     context.get("character_spawn_authorizations", [])
                 ),
-                "storylet_opportunities": self._build_storylet_opportunities(
-                    active_storylets
+                "storylet_definition_authorizations": list(
+                    context.get("storylet_definition_authorizations", [])
                 ),
+                "topology_candidate_authorizations": list(
+                    context.get("topology_candidate_authorizations", [])
+                ),
+                "storylet_triggers": storylet_triggers,
                 "conflict_pressure": self._build_conflict_pressure_hint(conflict_packet),
-                "narrative_pressure": {
-                    "directive": str(director_packet.get("directive", "") or ""),
-                    "instruction": str(director_packet.get("instruction", "") or ""),
-                    "tension": director_packet.get("tension"),
-                }
-                if director_packet
-                else {},
+
             }
 
             semantic_result = simulation.simulate(input_payload)
@@ -215,6 +242,7 @@ class SimulationSystem(System):
                 else:
                     message = str(simulation_error)
                 raise RuntimeError(f"SimulationControl unresolved: {message}")
+            self.storylet_execution.validate(storylet_triggers, semantic_result)
             authority_filter = self.authority.sanitize(semantic_result)
             result = authority_filter.result
             # This field is derived only after a successful transaction.  A
@@ -247,9 +275,6 @@ class SimulationSystem(System):
                         check_resolver=check_resolver,
                         current_step=current_step,
                         world_version=current_world_version,
-                        movement_authorizations=(
-                            self._movement_authorizations(legality_context)
-                        ),
                     )
                     result = outcome_resolution.result
                     outcome_errors.extend(outcome_resolution.errors)
@@ -270,25 +295,23 @@ class SimulationSystem(System):
                 intents=intents,
                 legality_checks=legality_context.get("checks", []),
                 scene_state=scene_state,
-            )
-            # The GM may still have opinions about whether these actors'
-            # utterances "succeeded" -- discard them unconditionally. Only
-            # its knowledge_updates/social_impacts for these actors (content,
-            # not delivery) survive untouched.
+            ) if not semantic_settlement else None
+            # Only the explicit offline baseline projects deterministic speech.
+            # Production retains the model's delivery outcome and actual listeners.
             result["resolved_actions"] = [
                 action
                 for action in result.get("resolved_actions", []) or []
                 if not (
                     isinstance(action, dict)
                     and str(action.get("actor", "")).strip()
-                    in communication_resolution.consumed_actors
+                    in (communication_resolution.consumed_actors if communication_resolution else ())
                 )
             ]
             result["resolved_actions"].extend(
-                communication_resolution.resolved_actions
+                communication_resolution.resolved_actions if communication_resolution else ()
             )
             context["communication_traces"] = [
-                dict(action) for action in communication_resolution.resolved_actions
+                dict(action) for action in (communication_resolution.resolved_actions if communication_resolution else ())
             ]
             for trace_key, resolver, kwargs in (
                 (
@@ -321,6 +344,9 @@ class SimulationSystem(System):
                     {"intents": intents, "scene_state": scene_state},
                 ),
             ):
+                if (semantic_settlement
+                        and resolver in (self.evidence_observations, self.claim_communications, self.route_communications)):
+                    continue
                 resolution = resolver.resolve(result, **kwargs)
                 result = resolution.result
                 context[trace_key] = list(resolution.traces)
@@ -335,25 +361,6 @@ class SimulationSystem(System):
                 result,
                 intents=context.get("intents", []),
             )
-            raw_spawn_character = result.get("spawn_character")
-            entry_resolution = self.character_entries.resolve(
-                raw_spawn_character,
-                authorizations=context.get("character_spawn_authorizations", []),
-                scene_state=scene_state,
-                current_step=current_step,
-            )
-            context["character_entry_rejections"] = list(entry_resolution.rejected)
-            result["spawn_character"] = entry_resolution.request
-            spawn_preparation = self.characters.prepare(
-                entities,
-                scene_state,
-                entry_resolution.request,
-                agent_runtime=getattr(scenario, "default_agent_runtime", ""),
-                player_name=player_name,
-                agent_registry=context.get("agent_registry"),
-                memory_namespace=context.get("memory_namespace"),
-            )
-            spawn_plan = spawn_preparation.plan
             raw_storylet_definition = result.get("storylet_definition")
             storylet_definition_resolution = self.storylet_definitions.resolve(
                 raw_storylet_definition,
@@ -391,15 +398,59 @@ class SimulationSystem(System):
                 topology_candidate_resolution.request,
             )
             topology_candidate_plan = topology_candidate_preparation.plan
+            # All new bodies and objects resolve their references against one
+            # prospective graph. The authoritative Scene stays untouched.
+            preview, completion_topology_plans, completion_errors = self._prepare_locations(
+                scene_state, result, topology_candidate_plan,
+            )
+            raw_spawn_character = result.get("spawn_character")
+            entry_resolution = self.character_entries.resolve(
+                raw_spawn_character,
+                authorizations=context.get("character_spawn_authorizations", []),
+                scene_state=preview,
+                current_step=current_step,
+            )
+            context["character_entry_rejections"] = list(entry_resolution.rejected)
+            result["spawn_character"] = entry_resolution.request
+            spawn_preparation = self.characters.prepare(
+                entities,
+                preview,
+                entry_resolution.request,
+                agent_runtime=getattr(scenario, "default_agent_runtime", ""),
+                player_name=player_name,
+                agent_registry=context.get("agent_registry"),
+                memory_namespace=context.get("memory_namespace"),
+            )
+            spawn_plan = spawn_preparation.plan
+
+            if spawn_plan is not None:
+                completion_errors.extend(self.characters.stage(preview, spawn_plan))
+            completion_spawn_plans = []
+            for request in result.get("world_additions", {}).get("characters", []):
+                preparation = self.characters.prepare(
+                    entities, preview, request,
+                    agent_runtime=getattr(scenario, "default_agent_runtime", ""),
+                    agent_registry=context.get("agent_registry"),
+                    memory_namespace=context.get("memory_namespace"),
+                )
+                completion_errors.extend(preparation.errors)
+                if preparation.plan is not None:
+                    completion_spawn_plans.append(preparation.plan)
+                    completion_errors.extend(self.characters.stage(preview, preparation.plan))
+            if completion_errors:
+                raise SettlementRejected(completion_errors, result)
+            self.storylet_execution.validate(storylet_triggers, result, preview)
+
             drive_states = {
                 entity_name: drive
                 for entity_name, character_entity in entities.items()
                 if (drive := character_entity.get_component("DriveState")) is not None
             }
-            if spawn_plan is not None:
-                prepared_drive = spawn_plan.entity.get_component("DriveState")
+            all_spawn_plans = ([spawn_plan] if spawn_plan else []) + completion_spawn_plans
+            for plan in all_spawn_plans:
+                prepared_drive = plan.entity.get_component("DriveState")
                 if prepared_drive is not None:
-                    drive_states[spawn_plan.name] = prepared_drive
+                    drive_states[plan.name] = prepared_drive
             spawned: List[str] = []
             preparation_errors = (
                 list(outcome_errors)
@@ -424,32 +475,48 @@ class SimulationSystem(System):
                     character_spawn_plan=spawn_plan,
                     storylet_definition_plan=storylet_definition_plan,
                     topology_candidate_plan=topology_candidate_plan,
+                    topology_candidate_plans=completion_topology_plans,
+                    character_spawn_plans=completion_spawn_plans,
                     drive_states=drive_states,
                     current_step=current_step,
                     proposal_actors=proposal_actors,
                     emergent_meter_budget=int(
                         getattr(scenario, "emergent_meter_budget", 0) or 0
                     ),
+                    semantic_validator=(
+                        (lambda before, after, candidate: simulation.validate_commit(
+                            before, after, candidate, input_payload))
+                        if callable(getattr(simulation, "validate_commit", None)) else None
+                    ),
                 )
-                if transaction_result.committed and spawn_plan is not None:
+                if transaction_result.committed and all_spawn_plans:
                     try:
                         register_agent = context.get("register_agent")
                         if not callable(register_agent):
                             raise RuntimeError("agent registration callback is unavailable")
-                        spawned = self.characters.finalize(
-                            entities,
-                            spawn_plan,
-                            register_agent=register_agent,
-                            unregister_agent=context.get("unregister_agent"),
-                            agent_registry=context.get("agent_registry"),
-                        )
+                        for plan in all_spawn_plans:
+                            spawned.extend(self.characters.finalize(
+                                entities, plan,
+                                register_agent=register_agent,
+                                unregister_agent=context.get("unregister_agent"),
+                                agent_registry=context.get("agent_registry"),
+                            ))
                     except Exception as exc:
+                        for plan in all_spawn_plans:
+                            entities.pop(plan.name, None)
+                            unregister = context.get("unregister_agent")
+                            if callable(unregister):
+                                unregister(plan.entity)
+                        spawned = []
+
                         if transaction_result.checkpoint:
                             transaction_result.checkpoint.restore()
                         transaction_result = TransactionResult(
                             False,
                             [f"spawn_character finalization rolled back: {exc}"],
                         )
+                        if completion_spawn_plans:
+                            raise RuntimeError("world completion subject registration failed") from exc
                 if transaction_result.committed and relation_registry is not None:
                     try:
                         relation_registry.apply_relationship_book(
@@ -465,32 +532,17 @@ class SimulationSystem(System):
                             [f"relationship publication rolled back: {exc}"],
                         )
                 if transaction_result.committed and scene_state is not None:
-                    result["storylet_hits"] = self.storylets.detect_hits(
-                        active_storylets, result
+                    self.storylet_execution.commit(
+                        scene_state, active_storylets, storylet_triggers, result,
+                        tracking=story_tracking, step=current_step,
                     )
-                    consumed_storylet_ids = self.storylets.consumable_hits(
-                        scenario,
-                        result["storylet_hits"],
-                        active_storylets=active_storylets,
-                    )
-                    narrative_director = entity.get_component("NarrativeDirector")
-                    if narrative_director is not None:
-                        self._run_narrative_director(
-                            narrative_director,
-                            scene_state=scene_state,
-                            result=result,
-                            director_packet=director_packet,
-                            active_storylets=active_storylets,
-                            current_step=current_step,
-                            context=context,
-                        )
-                    if consumed_storylet_ids:
-                        consumed = list(scene_state.get_scene_flag("consumed_storylets", []) or [])
-                        for storylet_id in consumed_storylet_ids:
-                            if storylet_id not in consumed:
-                                consumed.append(storylet_id)
-                        scene_state.update_scene_flags({"consumed_storylets": consumed})
                 if not transaction_result.committed:
+                    for plan in all_spawn_plans:
+                        entities.pop(plan.name, None)
+                        unregister = context.get("unregister_agent")
+                        if callable(unregister):
+                            unregister(plan.entity)
+                    spawned = []
                     result = self.transaction.sanitize_rejected_result(
                         result,
                         transaction_result.errors,
@@ -514,6 +566,9 @@ class SimulationSystem(System):
                         and str(item.get("actor", "")).strip()
                         and str(item.get("actor", "")).strip() != "World"
                     ]
+
+            if not transaction_result.committed and semantic_result.get("world_additions"):
+                raise SettlementRejected(transaction_result.errors, semantic_result)
 
             if scene_state is not None and isinstance(raw_spawn_character, dict):
                 spawned_this_step = bool(spawned) and transaction_result.committed
@@ -586,6 +641,7 @@ class SimulationSystem(System):
                 )
 
             if transaction_result.committed and scene_state is not None:
+                context["topology_changes"] = list(context.get("topology_changes", [])) + result.get("topology_changes", [])
                 result["actor_movements"] = self._derive_actor_movements(
                     before_locations=pre_resolution_actor_locations,
                     scene_state=scene_state,
@@ -605,9 +661,6 @@ class SimulationSystem(System):
             if scene_state:
                 if transaction_result.committed:
                     self._record_conflict_result(scene_state, context, result)
-                timeline_packet = self._finalize_timeline(scene_state, context, player_name)
-                if phase_transition:
-                    timeline_packet["phase_transition"] = phase_transition
                 player_pov = scene_state.get_view_pov(player_name) if player_name else {}
                 social_packet = self._build_social_packet(
                     scene_state=scene_state,
@@ -619,7 +672,6 @@ class SimulationSystem(System):
                     scene_state=scene_state,
                     player_name=player_name,
                     player_pov=player_pov,
-                    timeline_packet=timeline_packet,
                     current_step=current_step,
                 )
                 motive_packet = self._build_motive_packet(
@@ -628,7 +680,6 @@ class SimulationSystem(System):
                     player_name=player_name,
                     player_pov=player_pov,
                     social_packet=social_packet,
-                    timeline_packet=timeline_packet,
                     entities=entities,
                     relationship_book=relationship_book,
                 )
@@ -660,9 +711,7 @@ class SimulationSystem(System):
                     )
 
             context["simulation_result"] = result
-            context["director_packet"] = director_packet
             context["active_storylets"] = active_storylets
-            context["timeline"] = timeline_packet
             context["situations"] = situation_packet
             context["reaction_context"] = reaction_context
             context["intent_focus"] = intent_focus
@@ -780,26 +829,27 @@ class SimulationSystem(System):
             )
         return movements
 
-    @staticmethod
-    def _movement_authorizations(
-        legality_context: Any,
-    ) -> Dict[str, str]:
-        checks = (
-            legality_context.get("checks", [])
-            if isinstance(legality_context, dict)
-            else []
+    def _prepare_locations(self, scene, result, authorized_plan):
+        from src.story_engine.components.scene_state import SceneState
+        additions = result.get("world_additions", {})
+        if not isinstance(additions, dict) or set(additions) - {"locations", "characters", "facts"}:
+            raise SettlementRejected(["world_additions requires locations, characters and facts lists"], result)
+        for kind in ("locations", "characters"):
+            values = additions.get(kind, [])
+            if not isinstance(values, list) or any(not isinstance(v, dict) for v in values):
+                raise SettlementRejected([f"world_additions.{kind} must be a list of objects"], result)
+        facts = additions.get("facts", [])
+        if not isinstance(facts, list) or any(not isinstance(f, str) or not f.strip() for f in facts):
+            raise SettlementRejected(["world_additions.facts must be a list of non-empty statements"], result)
+        preview = SceneState(**deepcopy(scene.get_snapshot()))
+        errors = self.topology_candidate_lifecycle.stage(preview, authorized_plan)
+        plans, preparation_errors = self.topology_candidate_lifecycle.prepare_many(
+            preview, additions.get("locations", []),
         )
-        return {
-            str(check.get("actor", "")).strip(): str(
-                check.get("rewrite_location", "") or ""
-            ).strip()
-            for check in checks
-            if isinstance(check, dict)
-            and str(check.get("actor", "")).strip()
-            and str(check.get("rule", "")).strip() == "movement"
-            and str(check.get("verdict", "allow")).strip() == "allow"
-            and str(check.get("rewrite_location", "") or "").strip()
-        }
+        errors.extend(preparation_errors)
+        if not errors:
+            errors.extend(self.topology_candidate_lifecycle.stage_many(preview, plans))
+        return preview, plans, errors
 
     @staticmethod
     def _derive_object_state_changes(
@@ -907,10 +957,9 @@ class SimulationSystem(System):
         player_pov: Dict[str, Any],
         player_intent: Any,
         social_packet: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
         return self.social.build_reaction_context(
-            player_name, player_pov, player_intent, social_packet, timeline_packet
+            player_name, player_pov, player_intent, social_packet
         )
 
     def _build_legality_context(
@@ -939,8 +988,6 @@ class SimulationSystem(System):
         current_step: int,
         reaction_context: Dict[str, Any],
         storylet_packet: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
-        director_packet: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
         return self.conflicts.build_packet(
             scene_state,
@@ -948,8 +995,6 @@ class SimulationSystem(System):
             current_step,
             reaction_context,
             storylet_packet,
-            timeline_packet,
-            director_packet,
         )
 
     @staticmethod
@@ -958,7 +1003,7 @@ class SimulationSystem(System):
     ) -> Dict[str, Any]:
         """Advisory-only pacing hint surfaced to the semantic resolver.
 
-        Mirrors ``storylet_opportunities``: the resolver may notice this and
+        The resolver may notice this advisory pressure and
         let a hostile watcher's action escalate accordingly, but nothing here
         forces a conflict beat or lets the GM act for a non-proposing actor.
         """
@@ -1037,7 +1082,6 @@ class SimulationSystem(System):
         player_name: Any,
         player_pov: Dict[str, Any],
         social_packet: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
         entities: Dict[str, Entity] | None = None,
         relationship_book: Any = None,
     ) -> Dict[str, Any]:
@@ -1047,7 +1091,6 @@ class SimulationSystem(System):
             player_name,
             player_pov,
             social_packet,
-            timeline_packet,
             entities or {},
             relationship_book,
         )
@@ -1057,14 +1100,12 @@ class SimulationSystem(System):
         intents: List[Dict[str, Any]],
         player_name: Any,
         player_intent: Any,
-        timeline_packet: Dict[str, Any],
         reaction_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         return self.proposals.build_focus_packet(
             intents,
             player_name,
             player_intent,
-            timeline_packet,
             reaction_context,
         )
 
@@ -1080,14 +1121,12 @@ class SimulationSystem(System):
         scene_state: Any,
         player_name: Any,
         player_pov: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
         current_step: int,
     ) -> Dict[str, Any]:
         return self.storylets.refresh_situations(
             scene_state=scene_state,
             player_name=player_name,
             player_pov=player_pov,
-            timeline_packet=timeline_packet,
             current_step=current_step,
         )
 
@@ -1096,36 +1135,10 @@ class SimulationSystem(System):
         scene_state: Any,
         player_name: Any,
         player_pov: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
     ) -> Dict[str, Any]:
         return self.storylets._frontstage(
-            scene_state, player_name, player_pov, timeline_packet
+            scene_state, player_name, player_pov
         )
-
-    def _build_commitment_situations(
-        self,
-        scene_state: Any,
-        player_name: Any,
-        timeline_packet: Dict[str, Any],
-        current_step: int,
-    ) -> List[Dict[str, Any]]:
-        return self.storylets._commitments(
-            scene_state, player_name, timeline_packet, current_step
-        )
-
-    def _build_transition_situation(
-        self,
-        player_name: Any,
-        timeline_packet: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return self.storylets._transition(player_name, timeline_packet)
-
-    def _build_aftermath_situation(
-        self,
-        player_name: Any,
-        timeline_packet: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        return self.storylets._aftermath(player_name, timeline_packet)
 
     def _collect_situation_tags(
         self,
@@ -1159,141 +1172,6 @@ class SimulationSystem(System):
             situation_packet=situation_packet,
         )
 
-    def _build_storylet_opportunities(
-        self,
-        active_storylets: List[Dict[str, Any]],
-        limit: int = 5,
-    ) -> List[Dict[str, Any]]:
-        """Trim active_storylets down to what a resolver needs to decide
-        whether a director_signal is warranted: what the opportunity is,
-        who it concerns, what's at stake. Not authoritative content and not
-        an instruction -- the resolver can act on it, ignore it, or note
-        that no in-scene actor is a good fit.
-        """
-        opportunities: List[Dict[str, Any]] = []
-        for item in (active_storylets or [])[:limit]:
-            if not isinstance(item, dict):
-                continue
-            beat = item.get("beat", {}) if isinstance(item.get("beat", {}), dict) else {}
-            opportunities.append(
-                {
-                    "storylet_id": item.get("storylet_id", ""),
-                    "intent": item.get("intent", ""),
-                    "tags": list(item.get("tags", [])),
-                    "kind": item.get("kind") or "",
-                    "preferred_actors": list(beat.get("preferred_actors", [])),
-                    "target_actor": beat.get("target_actor"),
-                    "stake": beat.get("stake", ""),
-                    "visibility": beat.get("visibility", "public"),
-                }
-            )
-        return opportunities
-
-    def _run_narrative_director(
-        self,
-        narrative_director: Any,
-        *,
-        scene_state: Any,
-        result: Dict[str, Any],
-        director_packet: Dict[str, Any],
-        active_storylets: List[Dict[str, Any]],
-        current_step: int,
-        context: Dict[str, Any],
-    ) -> None:
-        """Run narrative intuition strictly after this tick's commit.
-
-        Never raises: an unavailable or malformed response just means no
-        new beat/signal this tick, not a rolled-back one. The tick already
-        committed; this pass is a bonus, not a dependency.
-        """
-        try:
-            payload = {
-                "committed_facts": {
-                    "resolved_actions": result.get("resolved_actions", []),
-                    "social_impacts": result.get("social_impacts", []),
-                    "object_lifecycle": result.get("object_lifecycle", []),
-                    "storylet_hits": result.get("storylet_hits", []),
-                    "tension_delta": result.get("tension_delta", 0.0),
-                    "conflict_level": result.get("conflict_level", "none"),
-                },
-                "storylet_opportunities": self._build_storylet_opportunities(
-                    active_storylets
-                ),
-                "narrative_pressure": {
-                    "directive": str(director_packet.get("directive", "") or ""),
-                    "instruction": str(director_packet.get("instruction", "") or ""),
-                    "tension": director_packet.get("tension"),
-                }
-                if director_packet
-                else {},
-            }
-            narrative_result = narrative_director.direct(payload)
-        except Exception:
-            return
-        if not isinstance(narrative_result, dict):
-            return
-        filtered = self.authority.sanitize(narrative_result)
-        context.setdefault("semantic_authority_rejections", []).extend(
-            filtered.rejected_writes
-        )
-        director_signals = filtered.result.get("director_signals", [])
-        result["director_signals"] = director_signals
-        narrative_candidates = filtered.result.get("narrative_candidates", [])
-        result["narrative_candidates"] = narrative_candidates
-        for candidate in narrative_candidates:
-            self._queue_director_narrative_candidate(
-                scene_state, candidate, current_step=current_step
-            )
-        for signal in director_signals:
-            if not isinstance(signal, dict):
-                continue
-            actor = str(signal.get("actor", "")).strip()
-            if scene_state is None or actor not in scene_state.actor_states:
-                continue
-            scene_state.queue_director_signal(
-                actor,
-                str(signal.get("suggestion", "")),
-                current_step=int(current_step),
-                source_ref=str(signal.get("source_ref", "")),
-                tags=list(signal.get("tags", []) or []),
-            )
-
-    def _queue_director_narrative_candidate(
-        self,
-        scene_state: Any,
-        candidate: Any,
-        *,
-        current_step: int,
-    ) -> None:
-        """Turn one narrative_candidates entry into a next-step authorization.
-
-        This never writes world state: it only decides whether the proposal
-        has the minimum shape its kind's ``Authority.resolve()`` will need,
-        then queues it. Real validation (uniqueness, caps, window, field
-        legality) still happens exactly once, next step, in the same
-        Authority/Lifecycle every other source of that kind goes through.
-        """
-        if scene_state is None or not isinstance(candidate, dict):
-            return
-        kind = str(candidate.get("kind", "")).strip()
-        payload = candidate.get("payload")
-        if not isinstance(payload, dict):
-            return
-        required_fields = {
-            "character": ("name", "location"),
-            "storylet_definition": ("storylet_id", "intent"),
-            "topology": ("location_id",),
-        }.get(kind)
-        if required_fields is None:
-            return
-        if not all(str(payload.get(field, "")).strip() for field in required_fields):
-            return
-        queue_director_authorization(
-            scene_state,
-            kind=kind,
-            payload=dict(payload),
-            current_step=current_step,
-        )
 
     def _pick_salient_storylet(
         self,
@@ -1345,70 +1223,21 @@ class SimulationSystem(System):
     def _is_visible_conflict(self, result: Dict[str, Any], conflict_level: str) -> bool:
         return self.conflicts.is_visible(result, conflict_level)
 
-    def _detect_mundane_violation(self, intent: str, actor_state: Dict[str, Any]) -> str:
-        return self.legality.detect_mundane_violation(intent, actor_state)
-
-    def _assess_movement_legality(
-        self,
-        scene_state: Any,
-        actor: str,
-        intent: str,
-        current_location: Any,
-    ) -> Any:
-        return self.legality.assess_movement(
-            scene_state, actor, intent, current_location
-        )
-
-    def _extract_target_location(self, scene_state: Any, intent: str, current_location: Any) -> Any:
-        return self.legality.extract_target_location(
-            scene_state, intent, current_location
-        )
-
     def _find_path(self, scene_state: Any, start: str, target: str) -> List[str]:
         return self.legality.find_path(scene_state, start, target)
-
-    def _refresh_timeline(
-        self,
-        scene_state: Any,
-        context: Dict[str, Any],
-        player_name: Any = None,
-    ) -> Dict[str, Any]:
-        return self.timeline.refresh(scene_state, context, player_name)
-
-    def _finalize_timeline(self, scene_state: Any, context: Dict[str, Any], player_name: Any) -> Dict[str, Any]:
-        return self.timeline.finalize(scene_state, context, player_name)
-
-    def _build_transition_pressure(
-        self,
-        scene_state: Any,
-        commitments: List[Dict[str, Any]],
-        current_step: int,
-        player_name: Any,
-    ) -> Dict[str, Any]:
-        return self.timeline.build_transition_pressure(
-            scene_state, commitments, current_step, player_name
-        )
-
-    def _resolve_transition_carriers(
-        self,
-        commitment: Dict[str, Any],
-        same_scene_states: Dict[str, Dict[str, Any]],
-        player_name: Any,
-    ) -> List[str]:
-        return self.timeline.resolve_transition_carriers(
-            commitment, same_scene_states, player_name
-        )
 
     def _resolve_storylets(
         self,
         scene_state: Any,
         scenario: Any,
         situation_packet: Dict[str, Any] = None,
+        tracking: Any = None,
     ) -> List[Dict[str, Any]]:
         return self.storylets.resolve(
             scene_state=scene_state,
             scenario=scenario,
             situation_packet=situation_packet,
+            tracking=tracking,
         )
 
     def _storylet_requires_situation_route(self, storylet: Any) -> bool:
@@ -1420,25 +1249,3 @@ class SimulationSystem(System):
         situation_packet: Dict[str, Any],
     ) -> List[Dict[str, Any]]:
         return self.storylets.match_situations(storylet, situation_packet)
-
-    def _normalize_phase_schedule(self, items: Any) -> List[Dict[str, Any]]:
-        return self.timeline.normalize_phase_schedule(items)
-
-    def _normalize_commitments(self, items: Any) -> List[Dict[str, Any]]:
-        return self.timeline.normalize_commitments(items)
-
-    def _resolve_day_phase(
-        self,
-        current_step: int,
-        phase_schedule: List[Dict[str, Any]],
-        current_phase: Any,
-    ) -> str:
-        return self.timeline.resolve_day_phase(current_step, phase_schedule, current_phase)
-
-    def _resolve_phase_turn(
-        self,
-        current_step: int,
-        phase_schedule: List[Dict[str, Any]],
-        day_phase: str,
-    ) -> int:
-        return self.timeline.resolve_phase_turn(current_step, phase_schedule, day_phase)

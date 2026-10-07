@@ -187,7 +187,8 @@ def test_resolved_dynamic_storylet_is_visible_to_resolve_and_hit_detection():
         {
             "resolved_actions": [
                 {
-                    "actor": "甲",
+                    "actor": "World",
+                    "outcome": "success",
                     "source_storylet_id": "betrayal_hint",
                     "result": "甲暗示了背叛的迹象。",
                 }

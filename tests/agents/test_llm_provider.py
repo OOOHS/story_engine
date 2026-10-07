@@ -32,3 +32,28 @@ def test_provider_qualified_models_are_not_rewritten():
 
     assert provider.model == "deepseek/deepseek-chat"
     assert provider.base_url == "https://api.deepseek.com"
+
+
+def test_persistent_agent_provider_forwards_full_history_and_proposal_tools(monkeypatch):
+    from types import SimpleNamespace
+    import src.story_engine.llm.provider as provider_module
+
+    captured = {}
+
+    def completion(**kwargs):
+        captured.update(kwargs)
+        message = SimpleNamespace(content="继续观察。", role="assistant", tool_calls=[])
+        return SimpleNamespace(choices=[SimpleNamespace(message=message)])
+
+    monkeypatch.setattr(provider_module.litellm, "completion", completion)
+    history = [
+        {"role": "system", "content": "导演"},
+        {"role": "user", "content": "玩家发现信件"},
+        {"role": "assistant", "content": "留意调查"},
+        {"role": "user", "content": "玩家读出了寄件人"},
+    ]
+    tools = [{"type": "function", "function": {"name": "propose_storylet", "parameters": {"type": "object"}}}]
+    response = LLMProvider(api_key="test-key").generate_messages(history, tools=tools)
+    assert captured["messages"] == history
+    assert captured["tools"] == tools
+    assert response["content"] == "继续观察。"

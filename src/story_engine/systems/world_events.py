@@ -23,10 +23,35 @@ from src.story_engine.systems.system import System
 class WorldEventSystem(System):
     """Materialize host-derived occurrences and publish only to witnesses."""
 
+    @staticmethod
+    def _deliver_director_suggestions(entities, context, result):
+        """Queue attributed guidance separately from factual event/knowledge ledgers.
+
+        This phase and Cognition participate in the existing Runner checkpoint;
+        a failed authoritative phase restores both world changes and queues.
+        """
+        if not context.get("state_transaction", {}).get("committed"):
+            return
+        step = int(context["clock"].current_step) if context.get("clock") else 0
+        for index, suggestion in enumerate(result.get("director_suggestions", [])):
+            entity = entities.get(suggestion["recipient"])
+            cognition = entity.get_component("Cognition") if entity else None
+            if cognition is None:
+                raise RuntimeError("Director suggestion recipient has no Cognition")
+            source = suggestion["source_storylet_id"]
+            identifier = f"director-suggestion:{source}:{step}:{index}"
+            if any(item["suggestion_id"] == identifier for item in cognition.pending_director_suggestions):
+                continue
+            cognition.pending_director_suggestions.append({
+                "suggestion_id": identifier, "source": "director",
+                "source_storylet_id": source, "step": step, "text": suggestion["text"],
+            })
+
     def update(self, entities: Dict[str, Entity], context: Dict[str, Any]) -> None:
         scene_state = self._scene_state(entities)
         simulation_result = context.get("simulation_result")
         if isinstance(simulation_result, dict):
+            self._deliver_director_suggestions(entities, context, simulation_result)
             simulation_result["topology_changes"] = deepcopy(
                 context.get("topology_changes", []) or []
             )
@@ -38,6 +63,7 @@ class WorldEventSystem(System):
             context["world_event_updates"] = []
             context["world_event_errors"] = []
             return
+
 
         prepared: List[tuple[str, Entity, Dict[str, Any]]] = []
         errors: List[str] = []
@@ -84,7 +110,7 @@ class WorldEventSystem(System):
             event_entity.add_component(
                 WorldEventFact(
                     event_id=event_id,
-                    kind=self._text(raw.get("kind"), 80) or "timeline_event",
+                    kind=self._text(raw.get("kind"), 80) or "world_event",
                     title=self._text(raw.get("title"), 240),
                     statement=statement,
                     occurred_step=int(raw.get("occurred_step", 0)),
@@ -280,7 +306,6 @@ class WorldEventSystem(System):
         context: Dict[str, Any],
         scene_state: Any,
     ) -> List[Dict[str, Any]]:
-        timeline = context.get("timeline", {})
         observation_windows = context.get("actor_observation_windows", {})
         candidates = self._topology_events(
             context.get("topology_changes", []),
@@ -307,20 +332,12 @@ class WorldEventSystem(System):
                 observation_windows=observation_windows,
             )
         )
-        candidates.extend(
-            timeline.get("attendance_events", [])
-            if isinstance(timeline, dict)
-            else []
-        )
-        candidates.extend(
-            self._phase_transition_events(
-                timeline,
-                scene_state,
-                current_step=self._step(context),
-            )
-        )
         transaction = context.get("state_transaction", {})
         if transaction.get("committed"):
+            candidates.extend(self._communication_events(context))
+            candidates.extend(self._settled_world_actions(
+                context, scene_state, observation_windows,
+            ))
             candidates.extend(
                 self._movement_events(
                     context.get("simulation_result", {}),
@@ -359,6 +376,64 @@ class WorldEventSystem(System):
                 )
             )
         return candidates
+
+    def _communication_events(self, context):
+        """A delivered expression is an event; its content keeps the speaker's source."""
+        events = []
+        step = self._step(context)
+        for index, action in enumerate(context.get("simulation_result", {}).get("resolved_actions", [])):
+            if (not isinstance(action, dict) or action.get("action_kind") != "communicate"
+                    or action.get("outcome") not in {"success", "partial", "complication"}
+                    or not action.get("recipients") or not action.get("result")):
+                continue
+            source = action["actor"]
+            events.append({
+                "event_id": f"communication:{step}:{index}:{source}",
+                "kind": "communication_received", "title": "收到交流消息",
+                "statement": f"{source}的表达：{action['result']}",
+                "occurred_step": step, "location": action.get("location", ""),
+                "subjects": [source, *action["recipients"]], "objects": [],
+                "source_type": "communication", "source_ref": f"resolved_action:step:{step}:actor:{source}",
+                "visibility": "hidden", "direct_witnesses": list(action["recipients"]),
+                "self_witnesses": [source], "self_attention": False,
+            })
+        return events
+
+    def _settled_world_actions(self, context, scene_state, observation_windows):
+        """Publish World occurrences only after their settlement commits."""
+        events = []
+        step = self._step(context)
+        world_intents = [
+            item for item in context.get("intents", [])
+            if isinstance(item, dict) and item.get("actor") == "World"
+        ]
+        actions = context.get("simulation_result", {}).get("resolved_actions", [])
+        for index, action in enumerate(actions):
+            if not isinstance(action, dict) or action.get("actor") != "World":
+                continue
+            if action.get("outcome") not in {"success", "partial", "complication"}:
+                continue
+            statement = self._text(action.get("result"), 800)
+            if not statement:
+                continue
+            origin = next((item for item in world_intents
+                           if item.get("intent") == action.get("intent")
+                           and item.get("source_storylet_id", "") == action.get("source_storylet_id", "")), {})
+            source_ref = self._text(origin.get("event_id"), 160) or f"step:{step}:world:{index}"
+            location = self._text(action.get("location"), 160)
+            visibility = self._visibility(action.get("visibility"))
+            events.append({
+                "event_id": f"world-action:{source_ref}",
+                "kind": "world_occurrence", "statement": statement,
+                "occurred_step": step, "location": location,
+                "subjects": [], "objects": [],
+                "source_type": "world_action", "source_ref": source_ref,
+                "visibility": visibility,
+                "direct_witnesses": self._witnesses_at(scene_state, location, observation_windows)
+                if visibility != "hidden" else [],
+                "self_witnesses": [],
+            })
+        return events
 
     def _topology_events(
         self,
@@ -433,49 +508,6 @@ class WorldEventSystem(System):
             )
         return events
 
-    def _phase_transition_events(
-        self,
-        timeline: Any,
-        scene_state: Any,
-        *,
-        current_step: int,
-        observation_windows: Any = None,
-    ) -> List[Dict[str, Any]]:
-        transition = (
-            timeline.get("phase_transition", {})
-            if isinstance(timeline, dict)
-            else {}
-        )
-        previous = self._text(transition.get("from"), 80)
-        current = self._text(transition.get("to"), 80)
-        if not previous or not current or previous == current:
-            return []
-        actors = sorted(scene_state.actor_states) if scene_state else []
-        return [
-            {
-                "event_id": f"scene-phase:{current_step}:{previous}->{current}",
-                "kind": "scene_phase_changed",
-                "title": "时间阶段变化",
-                "statement": f"环境阶段从{previous}进入了{current}。",
-                "occurred_step": current_step,
-                "location": "",
-                "subjects": [],
-                "objects": [],
-                "direct_witnesses": [],
-                "self_witnesses": actors,
-                "source_type": "clock",
-                "source_ref": f"step:{int(current_step)}",
-                "visibility": "public",
-                "changed_paths": ["day_phase"],
-                "impacts": [
-                    {
-                        "scope": "scene",
-                        "target": "scene",
-                        "path": "scene_flags.day_phase",
-                    }
-                ],
-            }
-        ]
 
     def _scene_state_events(
         self,

@@ -14,8 +14,15 @@ class Dispatcher:
             self._transaction_buffer.append(event)
             return
         self.events.append(event)
+        failure = None
         for subscriber in self.subscribers:
-            subscriber(event)
+            try:
+                subscriber(event)
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
 
     def get_events(self) -> List[Any]:
         return self.events
@@ -33,8 +40,15 @@ class Dispatcher:
             return
         buffered = self._transaction_buffer
         self._transaction_buffer = None
+        failure = None
         for event in buffered:
-            self.publish(event)
+            try:
+                self.publish(event)
+            except Exception as exc:
+                if failure is None:
+                    failure = exc
+        if failure is not None:
+            raise failure
 
     def rollback_transaction(self) -> None:
         self._transaction_buffer = None

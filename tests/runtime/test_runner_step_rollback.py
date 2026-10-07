@@ -1,10 +1,17 @@
+from tests.semantic_support import narration_check_reply
 from copy import deepcopy
+import gc
+import weakref
+
+import pytest
 
 from src.story_engine.agents import AgentDecision
+from src.story_engine.components.narrative_renderer import NarrativeRenderer
 from src.story_engine.core.entity import Entity
 from src.story_engine.evaluation import EpisodeRunner
 from src.story_engine.prefabs.templates import create_agent
 from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
+from src.story_engine.environment.step_checkpoint import RunnerStepCheckpoint
 from src.story_engine.session import create_session
 from src.story_engine.session import public_step_status
 from src.story_engine.systems.system import System
@@ -52,6 +59,23 @@ def _session():
         random_seed="step-rollback",
     )
     return session, runtime
+
+
+def test_step_checkpoint_releases_subject_snapshot_when_step_scope_ends():
+    session, runtime = _session()
+    released = []
+    runtime.capture_subject_checkpoint = lambda: {"marker": "before-turn"}
+    runtime.release_subject_checkpoint = released.append
+    try:
+        checkpoint = RunnerStepCheckpoint.capture(session.runner)
+        reference = weakref.ref(checkpoint)
+        assert released == []
+        del checkpoint
+        gc.collect()
+        assert reference() is None
+        assert released == [{"marker": "before-turn"}]
+    finally:
+        session.close()
 
 
 class FaultingAuthoritativeSystem(System):
@@ -265,6 +289,42 @@ def test_delivery_exception_after_world_event_keeps_committed_world():
     assert runtime.calls == 1
 
 
+def test_production_narrator_outage_requires_delivery_retry():
+    session, runtime = _session()
+    renderer = NarrativeRenderer(llm_config={})
+    session.entities["WorldHost"].add_component(renderer)
+
+    class Unavailable:
+        def generate(self, prompt):
+            if reply := narration_check_reply(prompt):
+                return reply
+            return {"content": "[LLM disabled] missing key"}
+
+    renderer._llm = Unavailable()
+    try:
+        failed = session.run_step()
+        assert failed["step_committed"] is True
+        assert failed["step_failure_reason"] == "delivery_phase_exception"
+        assert "rendered_text" not in failed
+        assert session.delivery_pending is True
+        assert runtime.calls == 1
+
+        class Recovered:
+            def generate(self, prompt):
+                if reply := narration_check_reply(prompt):
+                    return reply
+                return {"content": "大厅里很安静，你等着下一步动静。"}
+
+        renderer._llm = Recovered()
+        recovered = session.retry_delivery()
+        assert recovered["delivery_retry_status"] == "completed"
+        assert recovered["rendered_text"]
+        assert runtime.calls == 1
+        assert session.delivery_pending is False
+    finally:
+        session.close()
+
+
 def test_memory_delivery_retry_upserts_stable_episode_ids_without_duplicates():
     session, _ = _session()
     actor_memory = session.entities["甲"].get_component("Memory")
@@ -328,3 +388,121 @@ def test_episode_runner_recovers_transient_delivery_without_second_world_step():
     assert session.delivery_pending is False
     assert runtime.calls == 1
     assert fail_once.calls == 2
+
+
+def test_world_event_publication_errors_roll_back_the_authoritative_step(monkeypatch):
+    session, _ = _session()
+    runner = session.runner
+    scene = session.entities["WorldHost"].get_component("SceneState")
+    before = deepcopy(scene.model_dump())
+    events = next(system for system in runner.systems
+                  if system.__class__.__name__ == "WorldEventSystem")
+    monkeypatch.setattr(events, "_collect_candidates", lambda *args: [
+        {"event_id": "invalid-event", "statement": "临时人到场。",
+         "subjects": ["不存在的角色"]}
+    ])
+    delivered = []
+    runner.dispatcher.subscribe(delivered.append)
+    try:
+        failed = session.run_step()
+        assert failed["authoritative_step_failed"] is True
+        assert failed["step_committed"] is False
+        assert failed["phase_errors"][0]["phase"] == "WorldEventSystem"
+        assert scene.model_dump() == before
+        assert session.step_count == runner.clock.current_step == 0
+        assert delivered == []
+    finally:
+        session.close()
+
+
+def test_authoritative_rollback_closes_new_subject_runtimes_only():
+    session, retained = _session()
+    closed = []
+    created = WaitRuntime()
+    created.close = lambda: closed.append("new")
+    retained.close = lambda: closed.append("retained")
+    session.runner.agent_runtime_factories["test"] = lambda entity, config: created
+    session.runner.systems.insert(2, FaultingAuthoritativeSystem())
+    try:
+        failed = session.run_step()
+        assert failed["authoritative_step_failed"] is True
+        assert closed == ["new"]
+        assert session.runner.agent_registry.get("甲").runtime is retained
+        assert not session.runner.agent_registry.is_registered("临时人")
+    finally:
+        session.close()
+    assert closed == ["new", "retained"]
+
+
+def test_subscriber_failure_preserves_batch_and_resumable_player_delivery():
+    session, runtime = _session()
+    notified = []
+
+    def unavailable(event):
+        raise RuntimeError("external subscriber unavailable")
+
+    session.runner.dispatcher.subscribe(unavailable)
+    session.runner.dispatcher.subscribe(notified.append)
+    try:
+        failed = session.run_step()
+        assert failed["step_committed"] is True
+        assert failed["delivery_pending"] is True
+        assert failed["phase_errors"][0]["phase"] == "DispatcherCommit"
+        assert "rendered_text" not in failed
+        recorded = session.runner.dispatcher.get_events()
+        assert recorded
+        assert notified == recorded
+        blocked = session.run_step()
+        assert blocked["step_abort_reason"] == "pending_delivery_retry"
+        recovered = session.retry_delivery()
+        assert recovered["delivery_retry_status"] == "completed"
+        assert recovered["rendered_text"]
+        assert notified == recorded
+        assert runtime.calls == session.step_count == 1
+    finally:
+        session.close()
+
+
+@pytest.mark.parametrize("fail_on_retry", [False, True])
+def test_delivery_failure_restores_existing_nested_context_for_retry(fail_on_retry):
+    session, runtime = _session()
+    runner = session.runner
+    index = next(index for index, system in enumerate(runner.systems)
+                 if system.__class__.__name__ == "RenderingSystem")
+    renderer = runner.systems[index]
+
+    class ContextMutatingRenderer(System):
+        def update(self, entities, context):
+            context["simulation_result"]["resolved_actions"].clear()
+            context["player_pov"]["location"] = "错误位置"
+            raise RuntimeError("delivery changed existing context before failing")
+
+    captured = {}
+
+    def capture_committed_context(phase, context, entities):
+        if phase == "WorldEventSystem":
+            captured.update(deepcopy({key: context[key]
+                                     for key in ("simulation_result", "player_pov")}))
+
+    try:
+        if fail_on_retry:
+            runner.systems[index] = FailOnceRenderingSystem(renderer)
+            session.run_step(on_phase_done=capture_committed_context)
+        else:
+            runner.systems[index] = ContextMutatingRenderer()
+            failed = session.run_step(on_phase_done=capture_committed_context)
+        if fail_on_retry:
+            runner.systems[index] = ContextMutatingRenderer()
+            failed = session.retry_delivery()
+        assert failed["delivery_pending"] is True
+        for key, value in captured.items():
+            assert failed[key] == value
+            assert runner._pending_delivery.context[key] == value
+        runner.systems[index] = renderer
+        recovered = session.retry_delivery()
+        assert recovered["delivery_retry_status"] == "completed"
+        assert recovered["rendered_text"]
+        assert runtime.calls == 1
+        assert session.step_count == 1
+    finally:
+        session.close()

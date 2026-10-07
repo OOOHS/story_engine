@@ -37,11 +37,6 @@ class SemanticAuthorityFilter:
     DRIFT_BOUNDS = (0.0, 0.08)
     THRESHOLD_BOUNDS = (0.5, 0.95)
     TENSION_BOUNDS = (-0.15, 0.15)
-    # A hard, small ceiling so the GM cannot turn "one soft nudge" into a
-    # directive stream across every actor in a single tick.
-    MAX_DIRECTOR_SIGNALS_PER_TICK = 3
-    MAX_DIRECTOR_SIGNAL_LENGTH = 280
-
     def sanitize(self, candidate: Any) -> AuthorityFilterResult:
         if not isinstance(candidate, dict):
             return AuthorityFilterResult(
@@ -127,7 +122,6 @@ class SemanticAuthorityFilter:
         )
         self._compile_drive_updates(container, path, rejected)
         self._compile_drive_creations(container, path, rejected)
-        self._compile_director_signals(container, path, rejected)
 
         raw_tension = container.get("tension_delta")
         container["tension_delta"] = self._clamp(
@@ -220,64 +214,3 @@ class SemanticAuthorityFilter:
                 rejected.append(f"{path}.drive_creations[{index}].critical_threshold")
             creation["drift_per_turn"] = drift
             creation["critical_threshold"] = threshold
-
-    def _compile_director_signals(
-        self,
-        container: Dict[str, Any],
-        path: str,
-        rejected: List[str],
-    ) -> None:
-        """Shape and bound ``director_signals`` entries.
-
-        This method is shared by two call sites with different upstream
-        realities:
-
-        - The GM/semantic-result path (``SimulationSystem`` sanitizing the
-          resolver's own output): ``SimulationControl._normalize_result``
-          already unconditionally zeroes ``director_signals`` before this
-          filter ever runs, because a GM never gets to author them --
-          only ``NarrativeDirector`` does, strictly *after* world commit.
-          For that path this method is a no-op in practice.
-        - The NarrativeDirector-result path (``SimulationSystem.
-          _run_narrative_director``): here ``director_signals`` genuinely
-          carries director-authored suggestions, so valid entries are kept
-          (not zeroed) -- only malformed or excess entries are dropped.
-        """
-        raw = container.get("director_signals")
-        if raw is None:
-            container["director_signals"] = []
-            return
-        if not isinstance(raw, list):
-            rejected.append(f"{path}.director_signals")
-            container["director_signals"] = []
-            return
-
-        compiled: List[Dict[str, Any]] = []
-        for index, item in enumerate(raw):
-            if not isinstance(item, dict):
-                rejected.append(f"{path}.director_signals[{index}]")
-                continue
-            actor = str(item.get("actor", "")).strip()
-            suggestion = str(item.get("suggestion", "")).strip()
-            if not actor or not suggestion:
-                rejected.append(f"{path}.director_signals[{index}]")
-                continue
-            if len(compiled) >= self.MAX_DIRECTOR_SIGNALS_PER_TICK:
-                rejected.append(f"{path}.director_signals[{index}]:over_budget")
-                continue
-            compiled.append(
-                {
-                    "actor": actor,
-                    "suggestion": suggestion[: self.MAX_DIRECTOR_SIGNAL_LENGTH],
-                    "source_ref": str(item.get("source_ref", "")).strip(),
-                    "source_storylet_id": str(
-                        item.get("source_storylet_id", "")
-                    ).strip(),
-                    "tags": [
-                        str(tag).strip()
-                        for tag in (item.get("tags") or [])[:6]
-                        if str(tag).strip()
-                    ],
-                }
-            )
-        container["director_signals"] = compiled

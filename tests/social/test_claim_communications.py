@@ -218,7 +218,8 @@ def test_claim_reference_crosses_simulation_and_private_knowledge_boundary():
     ClaimKnowledgeSystem().update(entities, context)
 
     learned = second.get_component("KnowledgeState").claims["ledger_owner"]
-    assert learned.stance == "rejects"
+    assert learned.stance == "uncertain"
+    assert learned.receipts[-1]["asserted_stance"] == "rejects"
     assert learned.basis == "reported"
     assert learned.source == "甲"
     assert learned.evidence_refs == ["账册"]

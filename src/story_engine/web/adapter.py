@@ -21,6 +21,8 @@ class WebGameAdapter:
         title: Optional[str] = None,
         *,
         agent_runtime_factories: Optional[Dict[str, Any]] = None,
+        session: Optional[Session] = None,
+        save_path: Optional[str] = None,
     ):
         self._scenario = scenario
         self._title = title or scenario.name
@@ -35,7 +37,13 @@ class WebGameAdapter:
         self._session: Session
         self._history: List[Dict[str, Any]]
         self._boot_log = ""
-        self._reset_locked()
+        self._save_path = save_path
+        if session is None:
+            self._reset_locked()
+        else:
+            self._session = session
+            self._session.autosave_path = None
+            self._history = copy.deepcopy(session.presentation_state.get("history", []))
 
     def get_state(self) -> Dict[str, Any]:
         with self._lock:
@@ -99,6 +107,7 @@ class WebGameAdapter:
             )
             self._history.append(step_entry)
             self._history = self._history[-40:]
+            self._save_presentation_locked()
             return self._build_state_payload(last_step=step_entry)
 
     def retry_delivery(self) -> Dict[str, Any]:
@@ -142,6 +151,7 @@ class WebGameAdapter:
                 )
             if self._history:
                 self._history[-1] = previous
+            self._save_presentation_locked()
             return self._build_state_payload(last_step=previous)
 
     def reset(self) -> Dict[str, Any]:
@@ -154,8 +164,11 @@ class WebGameAdapter:
 
         with self._lock:
             session = getattr(self, "_session", None)
-            if session is not None:
-                session.close()
+            if session is not None and not session._closed:
+                try:
+                    self._save_presentation_locked()
+                finally:
+                    session.close()
 
     def _reset_locked(self) -> None:
         previous = getattr(self, "_session", None)
@@ -167,6 +180,7 @@ class WebGameAdapter:
                 self._scenario,
                 agent_runtime_factories=self._agent_runtime_factories,
             )
+        self._session.autosave_path = None
         self._boot_log = output.getvalue().strip()
         self._history = [
             self._to_public_entry({
@@ -177,12 +191,17 @@ class WebGameAdapter:
                 "intents": [],
                 "simulation_result": {},
                 "active_storylets": [],
-                "director_packet": {},
                 "state_snapshot": self._get_scene_snapshot(),
                 "spawned_characters": [],
                 "debug_log": self._boot_log,
             })
         ]
+        self._session.presentation_state = {"history": copy.deepcopy(self._history)}
+
+    def _save_presentation_locked(self):
+        self._session.presentation_state = {"history": copy.deepcopy(self._history)}
+        if self._save_path:
+            self._session.save(self._save_path)
 
     def _build_history_entry(
         self,

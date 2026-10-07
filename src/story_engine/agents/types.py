@@ -33,7 +33,6 @@ class AgentPerception:
     private_sentiments: Dict[str, Any] = field(default_factory=dict)
     relationship_context: Dict[str, Any] = field(default_factory=dict)
     affordance_opportunities: List[Dict[str, Any]] = field(default_factory=list)
-    private_schedule: Dict[str, Any] = field(default_factory=dict)
     private_goals: Dict[str, Any] = field(default_factory=dict)
     private_modifiers: Dict[str, Any] = field(default_factory=dict)
     private_knowledge: Dict[str, Any] = field(default_factory=dict)
@@ -46,10 +45,7 @@ class AgentPerception:
     current_plan: str = ""
     visible_proposals: List[Dict[str, Any]] = field(default_factory=list)
     world_signals: List[Dict[str, Any]] = field(default_factory=list)
-    # Soft, non-authoritative suggestions queued by the Host. Never a proposal, never validated against
-    # proposal_actors -- purely advisory inbox content the character may
-    # act on, reinterpret, or ignore.
-    director_signals: List[Dict[str, Any]] = field(default_factory=list)
+    # Legacy data compatibility. Host and Hermes message projection leave this empty.
 
     def manual_decision_context(self) -> Dict[str, Any]:
         """Bounded player/UI projection of the same packet an Agent receives."""
@@ -75,6 +71,7 @@ class AgentPerception:
                 self.private_cognition.get("pending_event_responses", []) or []
             ),
             "current_focus": self.private_cognition.get("current_focus", ""),
+            "director_suggestions": list(self.private_cognition.get("director_suggestions", [])),
             "passive_observations": [
                 {
                     key: item.get(key)
@@ -110,6 +107,14 @@ class AgentPerception:
                 if isinstance(item, dict)
             ],
             "active_goals": list(self.private_goals.get("active", []) or []),
+            "known_claims": [
+                {
+                    "statement": str(item.get("statement", "")),
+                    "stance": str(item.get("stance", "uncertain")),
+                }
+                for item in (self.private_knowledge.get("claims", []) or [])[:8]
+                if isinstance(item, dict) and str(item.get("statement", "")).strip()
+            ],
             "navigation_problems": list(
                 self.private_navigation.get("active", []) or []
             )[:6],

@@ -2,110 +2,14 @@ from src.story_engine.components.scene_state import SceneState
 from src.story_engine.rules import LegalityEngine
 
 
-def test_mundane_profile_requires_matching_capability():
+def test_physics_is_interpreted_semantically_and_text_is_opaque_to_host():
     engine = LegalityEngine()
-    scene = SceneState(
-        actor_states={
-            "普通人": {"location": "庭院"},
-            "法师": {"location": "庭院", "capabilities": ["magic"]},
-            "飞行者": {"location": "庭院", "capabilities": ["flight"]},
-        },
-        world_objects={"庭院": {}},
-    )
-
-    ordinary = engine.assess_intent(
-        scene, "mundane", {"actor": "普通人", "intent": "我飞起来越过围墙"}
-    )
-    mage = engine.assess_intent(
-        scene, "mundane", {"actor": "法师", "intent": "我飞起来越过围墙"}
-    )
-    flyer = engine.assess_intent(
-        scene, "mundane", {"actor": "飞行者", "intent": "我飞起来越过围墙"}
-    )
-
-    assert ordinary["verdict"] == "block"
-    assert mage["verdict"] == "block"
-    assert flyer["verdict"] == "allow"
-
-
-def test_content_declared_physics_rules_override_hardcoded_mundane_table():
-    engine = LegalityEngine()
-    scene = SceneState(
-        actor_states={
-            "村民": {"location": "法师塔"},
-            "见习法师": {"location": "法师塔", "capabilities": ["mage"]},
-        },
-        world_objects={"法师塔": {}},
-    )
-    physics_rules = [
-        {
-            "keywords": ["飞起来", "悬浮"],
-            "capability": "mage",
-            "reason": "在这个世界只有法师才能飞行。",
-        }
-    ]
-
-    villager = engine.assess_intent(
-        scene,
-        "magic",
-        {"actor": "村民", "intent": "我飞起来越过塔顶"},
-        physics_rules=physics_rules,
-    )
-    apprentice = engine.assess_intent(
-        scene,
-        "magic",
-        {"actor": "见习法师", "intent": "我飞起来越过塔顶"},
-        physics_rules=physics_rules,
-    )
-
-    assert villager["verdict"] == "block"
-    assert villager["reason"] == "在这个世界只有法师才能飞行。"
-    assert apprentice["verdict"] == "allow"
-
-
-def test_build_context_reads_physics_rules_from_scenario_without_register_profile():
-    engine = LegalityEngine()
-    scene = SceneState(
-        actor_states={"村民": {"location": "法师塔"}},
-        world_objects={"法师塔": {}},
-    )
-
-    class _Scenario:
-        physics_profile = "magic"
-        physics_rules = [
-            {"keywords": ["飞起来"], "capability": "mage", "reason": "普通人不能飞。"}
-        ]
-
-    context = engine.build_context(
-        scene, _Scenario(), [{"actor": "村民", "intent": "我飞起来越过塔顶"}]
-    )
-
-    assert context["physics_profile"] == "magic"
-    assert context["checks"][0]["verdict"] == "block"
-    assert context["checks"][0]["reason"] == "普通人不能飞。"
-
-
-def test_custom_physics_profile_can_be_registered_without_editing_simulation():
-    engine = LegalityEngine(
-        profile_rules={
-            "truthbound": lambda intent, state: (
-                "誓约禁止角色主动说谎。" if "撒谎" in intent else ""
-            )
-        }
-    )
-    scene = SceneState(
-        actor_states={"见证人": {"location": "法庭"}},
-        world_objects={"法庭": {}},
-    )
-
-    verdict = engine.assess_intent(
-        scene,
-        "truthbound",
-        {"actor": "见证人", "intent": "我向法官撒谎"},
-    )
-
-    assert verdict["verdict"] == "block"
-    assert verdict["rule"] == "truthbound_physics"
+    scene = SceneState(actor_states={"甲": {"location": "庭院"}}, world_objects={"庭院": {}})
+    for intent in ("我飞起来越过围墙", "我告诉乙他声称会瞬移", "我先不进入庭院"):
+        result = engine.assess_intent(scene, "mundane", {"actor": "甲", "intent": intent},
+                                     physics_rules=[{"keywords": ["瞬移", "飞起来"], "capability": "magic"}])
+        assert result["verdict"] == "allow"
+        assert result["rule"] == "none"
 
 
 def test_movement_is_rewritten_to_next_hop_in_world_graph():
@@ -122,7 +26,7 @@ def test_movement_is_rewritten_to_next_hop_in_world_graph():
     verdict = engine.assess_intent(
         scene,
         "freeform",
-        {"actor": "旅人", "intent": "我前往城堡"},
+        {"actor": "旅人", "intent": "我前往城堡", "action_kind": "move", "action_target": "城堡"},
     )
 
     assert verdict["verdict"] == "rewrite"

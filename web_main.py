@@ -24,9 +24,10 @@ from src.story_engine_content.catalog import (
 from src.story_engine.session import (
     PLAY_PROFILES,
     bind_play_profile,
-    compile_scenario_seed,
-    compile_scenario_seed_file,
+    compile_play_seed,
+    compile_play_seed_file,
     load_scenario_reference,
+    load_session,
 )
 from src.story_engine.web import WebGameAdapter, run_server
 
@@ -51,6 +52,8 @@ def parse_args(argv=None) -> argparse.Namespace:
         "--seed-file",
         help="UTF-8 file containing author-facing seed text or JSON/YAML.",
     )
+    source.add_argument("--load-save", help="Restore a whole-session .storysave archive.")
+    parser.add_argument("--save-path", help="Save after each step and before exit.")
     parser.add_argument("--title", default="Story Engine · Web")
     parser.add_argument("--host", default="127.0.0.1", help="Host to bind")
     parser.add_argument("--port", type=int, default=8000, help="Port to bind")
@@ -85,15 +88,18 @@ def main(argv=None) -> None:
     # provider settings to their respective subprocesses.  Secrets remain in
     # process environment only and are not serialized or logged.
     load_dotenv(Path(__file__).resolve().parent / ".env")
-    if args.scenario_ref:
+    if args.load_save:
+        scenario = None
+    elif args.scenario_ref:
         scenario = load_scenario_reference(args.scenario_ref)
     elif args.seed is not None:
-        scenario = compile_scenario_seed(args.seed)
+        scenario = compile_play_seed(args.seed, profile=args.profile)
     elif args.seed_file:
-        scenario = compile_scenario_seed_file(args.seed_file)
+        scenario = compile_play_seed_file(args.seed_file, profile=args.profile)
     else:
         scenario = load_bundled_scenario(args.scenario)
-    scenario = bind_play_profile(scenario, args.profile)
+    if scenario is not None:
+        scenario = bind_play_profile(scenario, args.profile)
     if args.profile == "offline":
         factories = default_offline_runtime_factories()
     elif args.hermes_transport == "docker":
@@ -108,8 +114,11 @@ def main(argv=None) -> None:
                 home_root=args.hermes_home,
             )
         )
+    restored = load_session(args.load_save, agent_runtime_factories=factories) if args.load_save else None
     adapter = WebGameAdapter(
-        scenario,
+        restored.scenario if restored else scenario,
+        session=restored,
+        save_path=args.save_path,
         title=args.title,
         agent_runtime_factories=factories,
     )

@@ -145,7 +145,7 @@ def test_observed_direct_interaction_lazily_creates_pair_relationship():
     }
 
 
-def test_reaction_context_only_uses_visible_or_transition_carrier_actors():
+def test_reaction_context_only_uses_visible_actors():
     dynamics = SocialDynamics()
     pov = {
         "location": "前厅",
@@ -163,16 +163,11 @@ def test_reaction_context_only_uses_visible_or_transition_carrier_actors():
                 {"actor": "甲", "toward_viewer_states": ["wary"]}
             ]
         },
-        timeline={
-            "transition_pressure": {
-                "carrier_actors": ["乙"],
-                "carrier_states": {"乙": {"location": "前厅", "bias": "甲"}},
-                "requires_human_backlash": True,
-            }
-        },
+
     )
 
-    assert context["visible_watchers"] == ["甲", "乙"]
-    assert context["hostile_watchers"] == ["甲", "乙"]
-    assert context["action_pressure"] == "high"
+    assert context["visible_watchers"] == ["甲"]
+    assert context["hostile_watchers"] == ["甲"]
+    assert "action_pressure" not in context
+    assert context["player_action"] == "我拒绝离开"
     assert "丙" not in context["visible_watchers"]

@@ -103,6 +103,53 @@ def _resolve_to_parent(db, session_id: str) -> str:
     return cur
 
 
+def _get_message_storage_state(db, message_id: int) -> Optional[Dict[str, Any]]:
+    """Return the fields needed to decide whether a hit left live context."""
+    try:
+        conn = getattr(db, "_conn", None)
+        if conn is None:
+            return None
+        row = conn.execute(
+            "SELECT session_id, active, compacted FROM messages WHERE id = ?",
+            (message_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        if hasattr(row, "keys"):
+            return dict(row)
+        return {
+            "session_id": row[0],
+            "active": row[1],
+            "compacted": row[2],
+        }
+    except Exception:
+        logging.debug("message storage-state lookup failed", exc_info=True)
+        return None
+
+
+def _session_left_live_context(db, session_id: str) -> bool:
+    """True for a legacy compression parent whose transcript was summarized."""
+    try:
+        session = db.get_session(session_id) or {}
+        return session.get("end_reason") == "compression"
+    except Exception:
+        logging.debug("session live-context lookup failed for %s", session_id, exc_info=True)
+        return False
+
+
+def _hit_left_live_context(db, session_id: str, message_id: int) -> bool:
+    """Whether a same-lineage search hit is absent from the model's live context.
+
+    Mirrors upstream Hermes' current-session compaction recovery: in-place
+    compaction rows carry ``active=0, compacted=1``; legacy rotation leaves the
+    full transcript in a session ended with ``end_reason='compression'``.
+    """
+    state = _get_message_storage_state(db, message_id)
+    if state and state.get("active") == 0 and state.get("compacted") == 1:
+        return True
+    return _session_left_live_context(db, session_id)
+
+
 def _order_for_recall(raw_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Stable-sort FTS rows so interactive sessions rank above automation.
 
@@ -330,12 +377,17 @@ def _scroll(
             window = 5
     window = max(1, min(window, 20))
 
-    # Reject scrolling inside the active session lineage — those messages are
-    # already in context.
+    # Same-lineage messages that left live context through compression remain
+    # recallable. Live rows stay excluded to avoid echoing active context.
     if current_session_id:
         a_root = _resolve_to_parent(db, session_id)
         c_root = _resolve_to_parent(db, current_session_id)
-        if a_root and c_root and a_root == c_root:
+        if (
+            a_root
+            and c_root
+            and a_root == c_root
+            and not _hit_left_live_context(db, session_id, around_message_id)
+        ):
             return tool_error(
                 "scroll rejected: anchor lives in the current session lineage (already in your active context)",
                 success=False,
@@ -557,10 +609,13 @@ def _discover(
             break
         raw_sid = r["session_id"]
         resolved_sid = _resolve_to_parent(db, raw_sid)
-        # Skip the current session lineage
-        if current_lineage_root and resolved_sid == current_lineage_root:
-            continue
-        if current_session_id and raw_sid == current_session_id:
+        # Keep compressed history from the current lineage searchable while
+        # filtering messages that are still present in the active context.
+        if (
+            current_lineage_root
+            and resolved_sid == current_lineage_root
+            and not _hit_left_live_context(db, raw_sid, r.get("id"))
+        ):
             continue
         if resolved_sid not in seen_sessions:
             row = dict(r)

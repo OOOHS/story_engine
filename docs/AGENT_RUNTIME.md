@@ -47,9 +47,9 @@ ScenarioConfig                     # 故事种子：人物、地点、初态、�
 
 Hermes 采用更强的 subject-owned 边界：`CharacterEntity` 是世界中的身体和法律/资产锚点，长程 `HermesCharacterAgent` 是被指派给该角色的决策过程。Host 只投递 POV-safe 身体视图、可执行能力、被动刺激与主动任务结果；Hermes 按人设、私有知识和本轮证据选择这个人物的下一步，持有跨轮 conversation、JSON memory、注意、评价、动机和计划，并只向 Host 提交一个最终行动 proposal。提示词把 Hermes 写成“负责这个人物的行动”，而不是“你就是这个人”；自治性仍由“只有该角色的 agent 能提交其 proposal”保证。宿主不再对任何 runtime 做候选打分，因此没有把 agent 降级为候选生成器的路径。
 
-Hermes subject 没有独立的去重收件箱：`stimulus`/`active_observation_result` 消息直接从 `Cognition.pending_world_events`/`pending_event_responses`（同一份驱动调度的排序队列）构造，`world_signal`/`director_signal` 本步生成本步消费。只有 `HermesCharacterAgent.decide()` 拿到合法决策、即将返回时，才会（a）让调用方（`InputSystem._acknowledge_perception_attention`）确认 Cognition 的 pending 项，（b）提交 `SubjectLedgerProjector` 暂存的账本 digest。失败调用两边都不提交，下一次重试会从同一未变基线重新算出完全相同的消息（相同 message_id、相同 revision），不需要额外的“已发送”标记。消息按 Host 可验证的基础优先级排序，但“人格/目标相关的注意竞争、异步运行中抢占和自然衰退”仍是待实现的 Global Workspace 层，当前不能宣称已经完成。
+Hermes subject 没有独立的去重收件箱：`stimulus`/`active_observation_result` 消息直接从 `Cognition.pending_world_events`/`pending_event_responses`（同一份驱动调度的排序队列）构造。Storylet World 事件提交后也进入同一队列。只有 `HermesCharacterAgent.decide()` 拿到合法决策、即将返回时，才会（a）让调用方（`InputSystem._acknowledge_perception_attention`）确认 Cognition 的 pending 项，（b）提交 `SubjectLedgerProjector` 暂存的账本 digest。失败调用两边都不提交，下一次重试会从同一未变基线重新算出完全相同的消息（相同 message_id、相同 revision），不需要额外的“已发送”标记。消息按 Host 可验证的基础优先级排序，但“人格/目标相关的注意竞争、异步运行中抢占和自然衰退”仍是待实现的 Global Workspace 层，当前不能宣称已经完成。
 
-每条 `stimulus`/`active_observation_result`/`world_signal`/`director_signal` 消息带 `urgency: "critical" | "direct" | "ambient"`（见下文 attention 小节的完整定义）；`event_response`（别人直接对你说的话）和 `witness_mode="self"` 的 `world_event` 永远是 `direct`，`world_signal`（GM 本步在场提案）永远是 `critical`，其余 `world_event` 按其自身严重度分到 `critical`（高危桶）或 `ambient`（普通背景事件，等待过久会被促升）。`critical` 的消息额外出现在 wake packet 顶层的 `critical_signals` 数组里；`direct`/`ambient` 留在 `messages` 里。`ledger_update`/`ledger_retraction` 消息（Host 可验证账本）不带 `urgency` 字段——它们的送达时机是结构化的（bootstrap、位置变化、dormant 刷新或记录真的变了），不是优先级驱动的。`urgency` 只是建议性标签，不是合法性门槛。
+每条 `stimulus`/`active_observation_result` 消息带 `urgency: "critical" | "direct" | "ambient"`（见下文 attention 小节的完整定义）；`event_response`（别人直接对你说的话）和 `witness_mode="self"` 的 `world_event` 永远是 `direct`，其余 `world_event` 按其自身严重度分到 `critical`（高危桶）或 `ambient`（普通背景事件，等待过久会被促升）。`critical` 的消息额外出现在 wake packet 顶层的 `critical_signals` 数组里；`direct`/`ambient` 留在 `messages` 里。`ledger_update`/`ledger_retraction` 消息（Host 可验证账本）不带 `urgency` 字段——它们的送达时机是结构化的（bootstrap、位置变化、dormant 刷新或记录真的变了），不是优先级驱动的。`urgency` 只是建议性标签，不是合法性门槛。
 
 Host 私人状态通过 `SubjectLedgerProjector` 变成版本化增量，而不是每轮完整上下文。Host 保留 POV/结算所需的事件收据、Claim 来源、身体压力、日程、路线和已登记目标；Hermes 独占计划、focus、appraisal、情绪、私人推断、承诺、笔记和长期回忆。Hermes runtime 不执行 Host Chroma 检索/归档，也不把这些心智字段写回 ECS。Host `SentimentState` 暂时只作为兼容策略和社会规则代理，不会投射为 Hermes 的真实感受。完整字段表见 `SUBJECTIVE_STATE_OWNERSHIP.md`。
 
@@ -293,7 +293,7 @@ Host 机制仍可通过 `get_object_state()` / `get_visible_objects()` 读取原
 - **不会饿死**：`preempt()` 之后该角色接下来排进队列的那个动作带 `preempt_immune`，必须跑完。否则站在连续 critical 信号里的角色会每步重启、永远完不成任何事。
 - **确定性**：是否打断只读取 Host 已提交的 `Cognition` pending 记录和步边界状态，不看任何 agent runtime 实际花了多久。同一个 seed、同一个快照重放会打断同一批动作；抢占本身也和队列一起走既有的 `checkpoint()`/`restore()`，回滚后连它授予的免疫都不残留。
 
-这条确定性要求也是我们不去接 Hermes 自己的 `interrupt()`/`steer()` API 的原因，而不只是成本问题。那两个 API 作用于 Hermes 内部的 tool-calling 循环（"别再继续调工具了"／"下次工具结果里插句话"），是为人机对话中用户改主意设计的；在我们这里没有对应的语义对象，当前也只开放了 `memory` 一个工具。更关键的是：一个动作有没有被打断是权威世界事实，如果它取决于"LLM 调用当时是否恰好还在飞行中"，就等于取决于挂钟时间和网络延迟，`RunnerStepCheckpoint`、stable id 与重放校验全部失效。把不确定性引入权威状态的代价是不能付的，所以打断留在 Host 自己的动作队列上。
+这条确定性要求也是我们不去接 Hermes 自己的 `interrupt()`/`steer()` API 的原因，而不只是成本问题。那两个 API 作用于 Hermes 内部的 tool-calling 循环（"别再继续调工具了"／"下次工具结果里插句话"），是为人机对话中用户改主意设计的；在我们这里没有对应的语义对象，当前只开放 `memory` 与 `session_search` 两个记忆工具。更关键的是：一个动作有没有被打断是权威世界事实，如果它取决于"LLM 调用当时是否恰好还在飞行中"，就等于取决于挂钟时间和网络延迟，`RunnerStepCheckpoint`、stable id 与重放校验全部失效。把不确定性引入权威状态的代价是不能付的，所以打断留在 Host 自己的动作队列上。
 
 `public` 不等于“立刻运行所有 Agent”。公共 Event 仍写入所有 witness 的 Host 私人 epistemic receipt；兼容 runtime 可由 MemorySystem 按各自 POV 归档，Hermes 则在下次 wake 时通过 ledger/stimulus 增量收入原生记忆。只有 `attention_recipients` 获得 pending interrupt。默认每个公共 Event 最多选择八个普通 recipient，subject 与所在地现场者强制进入，Goal 的结构化状态依赖优先，其余用稳定散列选择；`autonomous=False` 的角色不占名额。未被立即中断的 background Agent 会在自己的正常 background tick 中收到该事实。预算、目标匹配和散列不进入 Hermes packet。
 
@@ -305,17 +305,16 @@ manual override 只替换“谁产生行动”，不替换感知协议。InputSy
 
 `AgentController` 以 Host 状态记录 `decision_count/last_decision_step`。记录只在 runtime 或人工控制器成功形成一次决定后更新，并随权威 step checkpoint 一起回滚；模型不能自报参与次数。默认 Episode closure 会等待所有 autonomous、非 dormant 角色至少决策一次，因此背景错峰节流不会让世界在远端角色第一次行动前被误判为已经结束。
 
-Timeline commitment 不再包含 `stage_actors`。内容只声明 participants、地点、due/grace 和提前唤醒窗口；参与者在自己的 `private_schedule` 中获得 POV-safe 日程，非参与者不会收到。临近日程会以 `schedule_due:<id>` 唤醒离屏 background Agent，并把赴约机会放入角色自己的 POV：Hermes 自主决定是否把它形成候选，兼容 LLM runtime 则仍可收到宿主 affordance 候选；两者都可以观察、等待、拒绝或处理其他目标。Timeline 最终只按真实 location 记录 present/missing participants，绝不直接搬动角色身体或姿态。
+旧 Timeline 模块、约定日程、阶段自动推进与赴约判定已删除。GameClock 与 ActionEventQueue 继续管理世界时间和动作完成批次。
 
-Timeline 结算的 provenance 同时保留 commitment、Host clock 与真实位置判定。出席者形成 `actor_presence:<actor>:<location>`，缺席者形成 `actor_absence:<actor>:<location>`；这些是 Host 对该时刻 SceneState 的结算事实，不是 Agent 自报。attendance WorldEvent 指向 `timeline_resolution:<commitment>:<resolved|missed>`，所以后续解释、追责或补救目标可以追溯到真正的时间与位置条件。
 
-角色真实移动、普通可观察对象属性变化、Timeline 出席，以及已提交的物品生命周期和当面交换，会在相应宿主系统结算后进入 `WorldEventSystem`。合法图移动的位置写入由宿主根据 LegalityEngine 结果补全，不依赖语义 GM 是否记得填写坐标。movement Event 同时覆盖出发地的离开目击者与目的地的到达目击者；移动者知道自己的行动，但不会因这条 self event 再获得一次被动注意力。普通对象变化由宿主比较事务前后快照派生，语义结果不能伪造 change ledger；人工 `world_edits` 也必须经过独立宿主事务并生成同构的对象差分，不能静默篡改状态。局部对象只通知所在地目击者，hidden 对象只改变客观真相而不自动泄漏。空间拓扑仍是宿主 world-building 权限，不能伪装成普通对象属性更新；已有节点间的开路/断路由 `HostTopologyTransaction` 在 Agent 感知前原子提交，随后以 `route_opened / route_closed` 事件投射给现场者。Agent 会立即服从新的合法移动图，但只有真实观察或后来转述后才会把变化当成已知事件。其他客观事件以独立 Event Entity 存在，但只向现场角色和事件当事人写入私有 cognition belief/passive experience；其他 Agent 的 prompt、Memory query 和 world signals 不会自动获得它。新 event id 同时进入真正观察者的 pending observation 队列：离屏 background Agent 下一决策点会以 `world_event:<id>` 被唤醒一次，感知真正交付给 runtime 后才确认处理；重复转述已知事件不会反复唤醒，`autonomous=False` 仍保持人工边界。知情角色可以在后续 communicate 中引用 event id 转述，接收者获得固定宿主置信度的 reported event belief；模型不能用同一个 id 改写客观事实。事件 belief 中保留 event id，因此可以成为 Agent 自主形成解释、追责、道歉或调查目标的真实来源。Goal、Sentiment 和普通关系轨道变化不会被投影为 WorldEvent。
+生产位移由世界模型根据原始意图和实际因果结算，允许失败旅行和外力造成的被动位移。完整暂存世界统一接受语义校对。宿主从提交前后差分派生 movement、object 与 scene 事件；结算中的 topology_changes 复用图校验，实际变化产生 route_opened/route_closed 事件，与同批物品和位移一起提交或回滚。事件按实际见证者和当事人投影，沿用现有注意力和确认机制。
 
 这些 Event 的 source 不再重复 object id 或 actor name 充当“原因”。移动与已经通过生命周期证据校验的拿取、放下、开关、使用和销毁指向对应 `resolved_action:step/actor`；普通对象属性差分只有在 Host ledger 精确找到以该对象为 target 的正向行动时才指向 action batch。没有精确行动来源的 Host edit、拓扑或公共环境转换保留各自的 Host transition id，不把同轮无关 Agent 猜成原因。
 
-角色主导不仅依靠“GM 不得凭空增加 actor”这一条 prompt。SimulationSystem 在调用任何语义 resolver 前会从输入契约中物理移除 Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 与 motive pressure；社会上下文也会剥离 `bias / framing_style / territorial` 等导演字段。完整 packet 仍留在 Host context 供机会检测、Episode 评估和事后归因，但 GM 看不到它们，不能为了满足一个幕后节拍改变既有 proposal 的结算方向。
+SimulationSystem 把角色的真实行动与已触发 Storylet 的 World 意图一起交给语义结算。ConflictPressure 提供可选的场景压力参考；角色行动来源由宿主按本轮 proposal 校验。StoryPlanner 的新故事块草案保存在待审核队列，语义结算器只接收已经进入世界的内容。
 
-这条隔离跨越长期记忆。WorldHost 的 `Memory` 只保存已提交行动及其权威事务后果，不归档完整 Timeline、Host 随机检查、私有 Goal/Modifier 诊断、宏剧情 pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
+这条隔离跨越长期记忆。WorldHost 的 `Memory` 只保存已提交行动及其权威事务后果，不归档Host 随机检查、私有 Goal/Modifier 诊断、宏剧情 pressure 或 Narrator 文本。兼容 LLM 角色的 episodic memory 从各自 `Cognition.experiences` 归档本轮亲历事件；Hermes 角色跳过 Host Chroma 检索、归档和 consolidation，只保留有界 Cognition receipt 供 POV/知识校验，再由 subject packet 增量进入 Hermes 原生 memory。同场角色可以获得共同目击，异地角色仍只能获得自己的现场，主动观察的 private result 也只投递给行动者。RenderingSystem 不把玩家文案写回任何角色 Observation。
 
 动作完成批次中的移动使用逐角色观察窗口。SimulationSystem 在事务前保存每个角色的原位置，在提交后与新位置组成 `{origin, destination}`；CognitionSystem 只把发生在这两个端点的非 hidden 行动视为本轮可观察。未移动者仍只有单一地点，动态出生角色只有出生地点。这个窗口只解决离散提交顺序造成的观察丢失，不提供沿途全知，也不会让角色看到第三处事件。
 
@@ -325,7 +324,7 @@ Timeline 结算的 provenance 同时保留 commitment、Host clock 与真实位�
 
 WorldEventSystem 使用同一窗口派生对象状态、物品操作、交换和局部拓扑事件的 `direct_witnesses`，公共事件 attention budget 也用窗口识别现场者。事件进入 Cognition 时记录事件实际发生地，不把观察者提交后的新坐标伪装成事件地点；移动事件则继续区分 departure 与 arrival witnesses。由此结构化亲历、Event belief、pending attention、长期记忆和后续 Goal 唤醒不会对“这个角色是否在场”给出互相矛盾的答案。
 
-公共 scene flag 的真实变化与 Timeline day-phase transition 也会成为宿主 Event，并以 `scene_flags.<field>` impact 唤醒相关目标。私有 flag、phase turn、完整 schedule/commitment book 和消费 ledger 不会事件化。Rendering 只收到公开 phase transition，以及玩家本人确实错过的 commitment 结果；其他角色的 due/upcoming 日程和 transition carrier 状态不进入 Narrator。
+公共 scene flag 的真实变化会成为宿主 Event，并以 `scene_flags.<field>` impact 唤醒相关目标。消费账本和私有 flag 保持内部状态。玩家文本以已提交且可感知的事实为依据。
 
 Agent 可以为已知事件提出 `resolution_kind=communicate_event` 的普通告知目标，或使用 `respond_to_event + resolution_response` 表达 explain、apologize、accuse、request、forgive、acknowledge。`resolution_target` 都必须是当前可见接收者。GoalSystem 在 Event Entity 上编译隐藏的 communication/response 证据锁；CognitionSystem 只在真实 committed communicate、同场、发送者确知事件且目标一致时写入 `WorldEventResponses`。因此 Agent/GM 不能用普通互动、伪造 statement 或一段回顾性叙述让目标完成。response 只是客观行为类别，不会把“道歉”自动写成“对方原谅”，也不会把“指控”自动写成 Claim 真值；接收者的 Sentiment、判断与后续行动仍保持私有。首次 response 会生成稳定 attention id 并进入接收者的 `pending_event_responses`；即使接收者早已知道原 event，离屏 Agent 仍会以 `event_response:<id>` 获得一次决策。perception 成功交付后宿主确认消费，重复的同类同向回应不会无限唤醒。
 
@@ -345,9 +344,9 @@ Episode 只为实际提交、且角色自己给出了通过校验的动机的行
 
 Runtime 可以依据 `private_sentiments` 理解“为什么我刚刚对乙感到受伤或怀疑”，但不能自行写持续时间、效用权重或长期关系值。Simulation 的 `social_impacts` 必须引用 affected 亲自可观察的已提交 source 行动；SentimentSystem 在宿主副本上原子创建/积累感受，随后让固定目录中的少量效果沉淀到 affected→source Relationship Tracks。宿主会忽略模型自报的 `source_event`，以已验证 action 节点替换。Track provenance 指回 actor-qualified Sentiment，因而审计层可以保留完整社会后果链。
 
-语义结算结果在任何后端之后都会经过 `SemanticAuthorityFilter`。该边界会清空顶层及 success/failure 分支中的 `relationship_updates` 和协议 settlement/authorization 伪造字段，并把 social impact、Modifier、Drive 和 Drama 的定性标签编译为宿主固定数值；模型自报 magnitude、drive delta 或 tension delta 会被忽略并记录到 `semantic_authority_rejections`。因此这不是依赖 prompt 的软约定：脚本化 GM、Hermes 容器适配器与未来 resolver 共享同一条宿主边界。Storylet 只由已提交世界状态满足条件时进入机会层，长期关系只能由宿主社会规则沉淀。
+语义结算结果在任何后端之后都经过 `SemanticAuthorityFilter`。该边界清空顶层与 success/failure 分支中的 `relationship_updates/storylet_hits`，由宿主从已提交事实派生长期关系与故事块命中。模型提供 social impact、Modifier、Drive 和张力的原始幅度，宿主只做范围裁剪。正常生产路径还由同一结算模型检查候选世界与原始意图、角色自主权、已发生事实及新增实体的必要性；候选世界通过检查后才提交。
 
-Simulation GM 对真正不确定的动作只能提交 `uncertain_outcomes`，每项同时声明 success/failure 两个结构化分支。`required_capability` 只引用当前 Scene 中的权威 capability 或 0..1 skill；模型不能附带 probability、roll、advantage 数值或 modifier。掷骰前，宿主对两个分支执行相同的位置权限检查：actor.location 只允许当前 move actor 留在原地或到达 LegalityEngine 已授权的位置；非 move 移动、移动其他角色或替换目的地会被剥离并写入 `semantic_authority_rejections`，因此审计不随随机选中哪边而变化。宿主完成检查后只合并一个分支，随后照常经过对象、关系和 Scene 的原子事务。硬合法性已经 block/rewrite 的 actor 不再执行其不确定检查。
+Simulation 对需要概率结算的动作提交 uncertain_outcomes，每项声明 success/failure 两个结构化分支。required_capability 引用当前 Scene 中的权威 capability 或 0..1 skill，概率和掷骰由宿主提供。分支可以保留被动位移、物品和通路变化；宿主选定一个分支后，将完整候选世界交给统一结构校验和语义提交检查，随后原子提交。显式离线规则模式继续使用确定性的合法性裁决。
 
 若 background 角色自己的私有 need pressure 达到该 meter 的 critical threshold，调度器会跳过普通错峰等待并以 `critical_need:<name>` 原因唤醒一次后台决策。这个判断只读取角色自己的 DriveState，不公开给玩家或其他 agent；`autonomous=False` 的角色不会被需求压力自动唤醒。
 
@@ -421,21 +420,21 @@ Agent 可以在整轮层面更新自己的：
 
 这些更新只进入角色自己的 `Cognition` 或 `Planning`，不能写入 `SceneState`。一个推测只有经过角色行动、Simulation 结算和可观察证据，才可能成为公共事实。
 
-Simulation 完成后，`CognitionSystem` 会把结构化结果归档为角色经验：自己的结果始终可知；其他角色的结果只有在同地点且不为 `hidden` 时可知。该阶段早于文本 Rendering，因此角色学习依赖的是结算事实，不是可能带修辞的叙述文本。
+Simulation 完成后，CognitionSystem 将已提交结果归档为角色经验：本人的结果和 private_result 始终可知，普通事件按实际地点及 visibility 投影。communicate 的显式 recipients 指定实际听者，支持跨地点交付，并保护第三方视角；历史及离线消息沿用同场投影。
 
-角色间的秘密传播使用显式 `knowledge_updates`。发送者必须此前确实知道该陈述、与接收者同地点，并且本轮存在发送者的已结算交流行动；满足条件后，陈述只进入指定接收者的私有 belief，并记录来源与置信度。普通对白不会让所有角色自动获得知识。
+世界模型按媒介、距离、身体状态和同轮打断判断交流送达。成功的定向表达产生 communication_received 事件，接收者通过现有注意力队列获得唤醒；陈述保留说话人来源，内容的真实性可以待定。普通 knowledge_updates 不修改接收者 belief，Claim 发现和传播记录 receipts，角色自行判断立场和相信程度。
 
 默认 LLM runtime 会解析可选的 `plan / focus / belief_updates / commitments` 字段。角色配置中的 `system_instruction_extras` 进入 Hermes 首轮 `identity_bootstrap.persona_constraints`（以及显式 LLM runtime 的角色 prompt），不再被误传给模型 provider 作为未知网络参数。
 
-动态角色首先必须持有宿主签发的 `character_entry` capability。授权只能来自本轮 `inject_events` 或到期的 Timeline commitment，固定 authorization id、name、role、location、initial_state、runtime 侧配置和私有初始事实；授权不随 prompt 跨步持久化。`profile_mode=fixed` 时 GM 不能改人物表征，`semantic` 时也只能补充 personality 与自然语言 goals，不能制造携带物、能力、秘密或地点。无授权、过期或已消费的 spawn 请求会被忽略并记入 `character_entry_rejections`，不会牺牲同轮其他合法行动。
+正常动态角色来自语义结算的 `world_additions.characters`，由结算模型判断本轮外部结果是否需要确认其存在。言论保留说话人及原话，所指人物与关系可以继续待定。新增地点先进入候选图，再准备人物身体和物品引用，提交前语义校对检查事实来源、最小必要性和角色自主权。作者显式注入的 `character_entry` capability 继续固定授权身份及初始内容，过期或已消费的授权请求保留原有拒绝路径。
 
 初始角色遵守同一个存在性边界。Session bootstrap 要求 `ScenarioConfig.characters` 与 `initial_actor_states` 一一对应，每个角色身体还必须位于内容包已经声明的 location；不能用 actor state 创建无 Agent 的群众，也不能声明一个没有世界身体的“幽灵 Agent”。`AgentRegistry.register()` 自身拒绝没有 `AgentController` 的 Entity；Input 也不再接受“只有 registry 绑定”的兼容角色。只要 Runner 中存在 `SceneState`，每个正式 step 前都会审计 `Scene actor ↔ ECS Entity + AgentController ↔ live AgentRegistry runtime`，不依赖是否由标准 Scenario loader 创建。任一绑定丢失时整步在时间和宿主修改之前 fail closed，而不是让 GM、旧工作流或另一个 runtime 临时代演。
 
-授权通过后仍必须经过 `CharacterLifecycle`。它先准备一个尚未发布的 Entity，把角色身体和一次性授权消费记录放进候选世界并参与同轮因果校验，世界事务成功后才创建和确认 live runtime 注册。若 runtime factory 或注册过程失败，注册表、ECS Entity、授权 ledger 以及 Scene/宏剧情/Drama/Relationship 都会通过 checkpoint 回滚，Rendering 只会看到一次被拒绝的结算。模型不能通过 spawn 请求选择任意 runtime 或宿主工具权限，且默认最多生成六个动态人物。
+动态人物都经过 `CharacterLifecycle`。它先准备尚未发布的 Entity，把角色身体放进候选世界；显式授权同时暂存消费记录。世界事务成功后才创建并确认 live runtime 注册。正常补全的 runtime factory 或注册失败时，已注册的同批人物先撤销，随后整步 checkpoint 恢复注册表、ECS、世界、时间与行动队列。模型不能通过 spawn 请求选择任意 runtime 或宿主工具权限，且默认最多生成六个动态人物。
 
 CharacterLifecycle 不再提供可被旧调用者直接使用的 `spawn()` compatibility wrapper。唯一发布路径是 `prepare` 生成未发布计划、`WorldStateTransaction` 在候选世界中 `stage`、提交后 `finalize`；finalize 要求宿主提供真实注册回调和 live AgentRegistry，并在把 Entity 暴露给 session 前验证 runtime 已登记。旧 `NarrativeSystem`、`NarrativeControl` 和 `AgentActionSystem` 已从代码与系统导出中删除，不能再通过一段 GM narration 绕过 Agent proposal 或权威事务创建角色。
 
-InputSystem 没有 Persona fallback。自动角色只有在 AgentRegistry 中存在 live runtime 时才能形成 proposal；缺失 runtime 会在 activation trace 中标记 `missing_agent_runtime` 并跳过该角色，而不是调用另一套 prompt。ConflictDirector 和 StoryletEngine 同样没有代演权限：它们只生成 advisory pressure/opportunity packet。本轮无人选择兑现时不会留下 unrealized 欠账，更不能从内容模板直接构造某个 NPC 的 resolved action。Storylet 是否发生由宿主在行动后识别，GM 不能自报 hit。
+InputSystem 没有 Persona fallback。自动角色只有在 AgentRegistry 中存在 live runtime 时才能形成 proposal；缺失 runtime 会在 activation trace 中标记 `missing_agent_runtime` 并跳过该角色，而不是调用另一套 prompt。ConflictPressure 只提供参考。StoryletEngine 筛选明确的状态约束，StoryletExecution 将候选编为 World 意图；世界结算 LLM 判断自然语言 trigger 并落实具体后果。结算提交后宿主记录命中并交付事实；director_suggestion 是独立的可选建议消息，角色自行决定回应。
 
 Agent proposal 的结算结果还必须通过 `WorldStateTransaction`。模型不能通过普通 `state_updates` 隐式创造新角色、对象、未知地点或未知 剧情；有形对象必须经过 `WorldObjectLifecycle`，且创建、拾取、转交、隐藏和销毁都需要已结算行动与同场证据。事务失败时，agent 的行动可以被记录为一次无效结算，但不会产生玩家可见的虚假世界事实。
 
@@ -461,7 +460,7 @@ Authored object affordance 可以携带有限目录中的 `policy_tags`，例如
 
 Modifier 另有不进入 AgentPerception 的宿主 provenance。可见来源的 `source_event` 和隐藏来源的内部 provenance 都由已验证 `resolved_action` 生成，模型填写的任意事件 id 会被覆盖。Episode 因而可以审计 `ResolvedAction -> Modifier -> later ResolvedAction`，同时目标角色仍然可能不知道是谁造成了该状态。
 
-`AgentPerception.private_knowledge` 只包含该角色已经获得的 Claim stance、confidence、basis、来源和 evidence refs，以及宿主派生的 potential leverage。它不包含 Claim truth status 或真值条件。Hermes 可以据此调查、质疑、引用证据、隐瞒或撒谎；发现与传播是否有效由 ClaimKnowledgeSystem 根据 observe/communicate 结果、空间、Evidence links 和来源知识核验。
+AgentPerception.private_knowledge 包含该角色收到的 Claim 陈述、receipts、来源及证据引用，以及作者设定的初始立场。receipt 中的 asserted_stance 属于说话人或证据关系，角色自行判断自己的立场。Claim truth_status 和真值条件保持私有。
 
 Claim knowledge 的 Episode provenance 只从这些已提交字段构造。主动观察形成 actor-qualified `EvidenceObservation`，同时指向观察行动和 Evidence object；真实转述形成 `ClaimReport`，指向说话者的 communicate action。角色从 Claim 形成新 Goal 时，source 节点是自己的 `ClaimKnowledge`，不是 Claim Entity 的全局 truth，也不是其他角色已经知道该命题这一事实。
 
@@ -535,3 +534,19 @@ only a currently visible or adjacent place. The Host compiles only the final
 authoritative location condition; ordinary movement still advances one live
 edge at a time and may encounter another stale edge. The problem therefore
 grounds a chosen long-term intention without becoming a hidden movement order.
+
+
+### 整局持久化
+
+`Session.save` / `load_session` 保存与重建完整会话，控制台与 Web 使用 `--save-path`、`--load-save` 接入。版本化存档携带世界 ECS、队列、时间、随机种子、动态注册 ledger、宿主记忆、导演上下文和未完成交付；本地 Hermes 使用已有 checkpoint 协议导出原生数据库、会话与记忆，加载时先重建角色 runtime，再恢复原生上下文与投影游标。实时 subject 的 checkpoint 请求失败时直接报错，避免把过期磁盘状态当作当前上下文。`RunnerStepCheckpoint` 继续只负责同进程回滚。
+
+Storylet 的事件地点来自配置 `location` 或结算模型；触发时不会继承玩家视点。宿主要求成功事件引用候选世界中的有效地点，可包含同轮必要的新地点，并遵守设定中明确指定的位置；提交后依据实际发生地投递事实。
+
+人物和地点由结算模型按外部结果的依赖确认并动态注册，物品继续使用 object_lifecycle。无法由实体属性表达的客观结论以 step/statement 追加到宿主私有 established_facts，随会话存档恢复并供下一次结算使用。导演只提出未来的条件剧情；Storylet 经结构检查后原子登记为未来的剧情方向；世界结算解释触发与具体实现。
+
+
+### 故事块追踪会话
+
+生产宿主的 StoryTracking 为每个已登记故事块维护独立 Agent 会话，调用现有 LLMProvider.generate_messages。共同玩家叙事由 StoryPlanner 保存，各追踪者按自己的 fed_message_count 读取新增消息；它们拥有独立 conversation、progress、status、pending_advance 和 last_execution。导演获取各故事块状态与进展摘要，仍专职提出新故事块。story_planner_enabled=False 停止新增提案，共同叙事与追踪继续运行。
+
+追踪者的下一步通过原有 World 意图进入结算，角色自主选择通过有来源的可选建议交付；tracker 判断保持在叙事管理层。启动后的 continuation 可以跨多轮展开，completed/abandoned 后停止调用。保存与回滚复用普通组件字段；模型或协议故障保持未读叙事与既有会话，后续新交付时重试。同一条玩家交付只调用一次，渲染失败和 Memory 重试分别推迟或保留追踪结果。

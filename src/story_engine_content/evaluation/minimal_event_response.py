@@ -3,6 +3,8 @@
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentDecision
 from src.story_engine.core.component import Component
+from src.story_engine.core.entity import Entity
+from src.story_engine.components.world_event import WorldEventFact, WorldEventWitnesses, WorldEventResponses
 from src.story_engine.scenarios.config import CharacterConfig, ScenarioConfig
 from src.story_engine.session import create_session
 
@@ -12,7 +14,7 @@ MESSENGER = "缺席者"
 RECIPIENT = "同事"
 HALL = "礼堂"
 OFFICE = "办公室"
-EVENT_ID = "timeline:ceremony:missed"
+EVENT_ID = "seed:ceremony:absence"
 
 
 class EventResponseRuntime:
@@ -199,7 +201,7 @@ def build_minimal_event_response_scenario() -> ScenarioConfig:
         default_agent_runtime="event-response",
         description="一次客观缺席事件经真实转述产生新的角色行动。",
         environment="礼堂与相邻办公室组成的最小世界。",
-        initial_state="公开仪式即将开始，缺席者仍在办公室。",
+        initial_state="公开仪式已经结束，缺席者清楚自己留在办公室，未能参加。",
         initial_world_objects={
             HALL: {"connected_to": [OFFICE]},
             OFFICE: {"connected_to": [HALL]},
@@ -208,20 +210,6 @@ def build_minimal_event_response_scenario() -> ScenarioConfig:
             OBSERVER: {"location": HALL},
             MESSENGER: {"location": OFFICE},
             RECIPIENT: {"location": OFFICE},
-        },
-        initial_scene_flags={
-            "upcoming_commitments": [
-                {
-                    "commitment_id": "ceremony",
-                    "title": "公开仪式",
-                    "summary": "受邀者可以出席，也可以承担缺席的后果。",
-                    "participants": [MESSENGER],
-                    "location": HALL,
-                    "due_step": 1,
-                    "grace_steps": 0,
-                    "wake_before_steps": 0,
-                }
-            ]
         },
         characters=[
             CharacterConfig(
@@ -275,6 +263,19 @@ def create_minimal_event_response_session(seed):
         agent_runtime_factories={
             "event-response": lambda entity, config: EventResponseRuntime()
         },
+    )
+    # The author confirms this pre-existing fact. It has no schedule machine.
+    event = Entity(f"WorldEvent:{EVENT_ID}")
+    event.add_component(WorldEventFact(
+        event_id=EVENT_ID, kind="authored_fact", title="已确认的缺席", occurred_step=0, statement=f"{MESSENGER}未能参加已经结束的仪式。",
+        location=HALL, subjects=[MESSENGER], source_type="scenario", source_ref="initial_state",
+    ))
+    event.add_component(WorldEventWitnesses(self_witnesses=[MESSENGER]))
+    event.add_component(WorldEventResponses())
+    session.runner.add_entity(event)
+    session.entities[MESSENGER].get_component("Cognition").record_world_event(
+        event_id=EVENT_ID, statement=event.get_component("WorldEventFact").statement,
+        step=0, location=OFFICE, witness_mode="self", attention_priority=95,
     )
     gm = session.entities["WorldHost"]
     gm.add_component(SimulationControl(scenario=scenario))

@@ -1,22 +1,9 @@
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Dict, List
 
-from src.story_engine.common.movement_intent import extract_move_target_from_intent
-
-
-ProfileRule = Callable[[str, Dict[str, Any]], str]
 
 
 class LegalityEngine:
-    """Applies hard world-law and spatial constraints to action proposals."""
-
-    def __init__(self, profile_rules: Optional[Dict[str, ProfileRule]] = None) -> None:
-        self.profile_rules: Dict[str, ProfileRule] = {
-            "mundane": self.detect_mundane_violation,
-        }
-        self.profile_rules.update(profile_rules or {})
-
-    def register_profile(self, profile: str, rule: ProfileRule) -> None:
-        self.profile_rules[str(profile)] = rule
+    """Checks structured identities, reachability and known routes after semantic interpretation."""
 
     def build_context(
         self,
@@ -74,7 +61,7 @@ class LegalityEngine:
             "action_target": action_target,
             "target_reference_kind": target_reference_kind,
         }
-        if source in {"timeline", "injected"} or actor == "World" or not intent:
+        if source in {"injected"} or actor == "World" or not intent:
             return result
 
         if target_reference_kind == "world_object" and (
@@ -96,30 +83,16 @@ class LegalityEngine:
             )
             return result
 
-        if physics_rules:
-            # Content-declared rules take priority over any hardcoded
-            # profile function: a scenario that declares physics_rules is
-            # explicitly opting into a fully data-driven gate for this
-            # profile, magic worlds included.
-            violation = self.detect_configured_violation(intent, actor_state, physics_rules)
-            if violation:
-                result.update(
-                    verdict="block",
-                    reason=violation,
-                    rule=f"{physics_profile}_physics",
-                )
-                return result
-        else:
-            profile_rule = self.profile_rules.get(str(physics_profile))
-            if profile_rule:
-                violation = profile_rule(intent, actor_state)
-                if violation:
-                    result.update(
-                        verdict="block",
-                        reason=violation,
-                        rule=f"{physics_profile}_physics",
-                    )
-                    return result
+        if action_kind == "communicate":
+            # Speech is checked for delivery reachability. Its quoted content
+            # remains an attributed claim, including impossible or deceitful
+            # claims; it does not perform the physical action it describes.
+            target_check = self.assess_structured_target(
+                scene_state, actor, action_kind, action_target, current_location,
+            )
+            if target_check:
+                result.update(target_check)
+            return result
 
         target_check = self.assess_structured_target(
             scene_state,
@@ -141,61 +114,11 @@ class LegalityEngine:
             explicit_target=action_target if action_kind == "move" else "",
             map_knowledge=map_knowledge,
         )
+        if action_kind != "move":
+            movement = None
         if movement:
             result.update(movement)
         return result
-
-    def detect_mundane_violation(self, intent: str, actor_state: Dict[str, Any]) -> str:
-        capabilities = actor_state.get("capabilities", []) if isinstance(actor_state, dict) else []
-        if isinstance(capabilities, str):
-            capabilities = [capabilities]
-        capabilities = {str(item) for item in capabilities}
-        patterns = [
-            (("飞起来", "悬浮", "漂浮在空中", "腾空而起"), "flight", "普通人在这个世界里不能突然飞起来。"),
-            (("瞬移", "传送到", "闪现到"), "teleportation", "这个世界里没有瞬间移动这种能力。"),
-            (("穿墙", "穿过墙"), "phasing", "普通人不能直接穿墙。"),
-            (("隐身", "突然消失"), "invisibility", "普通人不能无痕隐身或凭空消失。"),
-            (("凭空变出", "召唤出", "变出一把", "变出一只"), "conjuration", "普通人不能凭空变出物件。"),
-            (("放出火球", "打出雷电", "施法", "念咒"), "magic", "当前世界不是可随意施法的物理规则。"),
-        ]
-        for keywords, capability, reason in patterns:
-            if any(keyword in str(intent or "") for keyword in keywords):
-                if capability in capabilities or "supernatural" in capabilities:
-                    return ""
-                return reason
-        return ""
-
-    def detect_configured_violation(
-        self,
-        intent: str,
-        actor_state: Dict[str, Any],
-        rules: List[Any],
-    ) -> str:
-        """Same keyword-gate behavior as detect_mundane_violation, but the
-        keyword/capability/reason table comes from content (PhysicsRuleConfig)
-        instead of a hardcoded Python list. A scenario can therefore declare
-        its own physics (e.g. a magic world where "飞起来" is fine for
-        capability "mage") without editing this file.
-        """
-        capabilities = actor_state.get("capabilities", []) if isinstance(actor_state, dict) else []
-        if isinstance(capabilities, str):
-            capabilities = [capabilities]
-        capabilities = {str(item) for item in capabilities}
-        text = str(intent or "")
-        for rule in rules or []:
-            if isinstance(rule, dict):
-                keywords = rule.get("keywords", [])
-                capability = str(rule.get("capability", ""))
-                reason = str(rule.get("reason", ""))
-            else:
-                keywords = getattr(rule, "keywords", [])
-                capability = str(getattr(rule, "capability", ""))
-                reason = str(getattr(rule, "reason", ""))
-            if any(str(keyword) in text for keyword in keywords or []):
-                if capability in capabilities or "supernatural" in capabilities:
-                    continue
-                return reason
-        return ""
 
     def assess_structured_target(
         self,
@@ -255,7 +178,7 @@ class LegalityEngine:
         target = (
             explicit_target
             if explicit_target in scene_state.get_known_locations()
-            else self.extract_target_location(scene_state, intent, current_location)
+            else None
         )
         if not target or target == current_location:
             return None
@@ -312,20 +235,6 @@ class LegalityEngine:
             "rewrite_location": None,
             "rule": "movement_blocked",
         }
-
-    def extract_target_location(self, scene_state, intent, current_location):
-        aliases = {
-            str(location): list((state or {}).get("aliases", []) or [])
-            for location, state in scene_state.world_objects.items()
-            if isinstance(state, dict) and scene_state.is_location(location)
-        }
-        return extract_move_target_from_intent(
-            intent=intent,
-            current_location=str(current_location) if current_location else None,
-            connected_locations=scene_state.get_object_state(current_location).get("connected_to", []),
-            known_locations=scene_state.get_known_locations(),
-            location_aliases=aliases,
-        )
 
     def find_path(self, scene_state, start: str, target: str) -> List[str]:
         if start == target:

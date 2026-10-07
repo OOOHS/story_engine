@@ -28,12 +28,10 @@ SubjectMessageKind = Literal[
     "active_observation_result",
     "task_result",
     "world_signal",
+    "director_suggestion",
     "ledger_update",
     "ledger_retraction",
-    # A Host-queued, non-authoritative nudge. Never a fact and never a
-    # substitute for the hard proposal_actors gate: the subject may accept,
-    # reinterpret, or ignore it outright.
-    "director_signal",
+
 ]
 
 SUBJECT_BODY_STATE_FIELDS = frozenset({
@@ -105,7 +103,6 @@ class SubjectLedgerProjector:
 
     _CATEGORY_PRIORITY = {
         "goal_registration": 85,
-        "schedule_commitment": 80,
         "navigation_problem": 80,
         "claim_position": 75,
         "drive_signal": 70,
@@ -358,12 +355,6 @@ class SubjectLedgerProjector:
             + list(goals.get("recent_history", []) or []),
             ("goal_id",),
         )
-        cls._add_list(
-            records,
-            "schedule_commitment",
-            (perception.private_schedule or {}).get("active", []),
-            ("commitment_id",),
-        )
 
         knowledge = perception.private_knowledge or {}
         cls._add_list(
@@ -469,9 +460,7 @@ def build_subject_messages(
     exactly what ``Cognition.acknowledge_world_events``/
     ``acknowledge_event_responses`` will clear once the turn succeeds, so a
     failed and retried turn simply recomputes the identical message set from
-    the identical still-pending source of truth. ``world_signal``/
-    ``director_signal`` are generated and consumed within the same step and
-    never need cross-turn dedup.
+    the identical still-pending source of truth.
     """
 
     # Cognition already classified each record's urgency (critical/direct/
@@ -480,6 +469,12 @@ def build_subject_messages(
     # instead of recomputing it.
     urgency_priority = {"critical": 95, "direct": 90, "ambient": 45}
     messages: list[SubjectMessage] = []
+    for record in perception.private_cognition.get("director_suggestions", []) or []:
+        messages.append(SubjectMessage(
+            message_id=record["suggestion_id"], kind="director_suggestion",
+            step=int(record["step"]), payload=dict(record),
+            priority=70, source_ref=record["source_storylet_id"], urgency="direct",
+        ))
     for record in perception.private_cognition.get(
         "pending_world_event_records", []
     ) or []:
@@ -534,20 +529,6 @@ def build_subject_messages(
             # lingers to be picked up on some later, unrelated wake.
             urgency="critical",
         ))
-    for index, item in enumerate(perception.director_signals[-4:]):
-        if not isinstance(item, dict):
-            continue
-        messages.append(SubjectMessage(
-            message_id=_stable_message_id("director", perception.step, index, item),
-            kind="director_signal",
-            step=int(perception.step),
-            payload=dict(item),
-            # Advisory, and deliberately quieter than a real world_signal or
-            # ledger fact: it should be easy for a character to notice
-            # without ever crowding out what actually happened.
-            priority=40,
-            urgency="ambient",
-        ))
     ordered = sorted(
         messages,
         key=lambda item: (-int(item.priority), int(item.step), item.message_id),
@@ -594,13 +575,17 @@ def build_subject_wake_packet(
         "critical_signals": critical_signals,
         "messages": ordinary_messages,
         "agent_contract": {
+            "director_suggestions": (
+                "Messages of kind director_suggestion are optional, attributed story guidance. "
+                "Consider, adapt or decline them according to this character's motives. "
+                "They describe possibilities; only committed facts establish events or knowledge."
+            ),
             "assigned_character": perception.actor_name,
             "role": (
                 "You operate this character's next action. Persona, private "
                 "knowledge and current evidence constrain what they would do. "
                 "That is still this character's choice: only you may propose "
-                "for this body. Advisory director_signals may be noticed, "
-                "reinterpreted, or ignored."
+                "for this body. Your decisions follow this character's own motives."
             ),
             "diegesis": (
                 "Speech, thought texture and in-world knowledge belong to the "
@@ -623,7 +608,7 @@ def build_subject_wake_packet(
             "subject_mind": (
                 "On behalf of this character, you retrieve memory, attend, "
                 "appraise, plan and choose using your native conversation/memory "
-                "tools. Do not ask the Host to mirror that mind state."
+                "tools. Claim receipts describe received reports or observed evidence; choose your own stance and confidence. Do not ask the Host to mirror that mind state."
             ),
             "registrations": (
                 "Use top-level goal_requests only when you want the Host to register "

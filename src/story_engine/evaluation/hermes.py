@@ -25,8 +25,8 @@ class HermesEpisodeConfig:
     docker_binary: str = "docker"
     timeout_seconds: float = 180.0
     network_mode: str = "bridge"
-    allowed_toolsets: Tuple[str, ...] = ("memory",)
-    requested_toolsets: Tuple[str, ...] = ("memory",)
+    allowed_toolsets: Tuple[str, ...] = ("memory", "session_search")
+    requested_toolsets: Tuple[str, ...] = ("memory", "session_search")
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
@@ -56,7 +56,7 @@ def create_hermes_episode_session(
     # deterministic, replayable episode; the director must not sneak a live
     # LLM call into an otherwise LLM-free host regardless of what the source
     # scenario declared.
-    bound_scenario.narrative_director_enabled = False
+    bound_scenario.story_planner_enabled = False
     for character in bound_scenario.characters:
         character.agent_runtime = "hermes"
         character.agent_config = {

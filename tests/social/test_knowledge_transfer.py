@@ -70,15 +70,14 @@ def test_known_secret_can_be_transferred_to_one_colocated_character():
         context,
     )
 
-    target_belief = target.get_component("Cognition").beliefs[0]
-    assert target_belief["statement"] == "钥匙藏在旧钟后面"
-    assert target_belief["confidence"] == 0.85
-    assert target_belief["source"] == "told_by:知情者"
+    target_state = target.get_component("Cognition")
+    assert target_state.beliefs == []
+    assert target_state.experiences[-1]["events"][0]["actor"] == "知情者"
     assert observer.get_component("Cognition").beliefs == []
     assert context["knowledge_transfers"][0]["target"] == "听众"
 
 
-def test_sender_cannot_transfer_statement_absent_from_private_knowledge():
+def test_sender_claim_is_received_without_assigning_listener_belief():
     gm, source, target, observer = _world()
     context = _context(statement="城主其实是龙")
 
@@ -88,7 +87,7 @@ def test_sender_cannot_transfer_statement_absent_from_private_knowledge():
     )
 
     assert target.get_component("Cognition").beliefs == []
-    assert context["knowledge_transfers"] == []
+    assert context["knowledge_transfers"][0]["statement"] == "城主其实是龙"
 
 
 def test_knowledge_update_cannot_telepathically_cross_locations():
@@ -118,9 +117,8 @@ def test_listener_can_receive_origin_message_while_moving_away_this_batch():
         context,
     )
 
-    assert target.get_component("Cognition").beliefs[0]["statement"] == (
-        "钥匙藏在旧钟后面"
-    )
+    assert target.get_component("Cognition").beliefs == []
+    assert target.get_component("Cognition").experiences[-1]["events"][0]["actor"] == "知情者"
     assert context["knowledge_transfers"][0]["target"] == "听众"
 
 

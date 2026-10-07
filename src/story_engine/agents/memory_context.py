@@ -18,7 +18,7 @@ class AgentMemoryContextBuilder:
     MAX_TOTAL_RESULT_CHARS = 9000
     ROUTE_PRIORITIES = {
         "goals": 1.5,
-        "commitments": 1.4,
+        "navigation": 1.4,
         "claims": 1.4,
         "social": 1.2,
         "situation": 1.0,
@@ -34,7 +34,6 @@ class AgentMemoryContextBuilder:
         visible_proposals: Iterable[Dict[str, Any]],
         world_signals: Iterable[Dict[str, Any]],
         private_goals: Dict[str, Any],
-        private_schedule: Dict[str, Any],
         private_knowledge: Dict[str, Any],
         private_navigation: Dict[str, Any],
         private_sentiments: Dict[str, Any],
@@ -88,14 +87,8 @@ class AgentMemoryContextBuilder:
         )
         self._append(
             routes,
-            "commitments",
+            "navigation",
             [
-                *(
-                    f"日程 {item.get('commitment_id', '')} {item.get('title', '')} "
-                    f"{item.get('location', '')} {item.get('due_step', '')}"
-                    for item in private_schedule.get("active", [])[:6]
-                    if isinstance(item, dict)
-                ),
                 *(
                     f"路线受阻 {item.get('route_source', '')} "
                     f"{item.get('route_target', '')} {item.get('destination', '')}"

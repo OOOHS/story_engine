@@ -21,8 +21,6 @@ class RenderingSystem(System):
             player_pov,
             visible_locations=visible_locations,
         )
-        timeline = context.get("timeline", {})
-        public_timeline = self._public_timeline(timeline, player_pov)
         social = self._public_social(context.get("social", {}))
 
         for name, entity in entities.items():
@@ -38,7 +36,6 @@ class RenderingSystem(System):
             render_payload = {
                 "player_pov": player_pov,
                 "simulation_result": visible_simulation,
-                "timeline": public_timeline,
                 "social": social,
                 "continuity": continuity,
                 "current_visible_facts": visible_fact_lines,
@@ -65,7 +62,6 @@ class RenderingSystem(System):
 
             context["rendered_text"] = narration
             context["visible_simulation_result"] = visible_simulation
-            context["visible_timeline"] = public_timeline
             return
 
     def _build_visible_simulation(
@@ -98,6 +94,11 @@ class RenderingSystem(System):
             if actor == viewer:
                 visible_actions.append(item)
                 continue
+            if viewer in item.get("recipients", []):
+                visible_actions.append(item)
+                continue
+            if item.get("action_kind") == "communicate" and "recipients" in item:
+                continue
             if visibility == "hidden":
                 continue
             if visibility not in {"public", "local"}:
@@ -106,7 +107,8 @@ class RenderingSystem(System):
                 continue
             visible_actions.append(item)
         visible_actions = [
-            {key: value for key, value in item.items() if key != "private_result"}
+            {key: value for key, value in item.items()
+             if key != "private_result" or item.get("actor") == viewer}
             for item in visible_actions
         ]
 
@@ -270,6 +272,9 @@ class RenderingSystem(System):
             "applied_conflict_templates": [],
             "tension_delta": 0.0,
             "spawn_character": None,
+            "world_additions": {},
+            "topology_candidate": None,
+            "storylet_definition": None,
             "simulation_notes": [],
             "object_lifecycle": visible_lifecycle,
             "exchanges": [],
@@ -302,40 +307,6 @@ class RenderingSystem(System):
             "visible_relations": relations,
         }
 
-    @staticmethod
-    def _public_timeline(
-        timeline: Any,
-        player_pov: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        if not isinstance(timeline, dict):
-            return {}
-        public_flags = (
-            player_pov.get("public_scene", {}).get("flags", {})
-            if isinstance(player_pov.get("public_scene", {}), dict)
-            else {}
-        )
-        packet: Dict[str, Any] = {}
-        if "day_phase" in public_flags:
-            packet["day_phase"] = timeline.get("day_phase")
-        transition = timeline.get("phase_transition", {})
-        if isinstance(transition, dict) and transition.get("from") and transition.get("to"):
-            packet["phase_transition"] = {
-                "from": transition.get("from"),
-                "to": transition.get("to"),
-            }
-        missed = timeline.get("last_missed_commitment")
-        player = str(player_pov.get("viewer", "")).strip()
-        if (
-            isinstance(missed, dict)
-            and player
-            and player in set(missed.get("missing_participants", []) or [])
-        ):
-            packet["last_missed_commitment"] = {
-                key: missed.get(key)
-                for key in ("commitment_id", "title", "location", "note")
-                if missed.get(key) not in (None, "")
-            }
-        return packet
 
     def _collect_visible_fact_lines(self, simulation_result: Dict[str, Any]) -> List[str]:
         visible_facts: List[str] = []

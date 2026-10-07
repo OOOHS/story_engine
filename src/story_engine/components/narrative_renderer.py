@@ -23,7 +23,7 @@ class NarrativeRenderer(Component):
 
     def render(self, render_payload: Dict[str, Any]) -> str:
         if not self.entity:
-            return self._fallback_render(render_payload)
+            raise RuntimeError("NarrativeRenderer is not attached to a world entity")
 
         narration = self.scenario.narration if self.scenario else None
         max_sentences = narration.max_sentences if narration else 6
@@ -49,12 +49,13 @@ class NarrativeRenderer(Component):
 2. 只能写玩家此刻能直接感到的内容；禁止全知旁白，禁止切去异地补拍过程。
 3. 若玩家没亲眼见到异地事件，只能写余波、传话、催促、态度变化或场面残响，不要写成共享回忆。
 4. 若没有明确锚点，不要用“刚才那句……”“方才那个动作……”之类的精确回指。
-5. `required_player_resolution_anchors` 中的每条文本都是已经提交的权威结算结果，必须逐字出现在叙述中，不得省略、改写或与其他事实融合。
+5. `required_player_resolution_anchors` 是玩家行动结果的事实依据；完整保留重要结果、因果与来源，允许自然改写和合并。
 6. 若 `simulation_result.resolved_actions` 里已有他人对玩家造成的 `public` 且 `complication/blocked` 动作，应明确写出，不要全部融成泛泛的气氛描写。
 7. 不得添加 `simulation_result` 中没有成立的新动作，包括任何肢体接触；是否成立已经由 Simulation 决定，不要再次裁定。
 8. 不要把不同角色渲染成重复的同一种动作。
-9. 除非结构化输入里已经明确给出了原话，否则不要写直接引号台词；优先改写成间接描述。
+9. 引用或转述保持原表达的语义、说话者和事实地位；未知内容保持来源。
 10. 没有场景风格指导时保持中立、清楚，不自行选择题材腔调或叙事节奏。
+11. communicate 的结果确认谁说了什么，保留说话人的来源。原话中的人物、物品、地点及关系可以保持真实性待定；仅渲染这次表达和已提交的外部事实。
 
 剧本：{self.scenario.name if self.scenario else "通用剧本"}
 环境基调：{self.scenario.environment if self.scenario else ""}
@@ -72,17 +73,46 @@ class NarrativeRenderer(Component):
         response = self._llm.generate(prompt)
         content = (response.get("content", "") or "").strip()
         if not content or content.startswith("[LLM disabled]") or content.startswith("[LLM error"):
-            return self._fallback_render(render_payload)
-        grounded = self._ground_render_text(
-            self._trim_render_text(content, max_sentences, max_characters),
-            render_payload,
+            raise RuntimeError("narrative model is unavailable; delivery can be retried")
+        for attempt in range(2):
+            final_text = content
+            verdict = self._validate_narration(final_text, render_payload)
+            if verdict["valid"] and not verdict["issues"]:
+                return final_text
+            if attempt == 0:
+                response = self._llm.generate(
+                    "## 叙述语义修正\n依据问题修正整段叙述，保留已提交的玩家行动结果与说话来源。"
+                    "仅输出可交付叙述。\n" + json.dumps({
+                        "narration": final_text, "issues": verdict["issues"],
+                        "visible_facts": render_payload,
+                    }, ensure_ascii=False)
+                )
+                content = (response.get("content", "") or "").strip()
+                if not content or content.startswith("[LLM "):
+                    raise RuntimeError("narrative semantic repair unavailable")
+        raise RuntimeError("narrative semantic check rejected delivery")
+
+    def _validate_narration(self, text: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        response = self._llm.generate(
+            "## 叙述语义校对\n"
+            "检查最终玩家叙述相对于玩家可感知的已提交事实是否可靠。"
+            "输出 {\"valid\":true,\"issues\":[]} 或 {\"valid\":false,\"issues\":[\"具体问题\"]}。"
+            "以当前结构化结算与玩家 POV 为事实依据，continuity 中的旧叙述仅用于理解引用来源。逐一检查动作、状态变化、因果、归属、时间、地点和知识来源；"
+            "完整交付玩家行动的重要结果和本人 private_result；拒绝新增事件、暗示未提交的持续后果、代替角色选择及泄漏他人私有事实。"
+            "语言表达保留说话人的来源，谎言、传闻、假设和未知命题保持各自的事实地位。"
+            "允许忠实释义与措辞变化，直接台词必须保留原话语义和说话者，"
+            "气氛描述必须符合可见环境。根据语义审核整段文本。\n## 叙述数据\n"
+            + json.dumps({"narration": text, "visible_facts": payload}, ensure_ascii=False)
         )
-        return self._ensure_player_resolution_anchors(
-            grounded,
-            player_resolution_anchors,
-            max_sentences=max_sentences,
-            max_characters=max_characters,
-        )
+        try:
+            verdict = json.loads(response.get("content", ""))
+        except (ValueError, TypeError) as exc:
+            raise RuntimeError("narrative semantic check unavailable or malformed") from exc
+        if (not isinstance(verdict, dict) or type(verdict.get("valid")) is not bool
+                or not isinstance(verdict.get("issues"), list)
+                or any(not isinstance(issue, str) for issue in verdict["issues"])):
+            raise RuntimeError("narrative semantic check unavailable or malformed")
+        return verdict
 
     def _fallback_render(self, render_payload: Dict[str, Any]) -> str:
         text = self._build_fallback_text(render_payload)
@@ -191,13 +221,6 @@ class NarrativeRenderer(Component):
         if public_notes:
             parts.append("；".join(public_notes[:2]))
 
-        timeline = render_payload.get("timeline", {})
-        last_missed = timeline.get("last_missed_commitment") if isinstance(timeline, dict) else None
-        if isinstance(last_missed, dict):
-            note = last_missed.get("note", "")
-            if note:
-                parts.append(note)
-
         if not parts:
             return "局面暂时没有显著变化。"
         return " ".join(parts)
@@ -229,46 +252,10 @@ class NarrativeRenderer(Component):
         return result
 
     def _ground_render_text(self, text: str, render_payload: Dict[str, Any], allow_fallback: bool = True) -> str:
-        grounded = (text or "").strip()
-        if not grounded:
-            return "局面暂时没有显著变化。"
-
-        source_text = json.dumps(render_payload, ensure_ascii=False)
-        if allow_fallback and (
-            self._has_ungrounded_dialogue(grounded, source_text)
-        ):
-            narration = self.scenario.narration if self.scenario else None
-            fallback_text = self._trim_render_text(
-                self._build_fallback_text(render_payload),
-                narration.max_sentences if narration else 6,
-                narration.max_characters if narration else 220,
-            )
-            grounded = fallback_text
-
-        def replace_callback(match: re.Match[str]) -> str:
-            quoted = match.group(1).strip()
-            if quoted and quoted in source_text:
-                return match.group(0)
-            return "刚才那点余波"
-
-        grounded = re.sub(
-            r"刚才那句[“\"]([^”\"]{1,24})[”\"]的余音",
-            replace_callback,
-            grounded,
-        )
-        grounded = re.sub(
-            r"方才那句[“\"]([^”\"]{1,24})[”\"]的余音",
-            replace_callback,
-            grounded,
-        )
-        grounded = re.sub(r"刚才那句[“\"]([^”\"]{1,24})[”\"]", replace_callback, grounded)
-        grounded = re.sub(r"方才那句[“\"]([^”\"]{1,24})[”\"]", replace_callback, grounded)
-        grounded = re.sub(
-            r"[“\"]([^”\"]{1,24})[”\"]的余音",
-            lambda match: match.group(0) if match.group(1).strip() in source_text else "刚才那点余波",
-            grounded,
-        )
-        return grounded
+        """Offline formatting only; production grounding uses semantic validation."""
+        if not (text or "").strip():
+            raise RuntimeError("narrative model returned no usable text")
+        return text.strip()
 
     def _player_resolution_anchors(self, render_payload: Dict[str, Any]) -> List[str]:
         player_name = str(
@@ -311,15 +298,3 @@ class NarrativeRenderer(Component):
             remaining,
         )
         return f"{prefix} {suffix}".strip()
-
-    def _has_ungrounded_dialogue(self, text: str, source_text: str) -> bool:
-        quotes = re.findall(r"[“\"]([^”\"]{2,36})[”\"]", text or "")
-        if not quotes:
-            return False
-        for quote in quotes:
-            normalized = quote.strip()
-            if not normalized:
-                continue
-            if normalized not in source_text:
-                return True
-        return False

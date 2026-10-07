@@ -18,10 +18,10 @@ def test_manual_player_action_is_anchor_but_auto_player_is_only_a_proposal():
     }
 
     manual_packet = arbiter.build_focus_packet(
-        [manual], "玩家", manual, {}, {}
+        [manual], "玩家", manual, {}
     )
     auto_packet = arbiter.build_focus_packet(
-        [automatic], "玩家", automatic, {}, {}
+        [automatic], "玩家", automatic, {}
     )
 
     assert manual_packet["anchor_intent"]["intent"] == "打开门"
@@ -38,7 +38,7 @@ def test_proposals_are_ranked_by_priority_with_stable_tie_order():
         {"actor": "丁", "intent": "丁动作", "proposal_priority": 0.2},
     ]
 
-    packet = ProposalArbiter().build_focus_packet(intents, None, None, {}, {})
+    packet = ProposalArbiter().build_focus_packet(intents, None, None, {})
 
     assert [item["actor"] for item in packet["proposals"]] == ["乙", "丙", "甲", "丁"]
     assert packet["proposal_semantics"] == "simultaneous"

@@ -1,19 +1,8 @@
-"""Runtime candidate registration for spatial-graph growth (new locations).
+"""Atomic additive world graph growth.
 
-``HostTopologyTransaction`` (``topology.py``) is deliberately "unavailable to
-Agent/GM semantic output" -- it is a pre-step, host-authored surface for
-editing the *existing* graph's edges, applied before any Agent perception or
-GM semantic resolution happens this step. That isolation stays exactly as
-strict as it is today for the existing graph.
-
-This module is a narrower, additive surface: a pre-authorized proposal to
-grow the graph by one new location and its initial edges. It goes through
-the same authorize -> resolve -> prepare -> stage -> atomic-commit pipeline
-as the character/storylet_definition candidate kinds (inside
-``WorldStateTransaction.commit()``), not through ``HostTopologyTransaction``'s
-own pre-step snapshot/commit cycle -- so it can never bypass semantic
-transaction validation, and a rejected step rolls the new location back with
-everything else.
+Normal world completion uses the lifecycle batch methods and semantic commit
+validation. Explicit author injections use TopologyCandidateAuthority.
+Editing existing graph edges remains with HostTopologyTransaction.
 """
 
 from dataclasses import dataclass, field
@@ -40,6 +29,7 @@ class TopologyCandidatePlan:
     visibility: str = "local"
     reason: str = ""
     authorization_id: str = ""
+    properties: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -49,10 +39,10 @@ class TopologyCandidatePreparation:
 
 
 class TopologyCandidateAuthority:
-    """Compile a semantic ``topology`` candidate from a host-issued
-    authorization. Governed as strictly as character entry: a permanent
-    structural addition to the world graph is not something GM narration can
-    conjure on its own.
+    """Compile an explicitly authorized author injection.
+
+    Model-proposed world completion uses the lifecycle and semantic commit
+    check directly; this gate retains author-fixed injection semantics.
     """
 
     def __init__(self) -> None:
@@ -126,6 +116,8 @@ class TopologyCandidateLifecycle:
         self,
         scene_state: Any,
         request: Any,
+        *,
+        known_locations: set[str] | None = None,
     ) -> TopologyCandidatePreparation:
         if request is None:
             return TopologyCandidatePreparation()
@@ -154,7 +146,7 @@ class TopologyCandidateLifecycle:
             for item in request.get("connects_to", []) or []
             if str(item).strip()
         ]
-        known_locations = scene_state.get_known_locations()
+        known_locations = known_locations or set(scene_state.get_known_locations())
         for target in connects_to:
             if target not in known_locations:
                 errors.append(
@@ -168,6 +160,13 @@ class TopologyCandidateLifecycle:
         )
         if cap_error:
             errors.append(f"topology_candidate {cap_error}")
+        properties = request.get("properties", {})
+        if not isinstance(properties, dict):
+            errors.append("topology_candidate.properties must be an object")
+            properties = {}
+        if {"is_location", "connected_to", "owner", "location", "container",
+            "public_state_fields", "private_state_fields"}.intersection(properties):
+            errors.append("topology_candidate.properties contains structural fields")
         if errors:
             return TopologyCandidatePreparation(errors=errors)
 
@@ -178,6 +177,7 @@ class TopologyCandidateLifecycle:
                 visibility=str(request.get("visibility", "local")),
                 reason=str(request.get("reason", "")),
                 authorization_id=str(request.get("authorization_id", "")).strip(),
+                properties=dict(properties),
             )
         )
 
@@ -185,6 +185,8 @@ class TopologyCandidateLifecycle:
         self,
         scene_state: Any,
         plan: Optional[TopologyCandidatePlan],
+        *,
+        known_locations: set[str] | None = None,
     ) -> List[str]:
         if plan is None:
             return []
@@ -196,7 +198,7 @@ class TopologyCandidateLifecycle:
                 "topology_candidate cannot create existing object while "
                 f"staging: {plan.location_id}"
             ]
-        known_locations = scene_state.get_known_locations()
+        known_locations = known_locations or set(scene_state.get_known_locations())
         for target in plan.connects_to:
             if target not in known_locations:
                 return [
@@ -214,10 +216,15 @@ class TopologyCandidateLifecycle:
                 ]
 
         scene_state.world_objects[plan.location_id] = {
+            **plan.properties,
             "is_location": True,
             "connected_to": list(plan.connects_to),
         }
         for target in plan.connects_to:
+            if target not in scene_state.world_objects:
+                # Another node in this atomic batch will create the reverse
+                # edge when it is staged.
+                continue
             state = scene_state.get_object_state(target)
             connections = [
                 str(item).strip()
@@ -236,3 +243,39 @@ class TopologyCandidateLifecycle:
                 scene_state, CONSUMED_AUTHORIZATIONS_FLAG, plan.authorization_id
             )
         return []
+
+    def prepare_many(self, scene_state: Any, requests: List[Dict[str, Any]]):
+        """Resolve all references against the same prospective world graph."""
+        names = [str(item.get("location_id", "")).strip() for item in requests]
+        errors = []
+        if len(names) != len(set(names)):
+            errors.append("duplicate locations in world additions")
+        known = set(scene_state.get_known_locations()) | set(names)
+        plans = []
+        for request in requests:
+            preparation = self.prepare(scene_state, request, known_locations=known)
+            errors.extend(preparation.errors)
+            if preparation.plan:
+                plans.append(preparation.plan)
+        if not requests:
+            return plans, errors
+        current = CandidateLedger.normalized_names(scene_state, DYNAMIC_LOCATION_NAMES_FLAG)
+        try:
+            if len(current) + len(plans) > int(scene_state.get_scene_flag(MAX_DYNAMIC_LOCATIONS_FLAG, 6)):
+                errors.append("world additions exceed max_dynamic_locations")
+        except (TypeError, ValueError):
+            errors.append("max_dynamic_locations must be an integer")
+        return plans, errors
+
+    def stage_many(self, scene_state: Any, plans: List[TopologyCandidatePlan]) -> List[str]:
+        known = set(scene_state.get_known_locations()) | {plan.location_id for plan in plans}
+        errors = []
+        for plan in plans:
+            errors.extend(self.stage(scene_state, plan, known_locations=known))
+        if not errors:
+            for plan in plans:
+                for target in plan.connects_to:
+                    connections = scene_state.world_objects[target].setdefault("connected_to", [])
+                    if plan.location_id not in connections:
+                        connections.append(plan.location_id)
+        return errors

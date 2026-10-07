@@ -38,32 +38,14 @@ def test_objective_event_grows_verified_social_and_spatial_response_chain():
     assert report.metrics["causal_handoff_count"] >= 5
     assert report.metrics["causal_handoff_steps"] >= 2
     handoffs = [item for step in report.steps for item in step.causal_handoffs]
-    assert any(item.startswith(f"world_event:{EVENT_ID}<-") for item in handoffs)
-    assert (
-        f"world_event:{EVENT_ID}"
-        "<-timeline_resolution:ceremony:missed"
-        in handoffs
-    )
-    assert (
-        "timeline_resolution:ceremony:missed"
-        "<-timeline_commitment:ceremony"
-        in handoffs
-    )
-    assert any(
-        item.startswith("timeline_resolution:ceremony:missed<-clock:step:")
-        for item in handoffs
-    )
-    assert (
-        "timeline_resolution:ceremony:missed"
-        f"<-actor_absence:{MESSENGER}:{HALL}"
-        in handoffs
-    )
+    assert all("timeline_resolution:" not in item for item in handoffs)
     assert sum("<-world_event:" in item for item in handoffs) >= 3
     assert any(
         item.startswith(f"goal:{RECIPIENT}:") and "<-event_response:" in item
         for item in handoffs
     )
-    assert report.metrics["max_causal_chain_depth"] >= 4
+    # The authored fact is the root; retired schedule/resolution nodes are absent.
+    assert report.metrics["max_causal_chain_depth"] >= 3
     assert report.metrics["goal_continuation_steps"] >= 1
     assert report.metrics["goal_continuation_actor_count"] == 1
     assert report.metrics["goal_continuation_attempt_count"] == 1
@@ -96,27 +78,3 @@ def test_objective_event_grows_verified_social_and_spatial_response_chain():
     ]
     assert ("communicate", MESSENGER) in recipient_actions
     assert ("move", HALL) in recipient_actions
-
-
-def test_closure_waits_for_a_future_timeline_seed_before_story_aftermath_runs():
-    session = create_minimal_event_response_session("future-event-response")
-    scene = session.entities["WorldHost"].get_component("SceneState")
-    commitments = scene.get_scene_flag("upcoming_commitments")
-    commitments[0]["due_step"] = 4
-
-    report = EpisodeRunner().run(
-        session,
-        steps=16,
-        closure_policy=EpisodeClosurePolicy(stable_steps=2),
-    )
-
-    assert report.authoritative is True
-    assert report.closure_reached is True
-    assert any(
-        "active_timeline_commitments" in step.closure_blockers
-        for step in report.steps
-    )
-    assert report.steps[-1].simulation_time_after >= 4
-    final_commitments = scene.get_scene_flag("upcoming_commitments")
-    assert final_commitments[0]["status"] in {"resolved", "missed"}
-    assert f"WorldEvent:{EVENT_ID}" in session.entities

@@ -82,6 +82,11 @@ class HermesCharacterAgent:
         if not isinstance(content, str) or not content.strip():
             raise ValueError("Hermes conversation returned no protocol content")
         decision = self._parse_subject_decision(entity, perception, content)
+        # Host-generated receipts cover only suggestions actually in this packet.
+        if perception.private_cognition.get("director_suggestions"):
+            decision.metadata["delivered_director_suggestions"] = [
+                message.message_id for message in messages if message.kind == "director_suggestion"
+            ]
         # This is the single ack point for the whole turn. Cognition's own
         # pending_world_events/pending_event_responses are cleared by the
         # caller (InputSystem) once this method returns without raising; the
@@ -155,6 +160,26 @@ class HermesCharacterAgent:
             restore = getattr(conversation, "restore_checkpoint", None)
             if callable(restore):
                 restore(checkpoint)
+
+    def restore_saved_subject(self, entity: Entity, payload: Dict[str, Any]) -> None:
+        """Recreate the adapter before restoring native context in a fresh host."""
+        for entity_id in payload.get("conversation_ids", []):
+            if entity_id != entity.id:
+                raise ValueError("saved subject does not belong to this entity")
+            if entity_id not in self._conversations:
+                self._conversations[entity_id] = self._factory(entity, dict(self._config))
+            if not callable(getattr(self._conversations[entity_id], "restore_checkpoint", None)):
+                raise ValueError("subject adapter cannot restore a native session")
+        self.restore_subject_checkpoint(payload)
+
+    def release_subject_checkpoint(self, payload: Dict[str, Any] | None) -> None:
+        """Discard local transient snapshots once rollback can no longer use them."""
+
+        from src.story_engine.agents.hermes_container import discard_local_subject_checkpoint
+
+        for checkpoint in dict((payload or {}).get("conversations", {})).values():
+            if isinstance(checkpoint, dict):
+                discard_local_subject_checkpoint(checkpoint)
 
     def subject_snapshot(self, entity_or_id: Entity | str) -> Dict[str, Any]:
         entity_id = entity_or_id.id if isinstance(entity_or_id, Entity) else str(entity_or_id)

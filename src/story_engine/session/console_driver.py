@@ -74,6 +74,27 @@ class ConsoleDriver:
 
     @staticmethod
     def _print_decision_context(context: Dict[str, object]) -> None:
+        suggestions = list(context.get("director_suggestions", []) or [])
+        if suggestions:
+            print("\n导演建议（自行决定）：")
+            for item in suggestions:
+                if isinstance(item, dict) and str(item.get("text", "")).strip():
+                    print(f"- {str(item['text']).strip()}")
+        known_claims = list(context.get("known_claims", []) or [])
+        if known_claims:
+            stance_labels = {
+                "supports": "相信",
+                "rejects": "否认",
+                "uncertain": "存疑",
+            }
+            print("\n角色已知线索：")
+            for claim in known_claims[:8]:
+                if not isinstance(claim, dict):
+                    continue
+                statement = str(claim.get("statement", "")).strip()
+                if statement:
+                    label = stance_labels.get(str(claim.get("stance", "")), "存疑")
+                    print(f"- {label}：{statement}")
         pending_events = list(context.get("pending_world_events", []) or [])
         pending_responses = list(
             context.get("pending_event_responses", []) or []

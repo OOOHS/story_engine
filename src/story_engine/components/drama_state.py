@@ -1,3 +1,5 @@
+"""Legacy Drama compatibility component; production WorldHost does not attach it."""
+
 from typing import Dict, Any, List
 from pydantic import Field
 from src.story_engine.core.component import Component

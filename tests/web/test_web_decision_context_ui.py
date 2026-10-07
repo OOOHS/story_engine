@@ -15,6 +15,7 @@ def test_web_ui_has_one_bounded_player_awareness_surface():
         "visibleActors",
         "visibleObjects",
         "activeGoals",
+        "knownClaims",
     ):
         assert html.count(f'id="{element_id}"') == 1
     assert 'aria-live="polite"' in html
@@ -33,6 +34,7 @@ def test_awareness_renderer_uses_only_manual_decision_projection_fields():
         "visible_actors",
         "visible_objects",
         "active_goals",
+        "known_claims",
     ):
         assert f"context.{field}" in source
     assert ".textContent = value" in source

@@ -84,7 +84,7 @@ class AgentAction:
             route_source = cls._text(value.get("route_source"), 120)
             route_target = cls._text(value.get("route_target"), 120)
             route_path = cls._reference_list(value.get("route_path", []))
-            kind = raw_kind if raw_kind in ACTION_KINDS else cls.infer_kind(detail)
+            kind = raw_kind if raw_kind in ACTION_KINDS else "interact"
             return cls(
                 kind=kind,
                 detail=detail,
@@ -108,20 +108,7 @@ class AgentAction:
         if strict:
             raise ValueError("structured agent action must be an object with kind")
         detail = cls._text(value, 800)
-        return cls(kind=cls.infer_kind(detail), detail=detail)
-
-    @staticmethod
-    def infer_kind(detail: str) -> ActionKind:
-        text = str(detail or "").lower()
-        if any(token in text for token in ("观察", "查看", "检查", "搜索", "环顾", "inspect", "observe", "search")):
-            return "observe"
-        if any(token in text for token in ("前往", "走到", "进入", "离开", "移动", "move", "go to", "leave")):
-            return "move"
-        if any(token in text for token in ("说", "问", "告诉", "回答", "喊", "communicate", "speak", "ask", "tell")):
-            return "communicate"
-        if any(token in text for token in ("等待", "停留", "休息", "wait", "rest")):
-            return "wait"
-        return "interact"
+        return cls(kind="interact", detail=detail)
 
     def to_dict(self) -> Dict[str, str]:
         payload = {

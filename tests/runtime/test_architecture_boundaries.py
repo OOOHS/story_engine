@@ -30,6 +30,7 @@ def test_public_system_api_only_exposes_authoritative_runner_phases():
         "SentimentSystem",
         "WorldEventSystem",
         "RenderingSystem",
+        "StoryPlanningSystem",
         "MemorySystem",
     ]
 
@@ -109,19 +110,6 @@ def test_semantic_spawn_requires_host_character_entry_authority():
     ).read_text(encoding="utf-8")
 
 
-def test_timeline_has_no_actor_staging_or_teleportation_path():
-    timeline_source = (
-        ENGINE_ROOT / "narrative" / "timeline.py"
-    ).read_text(encoding="utf-8")
-    scenario_source = "\n".join(
-        path.read_text(encoding="utf-8")
-        for path in (ENGINE_ROOT / "scenarios").glob("*.py")
-    )
-
-    assert "stage_actors" not in timeline_source
-    assert "apply_commitment_staging" not in timeline_source
-    assert "stage_actors" not in scenario_source
-    assert "private_schedule" in timeline_source
 
 
 def test_live_runtime_has_no_gm_owned_contract_state_fallback():
@@ -156,7 +144,7 @@ def test_agent_and_semantic_gm_relationship_packets_hide_exact_track_values():
 
 
 
-def test_semantic_resolver_receives_no_director_or_storylet_packet():
+def test_semantic_resolver_receives_triggered_world_intents_separate_from_planner_drafts():
     from src.story_engine.components.host_rule_simulation import (
         HostRuleSimulationControl,
     )
@@ -238,10 +226,10 @@ def test_semantic_resolver_receives_no_director_or_storylet_packet():
     }.isdisjoint(payload)
     assert payload["intents"][0]["actor"] == "甲"
     assert "legality" in payload
-    assert "narrative_pressure" in payload
-    assert "directive" in payload["narrative_pressure"]
+    assert "narrative_pressure" not in payload
     assert context["storylet_pressure"]["salient_storylet_id"] == "forced_beat"
-    assert "director_packet" in context
+    assert "director_packet" not in context
+    assert payload["storylet_triggers"][0]["source_storylet_id"] == "forced_beat"
     assert "conflict" in context
 
 
@@ -511,3 +499,9 @@ def test_bundled_content_package_selects_no_default_story():
         "cthulhu_arkham.py",
         "thirteenth_floor.py",
     }
+
+
+def test_retired_timeline_module_is_removed():
+    assert not (ENGINE_ROOT / "narrative" / "timeline.py").exists()
+    import src.story_engine.narrative as narrative
+    assert not hasattr(narrative, "TimelineEngine")

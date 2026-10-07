@@ -16,14 +16,15 @@ LIST_PATCH_FIELDS = {
     "claim_discoveries",
     "object_lifecycle",
     "exchanges",
+    "topology_changes",
     "drive_updates",
     "drive_creations",
-    "director_signals",
 }
 BRANCH_FIELDS = LIST_PATCH_FIELDS | {
     "resolved_action",
     "state_updates",
     "tension_delta",
+    "world_additions",
 }
 CHECK_FIELDS = {
     "check_id",
@@ -58,7 +59,6 @@ class UncertainOutcomeResolver:
         check_resolver: HostCheckResolver,
         current_step: int,
         world_version: int,
-        movement_authorizations: Dict[str, str] | None = None,
     ) -> UncertainOutcomeResolution:
         working = deepcopy(result)
         raw_checks = working.pop("uncertain_outcomes", [])
@@ -88,11 +88,6 @@ class UncertainOutcomeResolver:
         traces: List[Dict[str, Any]] = []
         rejected_writes: List[str] = []
         seen_ids = set()
-        authorized_moves = {
-            self._text(actor, 120): self._text(destination, 160)
-            for actor, destination in (movement_authorizations or {}).items()
-            if self._text(actor, 120) and self._text(destination, 160)
-        }
 
         for index, raw in enumerate(raw_checks):
             prefix = f"uncertain_outcomes[{index}]"
@@ -129,16 +124,6 @@ class UncertainOutcomeResolver:
                 )
             for branch_name in ("success", "failure"):
                 branch = raw.get(branch_name)
-                if isinstance(branch, dict):
-                    self._sanitize_branch_locations(
-                        branch,
-                        actor=actor,
-                        proposal=proposal,
-                        scene_state=scene_state,
-                        authorized_destination=authorized_moves.get(actor, ""),
-                        prefix=f"{prefix}.{branch_name}",
-                        rejected_writes=rejected_writes,
-                    )
                 errors.extend(
                     self._validate_branch(branch, prefix=f"{prefix}.{branch_name}")
                 )
@@ -172,7 +157,6 @@ class UncertainOutcomeResolver:
                 actor=actor,
                 proposal=proposal,
                 scene_state=scene_state,
-                authorized_destination=authorized_moves.get(actor, ""),
                 prefix=f"{prefix}.{branch_name}",
             )
             if branch_errors:
@@ -209,6 +193,17 @@ class UncertainOutcomeResolver:
                 isinstance(item, dict) for item in value
             ):
                 errors.append(f"{prefix}.{field_name} must be a list of objects")
+        additions = branch.get("world_additions", {})
+        if not isinstance(additions, dict) or set(additions) - {"locations", "characters", "facts"}:
+            errors.append(f"{prefix}.world_additions must be an object with locations/characters/facts")
+        else:
+            for kind in ("locations", "characters"):
+                values = additions.get(kind, [])
+                if not isinstance(values, list) or any(not isinstance(v, dict) for v in values):
+                    errors.append(f"{prefix}.world_additions.{kind} must be a list of objects")
+            facts = additions.get("facts", [])
+            if not isinstance(facts, list) or any(not isinstance(f, str) or not f.strip() for f in facts):
+                errors.append(f"{prefix}.world_additions.facts must be a list of statements")
         state_updates = branch.get("state_updates", {})
         if not isinstance(state_updates, dict):
             errors.append(f"{prefix}.state_updates must be an object")
@@ -228,7 +223,6 @@ class UncertainOutcomeResolver:
         actor: str,
         proposal: Dict[str, Any],
         scene_state: Any,
-        authorized_destination: str,
         prefix: str,
     ) -> List[str]:
         errors: List[str] = []
@@ -255,12 +249,7 @@ class UncertainOutcomeResolver:
             scene_state.get_actor_location(actor) if scene_state is not None else "",
             160,
         ) or self._text(proposal.get("location"), 160)
-        action["location"] = (
-            branch_location
-            if branch_location
-            and branch_location in {origin, authorized_destination}
-            else origin
-        )
+        action["location"] = branch_location or self._text(action.get("location"), 160) or origin
         outcome = self._text(action.get("outcome", "partial"), 40).lower()
         if outcome not in {"success", "partial", "fail", "blocked", "complication"}:
             errors.append(f"{prefix}.resolved_action has invalid outcome")
@@ -274,7 +263,7 @@ class UncertainOutcomeResolver:
         action["result"] = self._text(action.get("result"), 1200)
         action["private_result"] = (
             self._text(action.get("private_result"), 1200)
-            if action["action_kind"] == "observe"
+            if action.get("private_result")
             else ""
         )
         result.setdefault("resolved_actions", []).append(action)
@@ -304,48 +293,12 @@ class UncertainOutcomeResolver:
         for field_name in LIST_PATCH_FIELDS:
             values = deepcopy(branch.get(field_name, []))
             result.setdefault(field_name, []).extend(values)
+        for kind, values in branch.get("world_additions", {}).items():
+            result.setdefault("world_additions", {}).setdefault(kind, []).extend(deepcopy(values))
         result["tension_delta"] = float(result.get("tension_delta", 0.0)) + float(
             branch.get("tension_delta", 0.0)
         )
         return errors
-
-    def _sanitize_branch_locations(
-        self,
-        branch: Dict[str, Any],
-        *,
-        actor: str,
-        proposal: Dict[str, Any],
-        scene_state: Any,
-        authorized_destination: str,
-        prefix: str,
-        rejected_writes: List[str],
-    ) -> None:
-        updates = branch.get("state_updates")
-        if not isinstance(updates, dict):
-            return
-        actor_updates = updates.get("actor_states")
-        if not isinstance(actor_updates, dict):
-            return
-        origin = self._text(
-            scene_state.get_actor_location(actor) if scene_state is not None else "",
-            160,
-        ) or self._text(proposal.get("location"), 160)
-        proposal_kind = self._text(proposal.get("action_kind"), 40)
-        allowed = {origin}
-        if proposal_kind == "move" and authorized_destination:
-            allowed.add(authorized_destination)
-        for target_actor, raw_update in list(actor_updates.items()):
-            if not isinstance(raw_update, dict) or "location" not in raw_update:
-                continue
-            location = self._text(raw_update.get("location"), 160)
-            if target_actor == actor and location in allowed:
-                continue
-            raw_update.pop("location", None)
-            rejected_writes.append(
-                f"{prefix}.state_updates.actor_states.{target_actor}.location"
-            )
-            if not raw_update:
-                actor_updates.pop(target_actor, None)
 
     def _capability_modifiers(
         self, scene_state: Any, *, actor: str, capability: str

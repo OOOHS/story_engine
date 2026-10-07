@@ -61,6 +61,11 @@ class LLMProvider:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
 
+        return self.generate_messages(messages, tools=tools, **kwargs)
+
+    def generate_messages(self, messages: List[Dict[str, Any]], tools: Optional[List[Dict[str, Any]]] = None, **kwargs) -> Dict[str, Any]:
+        """Run one turn of an application-owned persistent agent conversation."""
+
         if (not self.api_key) and (not self.base_url) and (
             self.model.startswith("gpt-")
             or self.model.startswith("openai/")

@@ -1,7 +1,7 @@
 from typing import Any, Dict, List
 
 
-class ConflictDirector:
+class ConflictPressure:
     """Builds and records pacing pressure without resolving character actions."""
 
     def build_packet(
@@ -11,8 +11,6 @@ class ConflictDirector:
         current_step: int,
         reaction_context: Dict[str, Any],
         storylet_packet: Dict[str, Any],
-        timeline_packet: Dict[str, Any],
-        director_packet: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         if not scene_state or not scenario or not getattr(scenario, "conflict", None):
             return {}
@@ -20,24 +18,14 @@ class ConflictDirector:
         flags = scene_state.scene_flags or {}
         quiet_turns = int(flags.get("quiet_turns_since_conflict", 0))
         visible_count = int(flags.get("visible_conflict_count", 0))
-        directive = str((director_packet or {}).get("directive", "")).strip()
-        escalation = directive in {"inject_crisis", "raise_pressure"}
-        transition_backlash = bool(
-            isinstance(timeline_packet, dict)
-            and isinstance(timeline_packet.get("transition_pressure"), dict)
-            and timeline_packet["transition_pressure"].get("requires_human_backlash")
-        )
         immediate = bool(
             reaction_context.get("requires_reaction")
-            and reaction_context.get("action_pressure") != "low"
             and float(config.intensity) >= 0.8
         )
         visible_opportunity = bool(
             reaction_context.get("hostile_watchers")
             and (
-                transition_backlash
-                or immediate
-                or escalation
+                immediate
                 or (
                     current_step <= int(config.early_pressure_window_end)
                     and visible_count == 0
@@ -46,17 +34,12 @@ class ConflictDirector:
             )
         )
         opportunity_reasons = []
-        if transition_backlash:
-            opportunity_reasons.append("timeline_transition")
         if immediate:
             opportunity_reasons.append("visible_reaction")
-        if escalation:
-            opportunity_reasons.append("low_dramatic_pressure")
         if quiet_turns >= int(config.max_quiet_turns):
             opportunity_reasons.append("extended_quiet")
         pressure_state = (
-            "acute" if visible_opportunity and escalation
-            else "rising" if visible_opportunity
+            "rising" if visible_opportunity
             else "watch" if quiet_turns > 0
             else "quiet"
         )
@@ -65,7 +48,6 @@ class ConflictDirector:
             "current_step": int(current_step),
             "intensity": float(config.intensity),
             "immediate_pressure": immediate,
-            "transition_requires_backlash": transition_backlash,
             "visible_conflict_opportunity": visible_opportunity,
             "pressure_state": pressure_state,
             "opportunity_reasons": opportunity_reasons,
@@ -74,10 +56,8 @@ class ConflictDirector:
             "surface_style": str(config.surface_style),
             "verbal_directness": float(config.verbal_directness),
             "repetition_window": int(config.repetition_window),
-            "director_directive": directive,
             "public_pressure_salient": bool(
-                escalation
-                or (
+                (
                     current_step <= int(config.early_pressure_window_end)
                     and visible_count <= 1
                 )

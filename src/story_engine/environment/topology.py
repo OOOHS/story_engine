@@ -19,9 +19,9 @@ class TopologyTransactionResult:
 class HostTopologyTransaction:
     """Validate a batch of route changes on a copy, then commit it once.
 
-    This class is intentionally unavailable to Agent/GM semantic output.  Its
-    commands enter through ``Runner.run_step(topology_changes=...)`` or another
-    future host rule source with equivalent authority.
+    Host commands enter through ``Runner.run_step(topology_changes=...)``.
+    Semantic commands run on the staged world inside WorldStateTransaction;
+    their effects commit with the rest of the model-reviewed consequences.
     """
 
     ALLOWED_FIELDS = {
@@ -42,6 +42,7 @@ class HostTopologyTransaction:
         commands: Iterable[Dict[str, Any]] | None,
         *,
         current_step: int,
+        advance_version: bool = True,
     ) -> TopologyTransactionResult:
         raw_commands = list(commands or [])
         if not raw_commands:
@@ -156,7 +157,8 @@ class HostTopologyTransaction:
             previous_version = int(staged.get_scene_flag("world_version", 0) or 0)
         except (TypeError, ValueError):
             previous_version = 0
-        staged.update_scene_flags({"world_version": previous_version + 1})
+        if advance_version:
+            staged.update_scene_flags({"world_version": previous_version + 1})
         scene_state.world_objects = deepcopy(staged.world_objects)
         scene_state.scene_flags = deepcopy(staged.scene_flags)
         return TopologyTransactionResult(True, changes=changes)

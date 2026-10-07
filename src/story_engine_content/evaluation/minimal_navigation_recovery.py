@@ -88,7 +88,7 @@ def build_minimal_navigation_recovery_scenario() -> ScenarioConfig:
         # This harness swaps the GM to HostRuleSimulationControl after
         # session creation for deterministic evaluation; the director must
         # not sneak a live LLM call into an otherwise LLM-free host.
-        narrative_director_enabled=False,
+        story_planner_enabled=False,
         description="角色遭遇过时路线后，自主形成绕路目标并继续行动。",
         environment="村口通往城镇的东桥已经断开，南路仍可通行。",
         initial_state="旅人仍记得东桥，也知道一条较远的南路。",

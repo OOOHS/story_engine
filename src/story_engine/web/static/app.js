@@ -28,6 +28,8 @@ const els = {
   visibleObjects: document.getElementById("visibleObjects"),
   activeGoalsGroup: document.getElementById("activeGoalsGroup"),
   activeGoals: document.getElementById("activeGoals"),
+  knownClaimsGroup: document.getElementById("knownClaimsGroup"),
+  knownClaims: document.getElementById("knownClaims"),
   autoButton: document.getElementById("autoButton"),
   resetButton: document.getElementById("resetButton"),
   statusText: document.getElementById("statusText"),
@@ -226,6 +228,9 @@ function renderDecisionContext(player) {
     .filter(Boolean)
     .slice(-4);
   const representedPending = observations.length;
+  (context.director_suggestions || [])
+    .filter((item) => item && item.text)
+    .forEach((item) => observations.push(`导演建议（自行决定）：${item.text}`));
   (context.active_observation_results || [])
     .map((item) => item && (item.private_result || item.result)
       ? String(item.private_result || item.result).trim()
@@ -262,6 +267,19 @@ function renderDecisionContext(player) {
       .map((goal) => goal && goal.title ? goal.title : "")
       .slice(0, 4),
   );
+  const claimLabels = {
+    supports: "相信",
+    rejects: "否认",
+    uncertain: "存疑",
+  };
+  const claimCount = renderTextList(
+    els.knownClaimsGroup,
+    els.knownClaims,
+    (context.known_claims || [])
+      .filter((claim) => claim && claim.statement)
+      .map((claim) => `${claimLabels[claim.stance] || "存疑"}：${claim.statement}`)
+      .slice(0, 8),
+  );
   els.awarenessLocation.textContent = context.location
     ? `位于 ${context.location}`
     : "";
@@ -271,6 +289,7 @@ function renderDecisionContext(player) {
     || actorCount
     || objectCount
     || goalCount
+    || claimCount
   );
 }
 

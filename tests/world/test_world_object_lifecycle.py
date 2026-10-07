@@ -286,9 +286,10 @@ def test_lifecycle_cannot_create_or_destroy_spatial_graph_nodes():
         scene, DramaState(), destroy_place, proposal_actors={"甲"}
     )
 
-    assert spawn_outcome.committed is False
+    # object_kind is descriptive; is_location remains structurally false.
+    assert spawn_outcome.committed is True
+    assert scene.get_object_state("秘密地窖")["is_location"] is False
     assert destroy_outcome.committed is False
-    assert "秘密地窖" not in scene.world_objects
     assert "大厅" in scene.world_objects
 
 

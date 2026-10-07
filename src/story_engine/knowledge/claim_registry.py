@@ -203,6 +203,7 @@ class ClaimRegistry:
                 "learned_step": record.learned_step,
                 "updated_step": record.updated_step,
                 "evidence_refs": list(record.evidence_refs),
+                "receipts": deepcopy(record.receipts),
                 "subjects": list(fact.subjects),
                 "public": fact.visibility == "public",
             }

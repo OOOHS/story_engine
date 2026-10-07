@@ -24,6 +24,7 @@ from src.story_engine.systems import (
     WorldEventSystem,
 )
 from src.story_engine.systems.memory import MemorySystem
+from src.story_engine.systems.story_planning import StoryPlanningSystem
 from src.story_engine.agents import AgentRegistry, CharacterAgentRuntime
 from src.story_engine.environment.action_queue import ActionEventQueue
 from src.story_engine.environment.host_mutations import HostMutationTransaction
@@ -52,6 +53,7 @@ def _default_phase_order() -> List[str]:
         "SentimentSystem",
         "WorldEventSystem",
         "RenderingSystem",
+        "StoryPlanningSystem",
         "MemorySystem",
     ]
 
@@ -114,6 +116,7 @@ class Runner:
             SentimentSystem(sentiment_definitions),
             WorldEventSystem(),
             RenderingSystem(),
+            StoryPlanningSystem(),
             MemorySystem(),
         ]
         self._phase_order = _default_phase_order()
@@ -272,7 +275,7 @@ class Runner:
             if system_name == "WorldEventSystem":
                 raise RuntimeError("delivery receipt cannot rerun authoritative phases")
             phase_checkpoint = RunnerStepCheckpoint.capture(self)
-            phase_context_keys = set(context)
+            phase_context = clone_delivery_context(context)
             try:
                 system.update(self.entities, context)
                 if on_phase_done:
@@ -281,8 +284,8 @@ class Runner:
                         context.update(out)
             except Exception as exc:
                 phase_checkpoint.restore(self)
-                for key in set(context).difference(phase_context_keys):
-                    context.pop(key, None)
+                context.clear()
+                context.update(phase_context)
                 error = {
                     "phase": system_name,
                     "error_type": type(exc).__name__,
@@ -441,9 +444,16 @@ class Runner:
                 if authoritative_committed
                 else None
             )
-            phase_context_keys = set(context)
+            phase_context = (
+                clone_delivery_context(context) if authoritative_committed else None
+            )
             try:
                 system.update(self.entities, context)
+                if system_name == "WorldEventSystem" and context.get("world_event_errors"):
+                    raise RuntimeError(
+                        "world event publication failed: "
+                        + "; ".join(str(error) for error in context["world_event_errors"])
+                    )
                 if on_phase_done:
                     out = on_phase_done(system_name, context, self.entities)
                     if isinstance(out, dict):
@@ -498,8 +508,11 @@ class Runner:
                     return context
                 if delivery_checkpoint is not None:
                     delivery_checkpoint.restore(self)
-                for key in set(context).difference(phase_context_keys):
-                    context.pop(key, None)
+                context.clear()
+                context.update(phase_context)
+                context.setdefault("phase_trace", []).append(
+                    {"phase": system_name, "status": "failed"}
+                )
                 context["phase_errors"] = [error]
                 context["step_failed"] = True
                 context["authoritative_step_failed"] = False
@@ -534,6 +547,11 @@ class Runner:
                     context["authoritative_step_failed"] = False
                     context["step_committed"] = True
                     context["step_failure_reason"] = "delivery_phase_exception"
+                    context["delivery_pending"] = True
+                    self._pending_delivery = DeliveryReceipt.capture(
+                        start_index=system_index + 1,
+                        context=context,
+                    )
                     return context
                 authoritative_committed = True
                 context["step_committed"] = True

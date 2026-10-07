@@ -1,6 +1,6 @@
 from copy import deepcopy
 from dataclasses import dataclass, field
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 from src.story_engine.common.action_features import ACTION_POLICY_TAGS
 from src.story_engine.components.scene_state import SceneState
@@ -10,6 +10,7 @@ from src.story_engine.environment.character_lifecycle import (
 )
 from src.story_engine.environment.exchanges import ExchangeDynamics
 from src.story_engine.environment.world_object_lifecycle import WorldObjectLifecycle
+from src.story_engine.environment.topology import HostTopologyTransaction
 from src.story_engine.motivation import NeedDynamics
 from src.story_engine.environment.topology_candidates import (
     TopologyCandidateLifecycle,
@@ -100,8 +101,10 @@ class WorldStateTransaction:
         "agent_open_goal_review_interval",
         "public_event_attention_budget",
         "world_version",
+        "established_facts",
         "consumed_character_entry_authorizations",
         "consumed_storylets",
+        "active_storylet_triggers",
         "dynamic_storylet_ids",
         "max_dynamic_storylets",
         "dynamic_storylets",
@@ -110,7 +113,8 @@ class WorldStateTransaction:
         "dynamic_location_names",
         "max_dynamic_locations",
         "consumed_topology_authorizations",
-        "pending_narrative_director_authorizations",
+        "pending_story_planner_authorizations",
+        "pending_story_planner_proposals",
     }
 
     def __init__(self) -> None:
@@ -136,13 +140,27 @@ class WorldStateTransaction:
         proposal_actors: set[str] | None = None,
         consumed_storylet_ids: List[str] | None = None,
         emergent_meter_budget: int = 0,
+        semantic_validator: Callable[[Any, Any, Dict[str, Any]], None] | None = None,
+        character_spawn_plans: List[CharacterSpawnPlan] | None = None,
+        topology_candidate_plans: List[TopologyCandidatePlan] | None = None,
     ) -> TransactionResult:
         # ``consumed_storylet_ids`` is accepted only for call-site compatibility.
-        # Storylet consumption and director_signals are narrative derivations of
+        # Storylet trigger ledgers are host derivations of
         # already-committed world facts, produced after this transaction succeeds.
         errors: List[str] = []
         updates = result.get("state_updates", {})
-        self._validate_scene_updates(scene_state, updates, errors)
+        self._validate_scene_updates(None, updates, errors)
+        if result.get("world_additions") and semantic_validator is None:
+            return TransactionResult(False, ["world additions require semantic commit validation"])
+        operations = result.get("object_lifecycle", [])
+        semantic_objects = isinstance(operations, list) and any(
+            isinstance(op, dict) and op.get("operation") == "spawn"
+            and isinstance(op.get("properties"), dict)
+            and set(op["properties"]).intersection({"affordances", "is_container", "stack_key", "quantity", "container_capacity", "container_size", "container_open", "container_opaque"})
+            for op in operations
+        )
+        if (result.get("topology_changes") or semantic_objects) and semantic_validator is None:
+            return TransactionResult(False, ["semantic world-building requires semantic commit validation"])
         tension_delta = self._validate_tension_delta(result.get("tension_delta", 0.0), errors)
         if errors:
             return TransactionResult(False, errors)
@@ -185,20 +203,37 @@ class WorldStateTransaction:
         working_result = result
         try:
             if staged_scene:
+                topology_plans = list(topology_candidate_plans or [])
+                if topology_candidate_plan:
+                    topology_plans.insert(0, topology_candidate_plan)
+                errors.extend(self.topology_candidates.stage_many(staged_scene, topology_plans))
+                spawn_plans = list(character_spawn_plans or [])
+                if character_spawn_plan:
+                    spawn_plans.insert(0, character_spawn_plan)
+                for plan in spawn_plans:
+                    errors.extend(self.characters.stage(staged_scene, plan))
+                self._validate_scene_updates(staged_scene, updates, errors)
+                if errors:
+                    return TransactionResult(False, errors)
                 staged_scene.apply_updates(deepcopy(updates))
-                errors.extend(
-                    self.characters.stage(staged_scene, character_spawn_plan)
+                topology_result = HostTopologyTransaction().apply(
+                    staged_scene, result.get("topology_changes", []),
+                    current_step=current_step, advance_version=False,
                 )
+                errors.extend(topology_result.errors)
                 errors.extend(
                     self.storylet_definitions.stage(
                         staged_scene, storylet_definition_plan
                     )
                 )
-                errors.extend(
-                    self.topology_candidates.stage(
-                        staged_scene, topology_candidate_plan
-                    )
-                )
+                facts = result.get("world_additions", {}).get("facts", [])
+                established = list(staged_scene.get_scene_flag("established_facts", []) or [])
+                for fact in facts:
+                    record = {"step": int(current_step), "statement": fact}
+                    if record not in established:
+                        established.append(record)
+                if facts:
+                    staged_scene.update_scene_flags({"established_facts": established})
                 errors.extend(
                     self.exchanges.apply(
                         staged_scene,
@@ -262,7 +297,7 @@ class WorldStateTransaction:
                         staged_scene, staged_relationships, errors
                     )
                 self._validate_resolved_actions(
-                    scene_state,
+                    staged_scene,
                     working_result.get("resolved_actions", []),
                     set(proposal_actors or set()),
                     errors,
@@ -277,6 +312,12 @@ class WorldStateTransaction:
             errors.append(f"staging_failed:{type(exc).__name__}:{exc}")
         if errors:
             return TransactionResult(False, errors)
+
+        if semantic_validator is not None and scene_state and staged_scene:
+            semantic_validator(scene_state, staged_scene, working_result)
+
+        if staged_scene:
+            working_result["topology_changes"] = topology_result.changes
 
         if staged_scene:
             try:
@@ -328,12 +369,14 @@ class WorldStateTransaction:
         sanitized["resource_contests"] = []
         sanitized["drive_updates"] = []
         sanitized["drive_creations"] = []
-        sanitized["director_signals"] = []
         sanitized["storylet_hits"] = []
+        sanitized["director_suggestions"] = []
         sanitized["tension_delta"] = 0.0
         sanitized["spawn_character"] = None
+        sanitized["world_additions"] = {}
         sanitized["conflict_level"] = "none"
         sanitized["conflict_flags"] = []
+        sanitized["topology_changes"] = []
         notes = list(sanitized.get("simulation_notes", []) or [])
         notes.append("权威状态事务拒绝了本轮结算：" + "；".join(errors))
         sanitized["simulation_notes"] = notes
@@ -360,6 +403,12 @@ class WorldStateTransaction:
             if not actor:
                 errors.append(f"{label} requires actor")
                 continue
+            recipients = action.get("recipients", [])
+            if (not isinstance(recipients, list) or any(not isinstance(r, str) or r not in known_actors for r in recipients)
+                    or len(recipients) != len(set(recipients))):
+                errors.append(f"{label} has invalid communication recipients")
+            elif recipients and action.get("action_kind") != "communicate":
+                errors.append(f"{label} recipients require a communication action")
             if actor == "World":
                 continue
             if actor not in known_actors:

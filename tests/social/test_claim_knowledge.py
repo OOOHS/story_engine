@@ -205,7 +205,8 @@ def test_active_observation_discovers_only_linked_visible_evidence():
 
     assert context["claim_knowledge_errors"] == []
     record = entities["甲"].get_component("KnowledgeState").claims["ledger_owner"]
-    assert record.stance == "supports"
+    assert record.stance == "uncertain"
+    assert record.receipts[-1]["asserted_stance"] == "supports"
     assert record.basis == "observed"
     assert record.evidence_refs == ["账册"]
 
@@ -275,9 +276,10 @@ def test_informed_character_can_lie_but_cannot_invent_an_unknown_claim():
 
     assert context["claim_knowledge_errors"] == []
     received = entities["乙"].get_component("KnowledgeState").claims["ledger_owner"]
-    assert received.stance == "rejects"
+    assert received.stance == "uncertain"
+    assert received.receipts[-1]["asserted_stance"] == "rejects"
     assert received.source == "甲"
-    assert received.confidence == 0.6
+    assert received.confidence == 0.5
 
     context["simulation_result"]["knowledge_updates"][0]["claim_id"] = "invented"
     ClaimKnowledgeSystem().update(entities, context)

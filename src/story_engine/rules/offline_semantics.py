@@ -1,3 +1,19 @@
+"""Simplified text parsing exclusively for the explicitly selected offline baseline."""
+from src.story_engine.agents.actions import AgentAction
+from src.story_engine.rules.offline_targets import bind_action_target
+
+def interpret_offline_action(intent, actor, perception):
+    text = intent.casefold()
+    kind = "interact"
+    for candidate, words in (("observe", ("观察", "查看", "检查", "搜索", "环顾", "inspect", "observe", "search")),
+                             ("move", ("前往", "走到", "进入", "离开", "移动", "move", "go to", "leave")),
+                             ("communicate", ("说", "问", "告诉", "回答", "喊", "communicate", "speak", "ask", "tell")),
+                             ("wait", ("等待", "停留", "休息", "wait", "rest"))):
+        if any(word in text for word in words):
+            kind = candidate
+            break
+    return bind_action_target(AgentAction(kind, intent), actor_name=actor, perception=perception).action
+
 from typing import Iterable, Mapping, Optional
 
 

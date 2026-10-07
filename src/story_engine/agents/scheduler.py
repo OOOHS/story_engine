@@ -38,9 +38,6 @@ class AgentScheduler:
         if actor_location and player_location and actor_location == player_location:
             return AgentActivation(True, "foreground", "shares_player_location")
 
-        if self._has_local_world_signal(actor_location, proposals):
-            return AgentActivation(True, "background", "local_world_signal")
-
         # Every branch below only runs with policy == "background": the
         # foreground/is_player/no_player_viewpoint/shares_player_location
         # checks above already returned for anything else.
@@ -60,14 +57,6 @@ class AgentScheduler:
                 True,
                 "background",
                 f"navigation_problem:{navigation_problem}",
-            )
-
-        urgent_schedule = self._urgent_schedule(entity.name, step, scene_state)
-        if urgent_schedule:
-            return AgentActivation(
-                True,
-                "background",
-                f"schedule_due:{urgent_schedule}",
             )
 
         critical_need = self._critical_need(entity)
@@ -90,22 +79,6 @@ class AgentScheduler:
         if self._is_scheduled(entity.name, step, interval):
             return AgentActivation(True, "background", "background_tick")
         return AgentActivation(False, "dormant", "not_scheduled")
-
-    def _has_local_world_signal(
-        self,
-        actor_location: Any,
-        proposals: Iterable[Dict[str, Any]],
-    ) -> bool:
-        if not actor_location:
-            return False
-        for proposal in proposals or []:
-            if not isinstance(proposal, dict):
-                continue
-            if proposal.get("actor") != "World":
-                continue
-            if proposal.get("location") == actor_location:
-                return True
-        return False
 
     def _critical_need(self, entity: Entity) -> str:
         drive = entity.get_component("DriveState")
@@ -215,37 +188,6 @@ class AgentScheduler:
             else int(record.created_step)
         )
         return record.goal_id if int(step) - last_step >= interval else ""
-
-    def _urgent_schedule(
-        self,
-        actor_name: str,
-        step: int,
-        scene_state: Any,
-    ) -> str:
-        if not scene_state:
-            return ""
-        for item in scene_state.get_scene_flag("upcoming_commitments", []):
-            if not isinstance(item, dict):
-                continue
-            if item.get("status") in {"resolved", "missed", "cancelled"}:
-                continue
-            participants = {
-                str(actor).strip()
-                for actor in item.get("participants", [])
-                if str(actor).strip()
-            }
-            if actor_name not in participants:
-                continue
-            try:
-                due_step = int(item.get("due_step", 0))
-                wake_before = max(
-                    0, int(item.get("wake_before_steps", 1) or 0)
-                )
-            except (TypeError, ValueError):
-                continue
-            if int(step) >= due_step - wake_before:
-                return str(item.get("commitment_id", "")).strip()
-        return ""
 
     def _is_scheduled(self, actor_name: str, step: int, interval: int) -> bool:
         # Python's hash is process-randomized. This stable offset keeps replay

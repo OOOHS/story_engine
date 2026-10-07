@@ -126,6 +126,21 @@ def _restore_subject_snapshot(dest: Path, home: Path) -> None:
         shutil.copytree(dest / "memories", target)
 
 
+def discard_local_subject_checkpoint(payload: Dict[str, Any]) -> None:
+    """Release one transient snapshot after its Host step checkpoint expires."""
+
+    checkpoint_dir = str((payload or {}).get("checkpoint_dir", "")).strip()
+    subject_home = str((payload or {}).get("subject_home", "")).strip()
+    if not checkpoint_dir or not subject_home:
+        return
+    root = (Path(subject_home).resolve() / "host-ckpts").resolve()
+    target = Path(checkpoint_dir).resolve()
+    if target.parent != root or target.name == "birth":
+        return
+    if target.is_dir():
+        shutil.rmtree(target)
+
+
 class HermesInvocationBudgetExceeded(RuntimeError):
     """Raised before a Hermes invocation would exceed the Host budget."""
 
@@ -172,10 +187,10 @@ class HermesContainerConfig:
     docker_binary: str = "docker"
     timeout_seconds: float = 180.0
     network_mode: str = "bridge"
-    # Default production subjects need Hermes' native memory tool for
-    # long-term recall; Host no longer retrieves relevant memories for them.
+    # Default production subjects use Hermes' curated memory and transcript
+    # recall tools; each subject has an isolated HERMES_HOME/state.db.
     # Callers may widen or narrow this allowlist explicitly.
-    allowed_toolsets: Tuple[str, ...] = ("memory",)
+    allowed_toolsets: Tuple[str, ...] = ("memory", "session_search")
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
@@ -209,7 +224,7 @@ class HermesLocalProcessConfig:
     working_directory: str = ""
     home_root: str = ""
     timeout_seconds: float = 180.0
-    allowed_toolsets: Tuple[str, ...] = ("memory",)
+    allowed_toolsets: Tuple[str, ...] = ("memory", "session_search")
     environment_keys: Tuple[str, ...] = (
         "OPENAI_API_KEY",
         "IKUN_API_KEY",
@@ -460,6 +475,7 @@ class _HermesLocalProcessConversationMixin:
             except Exception:
                 if dest.exists():
                     shutil.rmtree(dest)
+                raise
         return self._file_checkpoint(dest.name)
 
     def restore_checkpoint(self, payload: Dict[str, Any]) -> None:
@@ -842,10 +858,14 @@ def make_hermes_container_runtime_factory(
         requested_toolsets = runtime_config.get("enabled_toolsets", [])
         if not isinstance(requested_toolsets, (list, tuple)):
             requested_toolsets = []
-        # The subject needs its native memory tool even when content forgot
-        # to ask; other requests still have to pass the Host allowlist.
+        # Native memory and compressed-transcript recall are baseline subject
+        # capabilities; other requests still pass through the Host allowlist.
         requested_toolsets = tuple(
-            dict.fromkeys(["memory", *[str(item) for item in requested_toolsets]])
+            dict.fromkeys([
+                "memory",
+                "session_search",
+                *[str(item) for item in requested_toolsets],
+            ])
         )
 
         def conversation_factory(character_entity, character_config):
@@ -875,7 +895,11 @@ def make_local_hermes_runtime_factory(
         if not isinstance(requested_toolsets, (list, tuple)):
             requested_toolsets = []
         requested_toolsets = tuple(
-            dict.fromkeys(["memory", *[str(item) for item in requested_toolsets]])
+            dict.fromkeys([
+                "memory",
+                "session_search",
+                *[str(item) for item in requested_toolsets],
+            ])
         )
 
         def conversation_factory(character_entity, character_config):

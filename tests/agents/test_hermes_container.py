@@ -19,6 +19,30 @@ from src.story_engine.agents import (
     make_hermes_container_runtime_factory,
 )
 from src.story_engine.prefabs.templates import create_agent
+from src.story_engine.agents.hermes_container import discard_local_subject_checkpoint
+
+
+def test_transient_local_subject_checkpoint_cleanup_stays_within_its_home(tmp_path):
+    home = tmp_path / "subject"
+    transient = home / "host-ckpts" / "turn-1"
+    birth = home / "host-ckpts" / "birth"
+    outside = tmp_path / "outside"
+    for directory in (transient, birth, outside):
+        directory.mkdir(parents=True)
+
+    discard_local_subject_checkpoint({
+        "checkpoint_dir": str(transient), "subject_home": str(home)
+    })
+    discard_local_subject_checkpoint({
+        "checkpoint_dir": str(birth), "subject_home": str(home)
+    })
+    discard_local_subject_checkpoint({
+        "checkpoint_dir": str(outside), "subject_home": str(home)
+    })
+
+    assert not transient.exists()
+    assert birth.is_dir()
+    assert outside.is_dir()
 
 
 def _marked(payload, *, agent_id="x"):
@@ -56,7 +80,7 @@ def test_hermes_system_prompt_assigns_an_agent_to_operate_the_character():
     assert "You are not the fictional person" in prompt
 
 
-def test_container_factory_always_requests_memory_toolset():
+def test_container_factory_always_requests_native_recall_toolsets():
     factory = make_hermes_container_runtime_factory(
         HermesContainerConfig(allowed_toolsets=("memory", "file")),
         command_runner=lambda *args, **kwargs: None,
@@ -71,11 +95,11 @@ def test_container_factory_always_requests_memory_toolset():
     )
     runtime = factory(entity, entity.get_component("AgentController").config)
     conversation = runtime._factory(entity, {})
-    assert conversation.requested_toolsets == ("memory", "file")
+    assert conversation.requested_toolsets == ("memory", "session_search", "file")
     assert conversation.enabled_toolsets == ("memory", "file")
 
 
-def test_container_factory_memory_request_respects_explicit_allowlist():
+def test_container_factory_native_recall_requests_respect_explicit_allowlist():
     factory = make_hermes_container_runtime_factory(
         HermesContainerConfig(allowed_toolsets=("file",)),
         command_runner=lambda *args, **kwargs: None,
@@ -90,7 +114,7 @@ def test_container_factory_memory_request_respects_explicit_allowlist():
     )
     runtime = factory(entity, entity.get_component("AgentController").config)
     conversation = runtime._factory(entity, {})
-    assert conversation.requested_toolsets == ("memory", "file")
+    assert conversation.requested_toolsets == ("memory", "session_search", "file")
     assert conversation.enabled_toolsets == ("file",)
 
 
@@ -673,7 +697,7 @@ def test_hermes_runtime_allows_a_direct_subject_owned_action():
     )
 
     assert decision.action == "等待。"
-    assert decision.normalized_action().kind == "wait"
+    assert decision.normalized_action().detail == "等待。"
 
 
 def test_hermes_runtime_rejects_legacy_candidates_protocol():

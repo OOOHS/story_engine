@@ -10,8 +10,8 @@ from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.components.narrative_renderer import NarrativeRenderer
 from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
 from src.story_engine.components.host_rule_narrative import HostRuleNarrativeRenderer
-from src.story_engine.components.narrative_director import NarrativeDirector
-from src.story_engine.components.drama_state import DramaState
+from src.story_engine.components.story_planner import StoryPlanner
+from src.story_engine.components.story_tracking import StoryTracking
 from src.story_engine.components.observation import Observation
 from src.story_engine.components.memory import Memory
 from src.story_engine.components.relationship import RelationshipBit
@@ -106,14 +106,16 @@ def create_gm(scenario: ScenarioConfig, *, memory_namespace: str = "") -> Entity
     # deterministic, LLM-free host by construction (see PLAY_PROFILES /
     # HostRuleSimulationControl), so it must never pick up a live director
     # call even if a scenario left the flag at its default-on value.
-    if simulation_mode == "llm" and bool(
-        getattr(scenario, "narrative_director_enabled", True)
-    ):
-        gm.add_component(NarrativeDirector(
+    if simulation_mode == "llm":
+        gm.add_component(StoryPlanner(
             model_config=simulation_config,
             scenario=scenario,
+            interval_turns=scenario.story_planner_interval_turns,
+            interval_seconds=scenario.story_planner_interval_seconds,
         ))
-    gm.add_component(DramaState.from_config(scenario.drama))
+        gm.get_component("StoryPlanner").record_opening(scenario.initial_state)
+        gm.add_component(StoryTracking(model_config=simulation_config, scenario=scenario))
+        gm.get_component("StoryTracking").reconcile(gm.get_component("SceneState"))
     gm.add_component(Observation())
     gm.add_component(
         Memory(agent_name="WorldHost", namespace=memory_namespace)

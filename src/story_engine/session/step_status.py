@@ -24,9 +24,13 @@ def public_step_status(context: Dict[str, Any] | None) -> Dict[str, Any]:
     else:
         status = "unknown"
         committed = False
-    return {
+    result = {
         "status": status,
         "committed": committed,
         "failure_phase": str(first_error.get("phase", ""))[:120],
         "failure_type": str(first_error.get("error_type", ""))[:120],
     }
+    story_planner_status = context.get("story_planner_status")
+    if isinstance(story_planner_status, dict) and story_planner_status.get("status"):
+        result["story_planner_status"] = str(story_planner_status["status"])[:40]
+    return result

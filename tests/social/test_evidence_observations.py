@@ -143,4 +143,5 @@ def test_host_discovery_satisfies_existing_claim_knowledge_boundary():
     )
 
     assert errors == []
-    assert applied[0]["stance"] == "supports"
+    assert applied[0]["evidence_relation"] == "supports"
+    assert entities["甲"].get_component("KnowledgeState").claims["secret"].stance == "uncertain"

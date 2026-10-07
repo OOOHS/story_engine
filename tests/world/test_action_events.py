@@ -55,7 +55,8 @@ def test_atomic_action_protocol_keeps_small_kinds_and_natural_language_parameter
         "detail": "检查信封背面的压痕",
         "target": "信封",
     }
-    assert legacy.kind == "move"
+    assert legacy.detail == "走到门边询问守卫"
+    assert legacy.kind == "interact"  # opaque until host semantic interpretation
 
 
 def test_interact_action_can_carry_a_non_authoritative_affordance_reference():

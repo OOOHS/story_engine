@@ -1,4 +1,4 @@
-"""POV-bounded target binding for natural-language action proposals."""
+"""Simplified POV target matching for the explicit offline baseline."""
 
 from __future__ import annotations
 

@@ -15,11 +15,10 @@ supports Host-visible alternatives.
 """
 
 from dataclasses import dataclass
-from typing import Any, Dict, Set
+from typing import Any, Dict
 
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentDecision
-from src.story_engine.common.action_features import infer_social_response_kinds
 
 
 @dataclass(frozen=True)
@@ -41,47 +40,16 @@ def commit_runtime_action(decision: AgentDecision) -> RuntimeCommitment:
     )
 
 
-# Keyword families exist only so the stagnation audit can tell "the same plan
-# again, reworded" from "a genuinely different plan of the same kind". They
-# never influence which action runs.
-_TAG_PATTERNS = {
-    "risk": ("冒险", "冲", "闯", "强行", "攻击", "威胁", "危险", "risk", "attack"),
-    "confront": ("质问", "对峙", "反驳", "拒绝", "挑战", "威胁", "施压", "指责", "控告", "confront", "accuse"),
-    "retreat": ("撤退", "逃", "离开", "退开", "避开", "withdraw", "flee"),
-    "aid": ("帮助", "保护", "救", "照顾", "支援", "help", "protect", "rescue"),
-    "information": ("观察", "检查", "搜索", "询问", "打听", "试探", "偷听", "observe", "ask"),
-    "deception": ("欺骗", "撒谎", "假装", "隐瞒", "误导", "deceive", "lie"),
-    "rest": ("等待", "休息", "停留", "冷静", "wait", "rest"),
-}
-
-
 def repetition_signature(action: Any) -> str:
     """Stable identity of a plan, for the repeated-choice audit only."""
     action = AgentAction.from_value(action)
-    tags = ",".join(sorted(_infer_tags(action)))
     structured = repr(_structured_action_signature(action))
-    return "\x1f".join((action.kind, tags, structured))[:1000]
+    return "\x1f".join((action.kind, structured))[:1000]
 
 
 def repetition_target(action: Any) -> str:
     action = AgentAction.from_value(action)
     return " ".join(action.target.casefold().split())
-
-
-def _infer_tags(action: AgentAction) -> Set[str]:
-    tags = {action.kind}
-    text = f"{action.detail} {action.target}".casefold()
-    for tag, patterns in _TAG_PATTERNS.items():
-        if any(pattern.casefold() in text for pattern in patterns):
-            tags.add(tag)
-    if action.kind == "communicate":
-        tags.update(infer_social_response_kinds(text))
-        tags.add("social")
-    elif action.kind == "observe":
-        tags.update({"information", "cautious"})
-    elif action.kind == "wait":
-        tags.update({"rest", "patient", "cautious"})
-    return tags
 
 
 def _structured_action_signature(action: AgentAction) -> tuple[Any, ...]:

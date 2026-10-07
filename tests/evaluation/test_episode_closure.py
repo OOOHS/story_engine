@@ -567,69 +567,8 @@ def test_dormant_navigation_problem_is_preserved_but_does_not_block_closure():
     assert navigation.problems["navigation:blocked-road"].status == "active"
 
 
-def test_scheduled_timeline_commitment_blocks_premature_episode_closure():
-    goals = GoalState.from_initial(
-        structured=[{
-            "goal_id": "seed",
-            "title": "已经完成的眼前目标",
-            "completion_conditions": [{"scope": "scene", "path": "done"}],
-        }]
-    )
-    goals.goals["seed"].status = "achieved"
-    scene = SceneState(
-        scene_flags={
-            "upcoming_commitments": [{
-                "commitment_id": "future-ceremony",
-                "title": "稍后举行的仪式",
-                "due_step": 6,
-                "status": "scheduled",
-            }]
-        }
-    )
-
-    status = EpisodeClosureEvaluator().evaluate(
-        _closure_session(goal_state=goals, scene_state=scene),
-        EpisodeClosurePolicy(),
-    )
-
-    assert status.eligible is False
-    assert status.blockers == ("active_timeline_commitments",)
-    assert status.details["active_timeline_commitment_count"] == 1
-
-    chapter_cut = EpisodeClosureEvaluator().evaluate(
-        _closure_session(goal_state=goals, scene_state=scene),
-        EpisodeClosurePolicy(require_no_active_timeline_commitments=False),
-    )
-    assert chapter_cut.eligible is True
 
 
-def test_resolved_timeline_commitment_no_longer_blocks_closure():
-    goals = GoalState.from_initial(
-        structured=[{
-            "goal_id": "seed",
-            "title": "已经完成的眼前目标",
-            "completion_conditions": [{"scope": "scene", "path": "done"}],
-        }]
-    )
-    goals.goals["seed"].status = "achieved"
-    scene = SceneState(
-        scene_flags={
-            "upcoming_commitments": [{
-                "commitment_id": "finished-ceremony",
-                "title": "已经结束的仪式",
-                "due_step": 2,
-                "status": "resolved",
-            }]
-        }
-    )
-
-    status = EpisodeClosureEvaluator().evaluate(
-        _closure_session(goal_state=goals, scene_state=scene),
-        EpisodeClosurePolicy(),
-    )
-
-    assert status.eligible is True
-    assert status.details["active_timeline_commitment_count"] == 0
 
 
 def test_active_investigation_does_not_count_as_stable_closure(tmp_path):

@@ -1,6 +1,6 @@
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.simulation_control import SimulationControl
-from src.story_engine.narrative import ConflictDirector
+from src.story_engine.narrative import ConflictPressure
 from src.story_engine.systems.rendering import RenderingSystem
 from src.story_engine.systems.simulation import SimulationSystem
 from src.story_engine.scenarios.config import (
@@ -44,7 +44,7 @@ def _scenario():
 
 
 def test_conflict_director_selects_templates_from_phase_and_step():
-    selected = ConflictDirector().select_templates(
+    selected = ConflictPressure().select_templates(
         _scenario().conflict_templates,
         phase="night",
         current_step=4,
@@ -54,7 +54,7 @@ def test_conflict_director_selects_templates_from_phase_and_step():
 
 
 def test_conflict_director_records_quiet_and_visible_turns_deterministically():
-    director = ConflictDirector()
+    director = ConflictPressure()
     scene = SceneState(
         scene_flags={
             "quiet_turns_since_conflict": 0,
@@ -86,7 +86,7 @@ def test_conflict_director_records_quiet_and_visible_turns_deterministically():
     assert scene.get_scene_flag("recent_conflict_template_ids") == ["second", "third"]
 
 
-def test_conflict_packet_combines_director_storylet_and_transition_pressure():
+def test_conflict_packet_combines_storylet_and_visible_reaction_pressure():
     scenario = _scenario()
     scene = SceneState(
         scene_flags={
@@ -95,7 +95,7 @@ def test_conflict_packet_combines_director_storylet_and_transition_pressure():
             "visible_conflict_count": 0,
         }
     )
-    packet = ConflictDirector().build_packet(
+    packet = ConflictPressure().build_packet(
         scene_state=scene,
         scenario=scenario,
         current_step=4,
@@ -109,22 +109,18 @@ def test_conflict_packet_combines_director_storylet_and_transition_pressure():
             "priority_tags": ["secret"],
             "preferred_template_ids": ["late"],
         },
-        timeline_packet={
-            "transition_pressure": {"requires_human_backlash": True}
-        },
-        director_packet={"directive": "raise_pressure"},
     )
 
     assert packet["mode"] == "advisory_pressure"
     assert packet["visible_conflict_opportunity"] is True
-    assert packet["pressure_state"] == "acute"
+    assert packet["pressure_state"] == "rising"
     assert "require_visible_conflict" not in packet
     assert packet["storylet_template_ids"] == ["late"]
     assert packet["active_templates"][0]["template_id"] == "late"
 
 
 def test_conflict_pressure_hint_reaches_the_semantic_resolver_input_payload():
-    conflict_packet = ConflictDirector().build_packet(
+    conflict_packet = ConflictPressure().build_packet(
         scene_state=SceneState(
             scene_flags={
                 "day_phase": "night",
@@ -140,14 +136,12 @@ def test_conflict_pressure_hint_reaches_the_semantic_resolver_input_payload():
             "hostile_watchers": ["对手"],
         },
         storylet_packet={},
-        timeline_packet={},
-        director_packet={"directive": "raise_pressure"},
     )
 
     hint = SimulationSystem._build_conflict_pressure_hint(conflict_packet)
 
     assert hint["visible_conflict_opportunity"] is True
-    assert hint["pressure_state"] == "acute"
+    assert hint["pressure_state"] == "rising"
     assert hint["active_templates"] == [
         {
             "template_id": "late",
@@ -163,14 +157,12 @@ def test_conflict_pressure_hint_reaches_the_semantic_resolver_input_payload():
 
 def test_conflict_pressure_hint_is_empty_when_there_is_nothing_to_surface():
     quiet_scenario = _scenario().model_copy(update={"conflict_templates": []})
-    quiet_packet = ConflictDirector().build_packet(
+    quiet_packet = ConflictPressure().build_packet(
         scene_state=SceneState(scene_flags={}),
         scenario=quiet_scenario,
         current_step=0,
         reaction_context={},
         storylet_packet={},
-        timeline_packet={},
-        director_packet=None,
     )
 
     assert SimulationSystem._build_conflict_pressure_hint(quiet_packet) == {}
@@ -208,7 +200,7 @@ def test_conflict_opportunity_does_not_mutate_a_quiet_result_or_cast_an_npc():
         "conflict_flags": [],
         "tension_delta": 0.0,
     }
-    packet = ConflictDirector().build_packet(
+    packet = ConflictPressure().build_packet(
         scene_state=SceneState(
             scene_flags={
                 "quiet_turns_since_conflict": 3,
@@ -219,8 +211,6 @@ def test_conflict_opportunity_does_not_mutate_a_quiet_result_or_cast_an_npc():
         current_step=4,
         reaction_context={"hostile_watchers": ["对手"]},
         storylet_packet={},
-        timeline_packet={},
-        director_packet={"directive": "raise_pressure"},
     )
 
     assert packet["visible_conflict_opportunity"] is True

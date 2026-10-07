@@ -21,15 +21,13 @@ class StateCondition(BaseModel):
 
 
 class PhysicsRuleConfig(BaseModel):
-    """A content-declared, keyword-triggered capability gate.
+    """A content-declared physical constraint interpreted semantically by the model.
 
-    This lets a scenario state "these words imply a capability, and only
-    actors with that capability may act on them" as data, instead of
-    requiring a new Python function in LegalityEngine for every setting
-    (e.g. a magic-world scenario allowing flight for actors tagged
-    capabilities=["flight"], with no engine code change).
+    ``keywords`` retains existing content annotations; it performs no runtime
+    matching. New content can state the constraint directly in ``statement``.
     """
 
+    statement: str = ""
     keywords: List[str] = Field(default_factory=list)
     capability: str = ""
     reason: str = ""
@@ -65,9 +63,16 @@ class StoryBeatConfig(BaseModel):
 
 class StoryletConfig(BaseModel):
     """
-    Atomic narrative trigger that only knows its locks and intent.
+    Composable future narrative content, its prerequisites and intended effects.
+
+    ``conditions`` are optional exact state guards. ``trigger`` describes a
+    natural-language prerequisite interpreted by world settlement. ``intent``
+    describes prospective narrative direction; settlement separates concrete
+    world effects from optional suggestions addressed to character agents.
     """
     storylet_id: str
+    location: str = ""
+    trigger: str = ""
     intent: str
     conditions: List[StateCondition] = Field(default_factory=list)
     priority: int = 0
@@ -228,6 +233,10 @@ class ScenarioConfig(BaseModel):
     name: str
     description: str  # 高层描述
     environment: str  # 物理环境细节
+    # Author-only premise may contain secrets and unobserved history. The
+    # settlement GM and post-commit director can read it; player-facing
+    # openings, SceneState descriptions, and Narrator prompts cannot.
+    private_author_premise: str = ""
     # Runtime-dynamic spawn (spawn_character) has no per-character
     # agent_runtime to read from content, since the request comes from the
     # model at play time. This scenario-level field is the only source of
@@ -240,18 +249,13 @@ class ScenarioConfig(BaseModel):
     # fallback.
     simulation_mode: Literal["llm", "rules"] = "llm"
     narration_mode: Literal["llm", "rules"] = "llm"
-    # Post-commit narrative enrichment is a designed part of the production
-    # experience, so it is on by default alongside ``simulation_mode="llm"``.
-    # It only ever attaches when the GM is LLM-backed (see
-    # ``scenario_loader.create_gm``): a ``rules`` profile is a deterministic,
-    # LLM-free host by construction and must not pick up a live director call
-    # just because this flag happens to still be true.
-    narrative_director_enabled: bool = True
+    # Persistent story planner sees generated player narrative and proposes drafts.
+    # Structural registration admits future definitions; independent trackers own progress.
+    story_planner_enabled: bool = True
+    story_planner_interval_turns: int = Field(default=5, ge=1)
+    story_planner_interval_seconds: Optional[float] = Field(default=None, gt=0)
     physics_profile: str = "mundane"
-    # When non-empty, these fully replace LegalityEngine's built-in
-    # "mundane" keyword table for this scenario's physics_profile: content
-    # can declare a magic/wuxia/etc. world's capability gates as data, with
-    # no LegalityEngine code change and no register_profile() call.
+    # Physical constraints are semantic context for settlement and commit review.
     physics_rules: List[PhysicsRuleConfig] = Field(default_factory=list)
     # How many new DriveState needs a single character may have created at
     # runtime (via drive_creations) over the whole episode. 0 (default)
@@ -268,7 +272,8 @@ class ScenarioConfig(BaseModel):
     initial_relationships: List[RelationshipConfig] = Field(default_factory=list)
     claims: List[ClaimConfig] = Field(default_factory=list)
     storylets: List[StoryletConfig] = Field(default_factory=list)
-    drama: DramaConfig = Field(default_factory=DramaConfig)
+    # Legacy content compatibility only; production no longer uses DramaState.
+    drama: DramaConfig = Field(default_factory=DramaConfig, deprecated=True)
     conflict: ConflictConfig = Field(default_factory=ConflictConfig)
     conflict_templates: List[ConflictTemplateConfig] = Field(default_factory=list)
     # 场景预定义角色

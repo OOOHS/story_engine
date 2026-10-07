@@ -138,7 +138,7 @@ def test_input_uses_registered_agent_and_gives_it_pov_bounded_perception():
 
     perception = runtime.perceptions[0][1]
     assert isinstance(perception, AgentPerception)
-    assert [item["actor"] for item in perception.visible_proposals] == ["乙"]
+    assert perception.visible_proposals == []  # Same-location proposals still await settlement.
     assert "丙" not in perception.world_view.get("visible_actor_states", {})
     visible_乙 = perception.world_view["visible_actor_states"]["乙"]
     assert visible_乙 == {"location": "房间", "stance": "seated"}
@@ -369,7 +369,7 @@ def test_scheduler_runs_offscreen_agents_on_staggered_background_ticks():
     assert due_steps[1] - due_steps[0] == 4
 
 
-def test_scheduler_wakes_offscreen_agent_for_local_world_signal():
+def test_scheduler_keeps_uncommitted_world_injection_from_waking_an_agent():
     scheduler = AgentScheduler()
     character = _character("守门人")
     character.get_component("AgentController").background_interval = 99
@@ -391,9 +391,8 @@ def test_scheduler_wakes_offscreen_agent_for_local_world_signal():
         has_manual_override=False,
     )
 
-    assert activation.active is True
-    assert activation.scope == "background"
-    assert activation.reason == "local_world_signal"
+    assert activation.active is False
+    assert activation.reason == "not_scheduled"
 
 
 def test_scheduler_wakes_offscreen_agent_once_for_pending_world_event():
@@ -673,7 +672,8 @@ def test_open_agent_goal_gets_slow_bounded_review_but_authored_goal_does_not():
 
 def test_input_records_successful_goal_continuation_wakeup():
     class SimulationControl(Component):
-        pass
+        def interpret_action(self, intent, actor, perception):
+            return AgentAction("move", intent)
 
     runtime = RecordingRuntime(action="继续前往远处。")
     registry = AgentRegistry()
@@ -762,7 +762,7 @@ def test_dormant_agent_only_wakes_for_manual_override():
     assert manual.reason == "manual_override"
 
 
-def test_input_collects_offscreen_background_proposal_when_local_event_arrives():
+def test_input_retains_world_proposal_until_settlement_without_waking_peers():
     class SimulationControl(Component):
         pass
 
@@ -802,12 +802,8 @@ def test_input_collects_offscreen_background_proposal_when_local_event_arrives()
 
     InputSystem().update({"WorldHost": gm, "守门人": guard}, context)
 
-    proposal = context["intents"][-1]
-    assert proposal["actor"] == "守门人"
-    assert proposal["activation_scope"] == "background"
-    assert proposal["proposal_role"] == "background_character_proposal"
-    assert proposal["proposal_priority"] < 0.4
-    assert runtime.perceptions[0][1].activation_scope == "background"
+    assert [item["actor"] for item in context["intents"]] == ["World"]
+    assert runtime.perceptions == []
 
 
 def test_input_delivers_and_acknowledges_pending_world_event_attention():
@@ -944,6 +940,10 @@ def test_manual_decision_context_is_bounded_and_omits_raw_cognition_ledgers():
             "pending_event_responses": ["response:1"],
             "current_focus": "灯",
         },
+        private_knowledge={"claims": [
+            {"statement": "门已经锁上", "stance": "supports", "truth_status": "false"},
+            {"statement": "钥匙在乙手里", "stance": "uncertain"},
+        ]},
         passive_observations=[
             {
                 "actor": "World",
@@ -960,6 +960,10 @@ def test_manual_decision_context_is_bounded_and_omits_raw_cognition_ledgers():
 
     assert context["visible_objects"] == ["灯"]
     assert context["pending_world_events"] == ["event:1"]
+    assert context["known_claims"] == [
+        {"statement": "门已经锁上", "stance": "supports"},
+        {"statement": "钥匙在乙手里", "stance": "uncertain"},
+    ]
     assert context["passive_observations"] == [
         {
             "actor": "World",
@@ -1213,7 +1217,7 @@ def test_world_event_experience_is_passive_and_preserves_witness_mode():
     assert event["witness_mode"] == "direct"
 
 
-def test_structured_injected_event_wakes_agent_at_remote_location():
+def test_structured_injected_event_is_hidden_until_committed():
     class SimulationControl(Component):
         pass
 
@@ -1254,8 +1258,14 @@ def test_structured_injected_event_wakes_agent_at_remote_location():
     InputSystem().update({"WorldHost": gm, "瞭望员": watcher}, context)
 
     assert context["intents"][0]["event_id"] == "mountain_flare"
-    assert context["intents"][-1]["actor"] == "瞭望员"
-    assert runtime.perceptions[0][1].world_signals[0]["intent"] == "北侧山脊出现红色信号弹。"
+    assert context["intents"][-1]["actor"] == "World"
+    assert runtime.perceptions == []
+    perception = InputSystem().build_agent_perception(
+        entity=watcher, scene_state=gm.get_component("SceneState"),
+        intents_buffer=context["intents"], context=context, activation_scope="foreground",
+    )
+    assert perception.world_signals == []
+    assert perception.visible_proposals == []
 
 
 def test_cognition_keeps_agent_inference_subjective_and_bounded():

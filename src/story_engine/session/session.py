@@ -6,7 +6,7 @@ from typing import Dict, Optional, List, Any
 from src.story_engine.environment.runner import Runner
 from src.story_engine.scenarios.config import ScenarioConfig
 from .scenario_loader import setup_scenario
-from .seed_compiler import compile_scenario_seed
+from .semantic_seed_compiler import compile_play_seed
 from .step_status import public_step_status
 
 
@@ -20,16 +20,26 @@ class Session:
         self.scenario = scenario
         self.step_count = 0
         self._closed = False
+        self.autosave_path = None
+        self.presentation_state = {}
+
+    def save(self, path):
+        from .savegame import save_session
+        return save_session(self, path)
 
     def close(self) -> None:
         """Release live agent runtimes owned by this session."""
 
         if self._closed:
             return
-        self._closed = True
-        close = getattr(self.runner, "close", None)
-        if callable(close):
-            close()
+        try:
+            if self.autosave_path:
+                self.save(self.autosave_path)
+        finally:
+            self._closed = True
+            close = getattr(self.runner, "close", None)
+            if callable(close):
+                close()
 
     @property
     def entities(self):
@@ -62,6 +72,8 @@ class Session:
             "authoritative_step_failed", False
         ):
             self.step_count += 1
+        if self.autosave_path:
+            self.save(self.autosave_path)
         return context
 
     def is_actor_ready(self, actor_name: str) -> bool:
@@ -87,7 +99,10 @@ class Session:
 
     def retry_delivery(self, on_phase_done: Optional[Any] = None) -> Dict[str, Any]:
         """Retry post-commit Rendering/Memory without consuming another step."""
-        return self.runner.retry_delivery(on_phase_done=on_phase_done)
+        result = self.runner.retry_delivery(on_phase_done=on_phase_done)
+        if self.autosave_path:
+            self.save(self.autosave_path)
+        return result
 
     @property
     def simulation_time(self) -> int:
@@ -115,7 +130,11 @@ def create_session(
         modifier_definitions=modifier_definitions,
         memory_namespace=memory_namespace,
     )
-    setup_scenario(runner, scenario)
+    try:
+        setup_scenario(runner, scenario)
+    except Exception:
+        runner.close()
+        raise
     return Session(runner, scenario)
 
 
@@ -130,6 +149,8 @@ def create_session_from_seed(
     runtime: str = "hermes",
     simulation_mode: str | None = None,
     narration_mode: str | None = None,
+    profile: str = "production",
+    seed_provider: Any | None = None,
 ) -> Session:
     """Compile an author seed and immediately create a runnable Session.
 
@@ -139,12 +160,22 @@ def create_session_from_seed(
     process is started.
     """
 
-    scenario = compile_scenario_seed(
+    scenario = compile_play_seed(
         seed,
+        profile=profile,
+        provider=seed_provider,
         runtime=runtime,
         simulation_mode=simulation_mode,
         narration_mode=narration_mode,
     )
+    if profile == "offline":
+        from .play_profile import bind_play_profile
+
+        scenario = bind_play_profile(scenario, "offline")
+    if agent_runtime_factories is None:
+        from .play_profile import runtime_factories_for_profile
+
+        agent_runtime_factories = runtime_factories_for_profile(profile)
     return create_session(
         scenario,
         agent_runtime_factories=agent_runtime_factories,

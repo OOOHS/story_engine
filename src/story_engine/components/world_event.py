@@ -38,7 +38,7 @@ class WorldEventFact(Component):
     location: str = ""
     subjects: List[str] = Field(default_factory=list)
     objects: List[str] = Field(default_factory=list)
-    source_type: str = "timeline"
+    source_type: str = "world_action"
     source_ref: str = ""
     visibility: Literal["public", "local", "hidden"] = "local"
     impacts: List[WorldEventImpact] = Field(default_factory=list)

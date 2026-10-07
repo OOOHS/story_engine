@@ -43,6 +43,7 @@ class Cognition(Component):
     pending_event_responses: List[str] = Field(default_factory=list)
     world_event_attention: Dict[str, AttentionRecord] = Field(default_factory=dict)
     event_response_attention: Dict[str, AttentionRecord] = Field(default_factory=dict)
+    pending_director_suggestions: List[Dict[str, Any]] = Field(default_factory=list)
 
     def get_private_snapshot(self, current_step: int | None = None) -> Dict[str, Any]:
         resolved_step = self._resolved_step(current_step)
@@ -51,6 +52,7 @@ class Cognition(Component):
             :ATTENTION_DELIVERY_LIMIT
         ]
         return {
+            "director_suggestions": deepcopy(self.pending_director_suggestions[:16]),
             "beliefs": deepcopy(self.beliefs[-40:]),
             "secrets": list(self.secrets[-20:]),
             "commitments": list(self.commitments[-20:]),

@@ -12,10 +12,9 @@ author-facing seed and the schema consumed by the ECS bootstrap:
   ``物品:``, ``规则:`` and ``初始状态:``).  Unrecognised prose remains the
   opening premise instead of being hallucinated into hidden world state.
 
-This is intentionally not a semantic LLM parser.  It is a deterministic
-bootstrap compiler that makes the first end-to-end loop reliable.  A future
-semantic compiler can target the same mapping API and still be checked by the
-same ScenarioConfig validation and bootstrap invariants.
+This deterministic bootstrap compiler is also the authority boundary used by
+the production semantic seed compiler.  Semantic extraction targets this
+mapping API and receives the same ScenarioConfig and bootstrap checks.
 """
 
 from __future__ import annotations
@@ -68,13 +67,17 @@ class SeedDraft(BaseModel):
     goals: Any = Field(default_factory=list)
     initial_world_objects: Any = Field(default_factory=dict)
     initial_scene_flags: Any = Field(default_factory=dict)
+    claims: Any = Field(default_factory=list)
+    initial_relationships: Any = Field(default_factory=list)
     public_scene_fields: Any = Field(default_factory=list)
     private_scene_fields: Any = Field(default_factory=list)
     default_agent_runtime: str | None = None
     physics_profile: str | None = None
     simulation_mode: str | None = None
     narration_mode: str | None = None
-    narrative_director_enabled: bool | None = None
+    story_planner_enabled: bool | None = None
+    story_planner_interval_turns: int | None = Field(default=None, ge=1)
+    story_planner_interval_seconds: float | None = Field(default=None, gt=0)
     metadata: Any = Field(default_factory=dict)
 
 
@@ -935,7 +938,14 @@ def _normalise_characters(raw: Any, *, runtime: str) -> list[dict[str, Any]]:
         value["name"] = name
         value["role"] = _clean_token(value.get("role")) or "角色"
         value["personality"] = _clean_token(value.get("personality")) or "根据所见事实行动。"
-        value["goals"] = _normalise_goals(value.get("goals")) or ["探索当前局面"]
+        # An explicitly empty list means the author left this character's
+        # motivation open for the subject.  Only omitted goals receive the
+        # small deterministic seed's exploratory default.
+        value["goals"] = (
+            _normalise_goals(value.get("goals"))
+            if "goals" in value
+            else ["探索当前局面"]
+        )
         value["is_player"] = bool(value.get("is_player", False))
         value["agent_runtime"] = _clean_token(value.get("agent_runtime")) or runtime
         # Internal parser keys are removed later, but keeping them here makes

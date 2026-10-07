@@ -90,6 +90,17 @@ class AgentRegistry:
         snapshot: Dict[str, Any],
         world_entities: Dict[str, Entity],
     ) -> None:
+        retained = {id(runtime) for runtime in snapshot.values()}
+        released = set()
+        for registered in self.agents():
+            runtime = registered.runtime
+            identity = id(runtime)
+            if identity in retained or identity in released:
+                continue
+            close = getattr(runtime, "close", None)
+            if callable(close):
+                close()
+            released.add(identity)
         self._by_entity_id = {}
         self._entity_id_by_name = {}
         for name, runtime in snapshot.items():

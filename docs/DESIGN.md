@@ -18,17 +18,22 @@
 - 文本只是这些状态的表现层，不是状态本身。
 - 任何会改变世界的结算，都必须先落到结构化状态上。
 
-### 2. Storylet 不是分支树
+### 2. Storylet 提供未来的条件剧情
 
-- 事件不再是写死的分叉剧情。
-- Storylet 只描述“什么条件下，它有资格介入”以及“它的叙事意图是什么”。
-- 具体是否兑现完全取决于 Agent proposal 与世界后果；宿主事后识别自然命中，Storylet 不向当前回合发任务。
+- Storylet 由内容、前置条件和执行后对世界的影响组成；可写具体场景或参数化情境。
+- `conditions` 决定资格，`intent` 描述未来的外部处境、事件及预期影响。角色如何回应由自己的 Agent 决定。
+- 本项目在条件满足后将故事块编为 World 意图，语义结算决定其实际后果，事务提交后记录命中并交付可感知事实。
+- 定义参考 [Emily Short](https://emshort.blog/2019/11/29/storylets-you-want-them/) 与 [Failbetter](https://www.failbettergames.com/news/storynexus-developer-diary-2-fewer-spreadsheets-less-swearing)。
 
-### 3. 导演系统是结构化观测
+### 3. 导演服务于玩家叙事
 
-- 张力系统不直接写戏。
-- 它只计算 `quiet / watch / rising / acute` 等压力状态和可选后果线索，不要求本轮出现危机。
-- 具体危机只能由角色行动、世界事件和已有因果自然形成；没有兑现时不建立叙事欠账。
+- `StoryPlanner` 维护独立持续会话，积累公开开场、玩家输入和面向玩家生成的世界消息。
+- `StoryPlanningSystem` 位于 WorldEvent 提交屏障与 Rendering 之后；默认每 5 个已生成玩家世界消息的回合询问一次。`story_planner_interval_turns` 配置回合间隔，`story_planner_interval_seconds` 配置时间间隔，任一到期时在下次世界消息生成成功后询问。
+- 导演通过 `propose_storylet` 工具提交面向未来的新外部情境或事件，包含条件与预期影响，每次最多两项；累计叙事帮助判断戏剧机会，已有目录和草案用于一致性与去重。角色言论保留来源及待定真实性。
+- 草案保存在 `pending_story_planner_proposals`，结构校验后原子登记到动态 Storylet 池，并记录 accepted/rejected。登记只增加未来机会，实际影响在后续触发结算中产生。
+- `StoryletExecution` 在 Simulation 中检查已有故事块的条件并提交 World 意图；每个触发必须得到明确结算，事务成功后才记录消费并通过 WorldEventSystem 通知见证角色。角色自主回应。
+- `StoryPlanner` 专职提出新故事块；NarrativeRenderer 专职生成玩家文本；两者与已有故事块的执行相互独立。
+- 回合计数表示权威步骤已提交且玩家世界消息已生成。客户端送达确认属于单独的传输语义。渲染重试保持相同 turn id，计数去重；生产故事块由独立追踪会话判断 completed/abandoned 后退出；one_shot 完成后消费。
 
 ### 4. 角色是 Agent，但 Agent 不是裁判
 
@@ -56,6 +61,13 @@
 - 剧本效果必须由初始状态、人物目标、关系、通用 storylet 条件和可复用规则表达。
 - 一个新故事应主要通过新增 ScenarioConfig 或外部内容包完成，而不是修改核心系统。
 - `src/story_engine/scenarios` 只保存通用配置 schema；完整示例故事位于独立的 `src/story_engine_content/bundled`，依赖方向只能是 content → engine，引擎源码不得反向 import 或选择默认内容。
+
+### 7. 初始设定是作者输入
+
+- 生产入口对自由散文使用 GM 模型做一次受限提取：每个角色、地点、对象、客观命题和关系都必须引用原文连续片段。模型没有写 ECS 的权限；提取结果先编译成 `ScenarioConfig`，再通过 seed 交叉引用和 Session bootstrap 的角色身体/地点不变量。
+- 完整作者原文放在 `ScenarioConfig.private_author_premise`，只进入语义 GM 和事后导演；自由散文的公开 `initial_state/description/environment` 从已验证地点构造。这样人物秘密不会从原始设定经 Web 开场或 Narrator 环境提示提前泄漏。
+- 完整 JSON/YAML 和同时声明角色、地点的行导向 seed 直接走确定性编译。离线 profile 始终确定性编译。若作者明确给出“每个人都有秘密”之类的创作许可，GM 须生成每人一条有来源标记的私有 Claim；缺人或未确认行动角色的当前位置时，编译失败。角色未写明的动机留给 Hermes 主体形成；玩家自己的已知 Claim 通过有界 POV 投影进入界面。
+- 运行中的实体补全通过本轮语义结算与原子事务进入世界；作者显式注入仍可使用一次性授权。初始状态和运行时确认的事实共同受 ECS、可见性与行动结算约束。
 
 ## 三、当前主循环
 
@@ -101,10 +113,10 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 - 输入：GM semantic snapshot、已提交 `intents`、合法性、当前参与者自身的 Drive、可见关系定性状态，以及 Claim/角色入口等结算目录
 - 输出：`resolved_actions`、`state_updates`、`social_impacts`、定性 `conflict_level` 等语义候选；Storylet hit、长期关系、Drive magnitude 和 Drama tension 数值不属于该层输出
-- 不确定结果的 success/failure 只是语义补丁候选。宿主在随机选择前同时清理两边的 actor.location：只有当前 move actor 的原位置或 LegalityEngine 授权目的地可保留，其他角色、非 move 坐标和替换目的地全部进入 authority rejection
-- Storylet、Conflict、Drama directive、宏剧情 snapshot、Situation、reaction pressure 和角色导演字段只保留在 Host context 中用于检测、评估与事后归因，不进入任何语义 resolver。GM 因而只能回答“这些角色已经提出的行动在世界中发生了什么”，不能根据剧情压力把中性行动故意扭成预定节拍
+- 不确定结果的 success/failure 是语义补丁候选。既有地点移动沿用宿主位置授权；分支中新地点可作为当前 move actor 的候选目的地，选中后须通过图引用校验及模型的因果/自主权校对。
+- Storylet 条件成立后由 StoryletExecution 提交 World 意图，ConflictPressure 提供可选参考；角色行动仍严格来自当前 proposal，World 环境发展受权威事务约束。Drama 与 Timeline 已退出主路径
 - `ScenarioConfig.rules` 只描述客观世界法则与题材常识；叙事节奏、语言风格和揭示方式属于 `ScenarioConfig.narration`。公开 `environment` 只能包含角色可观察环境，不能混入“仅 GM 参考”的隐藏设定
-- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存完整 Timeline、Host roll、Goal/Modifier 策略诊断或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
+- 语义 GM 的长期记忆只归档已提交 intent、resolved action、状态/对象事务、交换和 WorldEvent；不保存Host roll、Goal/Modifier 策略诊断或最终渲染文本，避免下一轮检索绕过 resolver 输入隔离
 
 ### NarrativeRenderer
 
@@ -115,26 +127,18 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 约束：不得新增结构化结果之外的事实
 - 只接收 public actor projection、可见动作/对象 change ledger 和去除导演字段后的社会关系；`conflict`、`storylet_pressure`、宏剧情/causal rule、内部 simulation notes、bias/framing/territorial 不进入渲染 prompt
 - 核心默认只要求事实落地、受限视角和中立清楚，不强制快节奏、慢热、锋利或其他题材风格；内容包可通过 `ScenarioConfig.narration.guidance` 提供可选风格，并用 `max_sentences / max_characters` 声明单回合展示上限
-- RenderingSystem 可以产出玩家 `visible_timeline` 供显示，但 Narrator 文本和玩家渲染包永远不会写入角色 Observation 或 Memory。每个角色的 episodic memory 只从自己的 `Cognition.experiences` 归档本轮亲历事件，并附带公共 scene 状态；同场角色共享真正可观察的结构化事实，异地角色不会共享，任何角色都不会把面向玩家的第二人称文案误当成自身经历
+- RenderingSystem 只把已提交、玩家可见的事实交给 NarrativeRenderer。玩家文案由 StoryPlanner 记录；角色 Observation 和 Memory 从各自的可感知事实生成。
 
 ### Episode 完结边界
 
 - 完结是 evaluation 层的宿主派生状态，不是 Agent/GM 动作，也不是世界关机指令。
-- 默认要求可验证 Goal 全部结算、没有尚未出席/错过/取消的 Timeline commitment、动作队列为空。
-- 场景中仍为 `scheduled/due` 的 Timeline commitment 默认也阻塞 Episode closure；否则眼前目标刚完成时，未来宴会、仪式或约定可能尚未发生，评估器却会制造假结局。它们必须先由真实位置与时间结算为出席、错过或取消；需要章节式截断时可在 closure policy 中显式关闭该条件。
+- 默认要求可验证 Goal 全部结算、动作队列为空。
 - 条件需连续稳定若干 step 才提前停止，避免把临时空窗当成故事结局；未启用策略时仍执行固定步数。
 - Sentiment、Relationship Track 和普通记忆不要求清空。一个完整 Episode 可以带着感谢、怨恨或新的长期关系结束，而世界之后仍可继续演化。
 
-### DramaState
+### 已裁剪的节奏辅助层
 
-负责维护张力并产出导演指令：
-
-- `stay_course`
-- `raise_pressure`
-- `inject_crisis`
-- `allow_release`
-
-这些指令以 `narrative_pressure` 进入 GM 结算输入，只表达节奏倾向，不创建剧情线程或强制事件。
+旧 Timeline 模块及其感知、结算、渲染、评测接口已删除；GameClock、行动队列和行为持续时间负责世界时间与动作调度。DramaState 退出生产装配，旧 `drama` 字段保留内容读入兼容。
 
 ## 五、系统职责
 
@@ -142,7 +146,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 - 从 `AgentRegistry` 调用角色 runtime
 - 为每个角色构造受限视角的 `AgentPerception`
-- 收集玩家输入和 NPC proposal
+- 收集玩家输入和 NPC proposal；World 注入同样等待结算。Input 停止将待结算注入送入角色收件箱，WorldEventSystem 提交后按见证范围投递事实
 - `interact` 可引用 perception 中 exact `object_id + affordance_id`；Input 只保留当前 available 且 target 匹配的引用，未知、失效或跨对象引用进入拒绝审计而不进入权威 proposal
 - 形成 `context["intents"]`
 
@@ -150,43 +154,38 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 
 - 判定角色本轮的 `foreground / background / dormant` 激活范围
 - 使用确定性的错峰后台 tick，保证快照重放稳定
-- 当世界事件发生在角色所在地时唤醒离屏角色
+- 已提交的世界事件进入角色 attention 后按紧急程度唤醒离屏角色；待结算 World 意图保持不可见
 - 不直接产生剧情，也不修改任何世界状态
 
-### StoryletEngine
+### StoryletEngine / StoryletExecution
 
-- 根据权威状态与内部 Situation 投影路由筛选可用 storylets：将玩家前台、时间承诺、场景转换和事后余波投影为统一的、当轮即算即弃的 Situation（`refresh_situations`），按 focus score/可见性/状态排序，不再有独立的 SituationEngine/SituationState 组件或跨轮记忆
-- 排序叙事机会；不产生 `require_hit`、forced id 或本轮兑现要求
-- 在语义、不确定性和并发结果形成后，根据真实行动/模板/事实标签识别自然命中；事务成功后才处理 one-shot 消费
-- 纯环境性的 storylet（不需要具体角色决定）由 GM 直接结算成 `actor=World` 的事实并标注 `source_storylet_id`；需要具体角色决定的，才由 GM 发 `director_signals`
-- GM 输出的 `storylet_hits` 属于越权声明，会被统一过滤
-- 不替角色选择行动，不直接修改世界
-- 作为 Simulation 的独立服务，避免主系统继续膨胀
-- `scenario.storylets` 只是静态起点；`resolve()` 会额外合并 `scene_state.dynamic_storylets`（`StoryletDefinitionLifecycle` 提交的运行时新增定义），`consumable_hits()` 也会从当轮 `active_storylets` 回读动态条目的 `one_shot` 语义，因为动态 storylet 从不进入 `scenario.storylets`。动态 storylet 定义走"叙事候选注册"一节所述的预授权链路，命中/消费检测本身（`detect_hits`/`consumable_hits`）不受影响——那是纯粹的事后推导，不是候选
+- StoryletEngine 合并静态与已注册动态故事块，按权威状态条件和当前玩家地点投影筛选、排序。
+- StoryletExecution 把候选故事块编成带精确来源 id 的 World 意图；自然语言 trigger 由同一世界结算模型判断。每条候选都须得到明确结果，遗漏或重复引用使本步失败并重试。
+- 事务提交成功后，正向 World 事件记录本轮命中；追踪者持有的故事块继续推进，完成时消费 one_shot。blocked、failure、deferred、inactive 和被拒绝的事务保留资格。deferred/inactive 保持隐藏且没有事实结果；需要角色选择的部分转为 director_suggestions。
+- 生产故事块首次提交事件或可选建议后可以持续推进，启动条件与当前玩家地点只约束启动；追踪者结束后停止产生推进。缺少追踪组件的显式测试宿主保留条件从假转真重新触发的事件基线。触发账本由宿主维护。
+- WorldEventSystem 发布已提交事件并向见证角色发送可感知事实，角色自主决定回应；StoryPlanner 通过独立会话提出新的草案。
 
-### TimelineEngine
+### StoryTracking
 
-- 根据稳定 step 推进场景 phase 与 phase turn
-- 管理 scheduled / due / resolved / missed / cancelled 承诺状态
-- `participants + location + due/grace + wake_before_steps` 形成角色私有日程信号；临近窗口唤醒离屏 Agent，并向宿主策略提供赴约移动候选
-- 不直接修改角色 location、sub_location、stance、focus 或其他 actor state；出席、迟到和缺席只从角色真实行动后的世界位置判定
-- Timeline 日程可以被拒绝或错过；口头承诺不进入宿主状态机，只留在沟通与角色记忆里
-- Timeline attendance Event 不再把 commitment id 当作充分原因。Host 建立 `TimelineResolution:<id>:resolved|missed`，父节点包含 authored commitment、到期 clock step，以及每位参与者在约定地点的 presence/absence 判定；Event 再指向 resolution。day-phase transition 直接指向选择该阶段的 clock step
-- 当玩家错过重要承诺时形成结构化 aftermath，而不是伪造玩家曾经在场
-- 根据同场角色关系与压力状态选择转场压力承载者，不识别任何具体故事人物
+- 每个故事块持有独立 StoryletTracker 会话、阅读游标、自然语言进展、状态和待结算 advance；共享 StoryPlanner 的玩家叙事记录，模型配置与传输复用现有 LLMProvider。
+- 静态故事块初始化时建立会话记录；动态故事块登记后的同一交付阶段建立追踪记录。初始方向种入待结算步骤，随后每次玩家文本生成成功后读取新增故事和本故事块的提交回执，提出下一步或等待。
+- waiting/active 持续调用，completed/abandoned 退出；导演仅获得状态与进展摘要作为目录信息，子会话历史保持独立。
+- 追踪者只提交剧情方向；SimulationSystem 将 pending_advance 编为带 source_storylet_id 的 World 意图，原有结算、提交校对、事件见证与角色建议通路负责具体生效。
+- 初始事件或建议提交后，后续步骤标记 continuation，可以跨原始启动条件的变化继续展开。权威步骤失败恢复待结算步骤及回执，已提交的推进在玩家消息成功交付后反馈给追踪者。
+- 所有会话与进度是普通组件字段，复用现有 checkpoint 与完整存档。旧生产存档按既有 consumed_storylets 建立已结束记录，保留已有导演叙事。
 
 ### WorldEventSystem
 
 - 在 Simulation 与社会状态结算完成后运行，只投影已经提交的客观变化
-- 把角色真实移动、普通可观察对象属性变化、Timeline attendance、物品生命周期和 exchange 物化为独立 `WorldEvent:<id>` Entity，而不是把 aftermath 文本当作全世界共同记忆
+- 把角色真实移动、普通可观察对象属性变化、物品生命周期和 exchange 物化为独立 `WorldEvent:<id>` Entity，而不是把 aftermath 文本当作全世界共同记忆
 - `WorldEventFact` 保存客观 kind、statement、step、location、subjects、objects、visibility、来源和宿主派生的 `impacts`；`WorldEventWitnesses` 只登记直接现场者和事件当事人的 self witness
 - `impacts` 是 `scope + target + path` 组成的权威状态失效键，不是故事标签或 LLM 语义判断。对象移动、所有权、可见性、容器开闭等由各宿主系统确定性投影；容器开闭还会投影到内部对象的 accessibility/visibility，因此间接但真实的机会变化可以被目标感知
 - WorldEvent id 继续描述“哪件事发生”，source type/ref 描述“为什么发生”：角色移动和经过生命周期验证的拿取/放下/开关/使用/销毁指向 actor resolved action；普通对象属性差分只有在 Host ledger 将 action target 与该对象精确匹配时才指向 action batch；Host edit 使用稳定 change id。公共 scene flag 缺少精确 actor ledger 时保持 transition source，不把同轮所有行动者猜成原因
 - 合法空间移动由 LegalityEngine 的图结果写入 actor location，语义 GM 即使漏写 `state_updates` 也不能让身体停在原地；提交后宿主从前后位置差生成 movement Event
 - movement Event 同时向出发地的离开目击者和目的地的到达目击者投射，各自 Experience 保留自己的观察地点。移动者保留 self cognition，但不把自己明知的移动重新排入 passive attention，避免自唤醒循环
 - 普通 `world_objects` 属性在事务成功后由宿主比较前后快照，生成不可伪造的 `object_state_changes`；灯光、门况、机器状态等变化只投射给对象所在地观察者，hidden 对象只投射给真实 source actor。无实际差值不生成 Event
-- `connected_to / zones / default_zone / aliases / is_location` 是空间拓扑，不属于普通语义属性，语义事务一律拒绝；已有地点之间的 `connect/disconnect` 只能由 `HostTopologyTransaction` 整批验证并原子提交，其他图模式仍在内容加载时定义
-- 拓扑命令通过 `Runner.run_step(topology_changes=...)` 进入宿主边界，不进入 Agent/GM 输出协议；同批命令冲突、地点不存在或图不变量失败时整批回滚，稳定 change id 与 ledger 可用于 replay
+- 空间图采用专用结构通道：新增地点走 world_additions.locations，已有通路变化走 topology_changes 的 connect/disconnect。世界模型判断具体因果，宿主复用图校验，在同一个 WorldStateTransaction 中暂存、语义校对和提交。
+- Runner.run_step(topology_changes=...) 保留作者步前注入；生产结算也可输出 topology_changes，实际变更派生 route_opened/route_closed 事件。位置、物品和拓扑一同回滚，每次事务只增加一次 world_version。
 - 已提交的开路/断路会形成 POV 安全的 `route_opened / route_closed` WorldEvent 及 `world_object.connected_to` typed impacts；局部、公共、隐藏三种可见性分别决定谁能获知，不因物理图已改变就让异地角色心灵感应
 - 人工介入的普通 `world_edits` 由 `HostWorldEditTransaction` 处理，只能补丁已有对象的非生命周期、非拓扑描述字段；同一批重复对象、私有字段、非严格 JSON 值或任一越权字段会整批回滚
 - 宿主对象补丁同样从 before/after 生成稳定 `host_object_state_changes`，no-op 不递增 `world_version`；真实差分进入普通 `object_state_changed` Event、typed impacts、目标重激活与 POV Rendering，不再存在“状态已经改了但世界中无人能观察”的静默旁路
@@ -209,9 +208,9 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - authored affordance 可声明有限 Host `policy_tags`，经过世界事务目录校验后仅进入私有策略上下文，不进入 AgentPerception、GM packet 或 Rendering。runtime 必须先引用当前真实可用的 object/affordance；Host 再把对应 `aid/risk/information/cooperate` 等特征并入 Trait/Drive 评分，避免概率映射依赖自然语言关键词，也避免 Agent 自报标签
 - `HostRuleSimulationControl` 提供无 LLM、无故事特例的确定性语义基线：它只生成原子回退结果，移动、内建物理 affordance、资源竞争和事务由现有 Host 系统完成。评测内容可用它证明 seed 机制，而不为每个对象动作手写 Simulation resolver
 - 正向主动 `observe(target=evidence)` 会由 `EvidenceObservationResolver` 对照 Claim Entity 的 supports/refutes 边派生 private_result 与 claim_discoveries；GM 的 discovery 声明会被替换，Claim truth 不进入观察。对象无关联、不可见或行动失败时不发现，具体社会解释仍留给角色语义层
-- `communicate` 可携带已知 `claim_id`、公开选择的 `claim_stance` 与可出示 `evidence_refs`。Input 以私有 KnowledgeState 投影和可见目标验证，Host 用 `ClaimCommunicationResolver` 替换 GM 自报的 Claim transfer；ClaimKnowledgeSystem 再验证同场并按证据/关系计算接收 confidence。角色可以撒谎，但不能凭空知道 Claim 或展示未知证据
+- communicate 可携带已知 Claim 和证据引用。生产世界模型判断实际送达者并输出 recipients，支持电话、耳语和打断；宿主核验身份引用及消息来源，交付经验和唤醒信号。ClaimKnowledgeSystem 记录收到的立场和证据，角色自行判断是否相信及如何回应。
 - 单边整件交付用 `interact(target, delivery_recipient)`：发送者必须持有公开 portable 对象，接收者当前可见；语义层正向结算后 `ObjectDeliveryResolver` 覆盖该对象的 GM lifecycle 写入并生成 exact relocate。部分数量、互换与付款不走该捷径，继续要求双方 proposal
-- public scene flag 与 Timeline day-phase transition 会生成 `scope=scene,target=scene,path=scene_flags.<field>` impacts，并向现存角色投递一次环境观察；私有 flag、phase_turn、schedule 和消费账本不生成 Event
+- public scene flag  会生成 `scope=scene,target=scene,path=scene_flags.<field>` impacts，并向现存角色投递一次环境观察；私有 flag 和消费账本保持内部状态
 - 现场见证者获得私有 event belief 与 passive experience；缺席者只在自己真实所在地获得 self experience，不会被伪装成曾在会场
 - 每个首次获知的 event id 进入角色私有 pending observation 队列；离屏 background Agent 会被唤醒一次，runtime 成功收到完整 perception 后才由宿主确认处理
 - pending observation 不是简单 FIFO。宿主为每条刺激保存不进入 Agent prompt 的 `priority + step + stable id` attention record：销毁/警报/缺席高于普通对象变化，普通移动和时间阶段较低；道歉、解释、指控等 response 与 WorldEvent 在同一个选择边界比较。容量截断保留最高优先级记录，同级按新鲜度和稳定 id 重放；Agent 只看到排序后的真实 id，不看到数值
@@ -236,10 +235,10 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 角色能力必须与行为匹配；拥有魔法能力不自动意味着能够飞行或瞬移
 - 只裁定 proposal 是否可执行，不负责生成戏剧结果
 
-### ConflictDirector
+### ConflictPressure
 
 - 维护连续安静回合、可见冲突次数和模板重复窗口
-- 合并 Drama 指令、转场压力、Storylet 偏好和当前可见反应需求
+- 合并 Storylet 偏好和当前可见反应需求；已有故事块按条件进入 World 事件结算，新增故事块由 StoryPlanner 独立提出
 - 只产生 `advisory_pressure` packet，包括压力状态、机会原因和可选模板，不直接替 NPC 决定行动
 - 不再产生 `require_visible_conflict`、minimum forced level、forced action budget 或 unrealized marker；安静回合本身可持续存在
 - 冲突模板仍由故事内容提供，核心代码不识别具体题材标签
@@ -272,19 +271,19 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 一批 social impacts 在副本上统一验证，任一非法则不发布其中任何感受或关系沉淀
 - Sentiment 的来源由宿主改写为已验证的 `resolved_action`；模型自报的 `source_event` 不进入权威状态。由 Sentiment 沉淀的有向 Track 同时保存该 Sentiment 的规范引用，供 Episode 还原“行为 → 感受 → 长期关系 → 后续目标”链
 
-### 叙事候选注册（NarrativeCandidate pipeline）
+### 按结算依赖补全世界
 
-四类"新内容进入世界"——动态角色、动态对象、动态 Storylet 定义、动态拓扑（新增 location）——共享同一条候选注册链路，而不是四套互相独立的临时逻辑：
-
-- `narrative_candidates.py` 提供跨 kind 的共享骨架：`NarrativeCandidateAuthority` 统一处理"授权信封"本身（authorization_id 唯一性、一次性消费账本、`not_before/expires` 时间窗），`CandidateLedger` 统一处理"动态名字/ID 账本"（去重、容量上限、写回 scene flag），`record_candidate_audit` 把每条候选的裁决（接受/拒绝及原因）落入统一的 `narrative_candidate_audit` scene flag，供 Episode/Debug 回放。四个 kind 各自的字段 schema 与治理松紧度保持独立，只共享这层信封与账本代码。
-- 各 kind 的治理严格度不统一，且刻意保留差异：
-  - **角色**（`CharacterEntryAuthority`/`CharacterLifecycle`）与**Storylet 定义**（`StoryletDefinitionAuthority`/`StoryletDefinitionLifecycle`）与**拓扑新增**（`TopologyCandidateAuthority`/`TopologyCandidateLifecycle`）都要求宿主先签发一次性 `authorization_id`（通过 `inject_events` 或 Timeline commitment 到期），GM 必须引用它才能兑现；无授权的请求只留审计记录，不进入生命周期。这三者都是永久性结构改动，因此按"角色"那一档从严治理。
-  - **对象**（`WorldObjectLifecycle._spawn`）保持无需预授权的自由声明，只做 `max_dynamic_world_objects` 容量上限与字段合法性校验；这不是遗漏，是刻意保留的较松治理档。
-- 每个 kind 都走同一个三段生命周期，与 `WorldStateTransaction` 的整体原子性契合：
-  1. `resolve()`：校验授权/请求信封，产出 `*Resolution`（含拒绝原因列表）。
-  2. `prepare()` → `stage()`：在候选 SceneState 副本上构造并暂存新内容（新增 actor body / world object / `dynamic_storylets` 条目 / 拓扑节点），不改变已发布的权威状态；失败时授权不会被消耗。
-  3. `WorldStateTransaction.commit()` 原子提交或整体回滚；只有角色 kind 在提交成功后还有 `finalize()`（注册 live runtime、公开 Entity），其余三个 kind 提交成功即完成，没有额外 finalize 副作用。
-- `NarrativeDirector` 是候选的第三个来源（另两个是 `inject_events` 与 Timeline commitment），但它严格运行在本步世界提交**之后**，从不直接创造世界事实：它输出的 `narrative_candidates` 会被 `queue_director_authorization` 排队为**下一步**生效的预授权（写入 `pending_narrative_director_authorizations` scene flag），`InputSystem` 在下一步开始时通过 `drain_due_director_authorizations` 把到期且未消费的授权注入对应 kind 的 `*_authorizations` 池，走和 `inject_events`/Timeline commitment 完全相同的兑现路径。`NarrativeDirector` 每步最多提议 `MAX_CANDIDATES_PER_TICK` 条候选，且只能是 `character`/`storylet_definition`/`topology` 三种 kind（对象仍是自由声明，不需要也不接受 Director 预授权）。
+- 统一原则：当本轮外部结果依赖尚未确定的事实时，由结算 LLM 确定本轮所需的最小部分。判断依据是结果对事实的依赖，由模型理解自然语言。
+- 人物说了什么是一项带来源的事实；说法中的人物、物品、地点、关系及真伪可以继续待定。原话沿用消息、可感知事实和记忆保存。普通语言互动维持送达/可感知性检查，原话中的物理行为维持言论身份。
+- 正常语义结算通过 `world_additions.locations/characters` 提出必需实体，物品使用既有 `object_lifecycle.spawn`。这些补充无需提前签发具体实体授权。
+- 地点批次在同一个候选图里检查引用；先准备地点，再准备角色身体，物品的 owner/location 可以引用同批新人物/地点。既有节点与身份保持原有约束。
+- `WorldStateTransaction` 在暂存世界中应用状态与生命周期操作，提交前由同一结算模型校对：新增内容是否服务本轮外部结果、言论是否被误当作真相、事实是否与初始设定及已提交状态一致、角色自主选择是否得到保留。
+- 候选语义或结构有问题时，沿用原始意图修正一次；错误持续则整步回滚。角色 runtime 注册失败属于执行故障，直接回滚整步，后续可重试同一步。
+- 无法由实体属性完整承载的持续客观结论，通过 `world_additions.facts` 追加到私有 `scene_flags.established_facts`；每条记录保存 `step/statement`。它保留确认的否定事实及欺诈结论，供后续结算和存档恢复使用。历史事实允许后续有因果依据的真实变化。
+- 不确定结果的实体补充可写在 success/failure 分支内，只合并宿主选中的分支；通用事务与语义校对随后检查实际结果。
+- Narrator 只接收玩家可感知事实，原始 world_additions 和确认日志保持宿主私有。未知内容一直保留到实际结算需要确定它为止。
+- 作者显式 `inject_events` 保留原有 Authority/授权消费路径；固定授权仍约束其身份和状态。新 Storylet 定义由导演提出，经结构校验后原子登记；具体事实在未来结算及提交校对中检查。
+- 复用 `CandidateLedger` 保存动态身份/容量账本；程序只处理必要引用、位置、容量、原子提交和运行时绑定，世界补全的语义必要性由模型判断。
 
 ### CharacterLifecycle
 
@@ -292,15 +291,15 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 动态出生者本轮的观察窗口显式标记为尚未存在；它可以读取提交后的当前状态，但不会被同地点回退逻辑补成出生前行动、交换、知识传播或社会后果的见证者
 - `ScenarioConfig.characters` 与 `initial_actor_states` 在 Session bootstrap 时必须一一对应；无 Agent 的 actor body、无 body 的 Agent、重复角色名和未知初始地点均在创建 GM/Entity 前拒绝
 - 正式 Session 每步在任何 Host mutation、时间推进或 Agent perception 之前重新审计绑定；运行时被意外注销、Entity 被替换或 Scene body 脱离时整步 fail closed
-- 动态出生前必须由宿主 `inject_events` 或 Timeline commitment 签发一次性 Character Entry Authorization（或 NarrativeDirector 排队的下一步预授权）；无授权 GM 请求只留下审计记录，不进入生命周期。授权信封本身（唯一性、消费账本、时间窗）由共享的 `NarrativeCandidateAuthority` 校验，见"叙事候选注册"一节
+- 正常动态出生由结算 LLM 的 `world_additions.characters` 提出，并通过提交前语义校对。作者显式注入可使用 `CharacterEntryAuthority` 的一次性授权，授权信封仍由 `NarrativeCandidateAuthority` 校验。
 - 授权固定 name、role、location、initial_state 和私有初始结构；`profile_mode=semantic` 最多允许 GM 补充 personality 与自然语言 goals，不能改写权威出生事实
 - 动态人物必须同时进入 Entity 集合、权威 `SceneState.actor_states` 和 `AgentRegistry`
 - `prepare` 只验证请求、净化字段并构造尚未发布的 Entity，不修改 ECS、世界或注册表
 - `stage` 将候选 actor body、`dynamic_character_names` 和 consumed authorization id 写入事务副本，使新人物可以参与同轮对象、关系和 宏剧情 因果校验，失败时授权也不会被消耗；名字账本与消费账本复用共享的 `CandidateLedger`
 - 世界事务成功后才执行 `finalize`：先创建并确认 live runtime 注册，再公开 ECS Entity
-- runtime factory、注册回调或注册确认失败时，先注销残留 runtime 和 Entity，再通过事务 checkpoint 恢复 Scene、宏剧情、Drama 与 Relationship
-- 出生失败会把整轮结算转换为 transaction rejection，Rendering 不会继续描述一个未实际存在的人物
-- live 语义路径中的出生地点由授权固定且必须已经存在；未知地点授权直接拒绝，不允许 GM 借回退改变入口
+- runtime factory、注册回调或注册确认失败时，先注销残留 runtime 和 Entity，再通过事务 checkpoint 恢复 Scene 与 Relationship
+- 正常补全的出生注册失败直接回滚整轮；成功后 Rendering 才接收已提交的可感知事实。显式授权路径保留原有 transaction rejection 反馈。
+- 出生地点必须存在于本轮候选世界，可引用同批新增地点；未知位置直接拒绝，宿主保留请求中确定的入口。
 - 使用 `max_dynamic_characters` 限制宿主事件或内容错误导致的无界人口增长
 - runtime、激活策略和初始认知经过白名单与长度限制，模型不能任意选择宿主执行能力
 - 动态生成不允许只创建 agent 而遗漏世界状态中的身体实体
@@ -321,7 +320,7 @@ Agent 外部动作固定为 `observe / move / interact / communicate / wait` 五
 - 放入和取出要求所有相关容器已打开；关闭的不透明容器遮蔽内容，关闭的透明容器允许看见但不允许直接操作。任何自包含、循环引用、容量超限或缺失容器都会使整轮事务回滚
 - 容量按直接 child 的 `container_size * quantity` 计算，避免嵌套内容在多层重复占用；非空容器不能直接销毁或消耗
 - 非便携对象不能由普通角色搬动；对象不能借生命周期接口伪装成地点、修改空间图或覆盖保留字段
-- `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本；名字账本复用共享的 `CandidateLedger`，且无需 authorization_id 即可自由声明（与角色/Storylet 定义/拓扑三个需要预授权的 kind 形成刻意的治理差异，见"叙事候选注册"一节）
+- `max_dynamic_world_objects` 和 `dynamic_world_object_names` 约束动态对象数量与生命周期账本；名字账本复用共享的 `CandidateLedger`。物品新增与人物/地点补全共同接受提交前语义校对。
 - 隐藏对象只进入所有者自己的 POV；其他同场角色和 Rendering 都不会收到其生命周期 payload 或普通属性更新
 - 生命周期先在候选 SceneState 上执行，因此对象所有权、位置和存在性可以直接影响后续 Storylet 条件
 - 每次 `spawn` 的接受/拒绝结果都会写入统一的 `narrative_candidate_audit` 账本（`kind="object"`），与其余三个候选 kind 共享同一份审计记录
@@ -376,11 +375,11 @@ NeedConfig(
 
 ### WorldStateTransaction
 
-- 在 SceneState、DramaState 与事务级 `RelationshipBook` 的副本上暂存本轮写入
+- 在 SceneState 与事务级 `RelationshipBook` 的副本上暂存本轮写入
 - 同一事务还可以暂存参与本轮结算的私有 DriveState；快照通过可序列化字段重建，不沿 Component 的 Entity 回指复制 live runtime
 - 校验更新 section、已有角色、已有对象、地点、子区域、空间图、有形对象放置与生命周期账本、tension 范围，以及宿主关系变化的角色和关系不变量
 - RelationshipBook 只从 pair 关系实体重建；宿主应用 Sentiment 等系统派生的有向 track delta 和互动时间线后再原子发布，Scene 不保存关系镜像
-- 所有检查通过后才一次提交；任何一项失败时 Scene、Drama、SocialRelation 与 DriveState 全部保持原样
+- 所有检查通过后才一次提交；任何一项失败时 Scene、SocialRelation 与 DriveState 全部保持原样
 - 成功提交返回这些权威组件的提交前恢复 checkpoint；需要 live runtime 等外部资源的生命周期可以在 finalize 失败时撤销已经提交的候选世界
 - checkpoint 同时恢复 need pressure、risk tolerance 和 drive 的 step 游标，避免资源已经回滚而角色仍错误地认为需求已被满足
 - 被拒绝的结算会清空 resolved facts、relationship/host-derived storylet hit 和 spawn 请求，避免 Rendering 描述未提交事实
@@ -436,7 +435,7 @@ NeedConfig(
 - 应用按稳定 exchange/object id 计算，不依赖 JSON 数组顺序；fragment id 使用 object、recipient 与排序后的 exchange ids 生成
 - exchange 在候选 SceneState 上先于普通 object lifecycle 暂存，因此支付与对象所有权可以处于同一个 `WorldStateTransaction`
 - 任一关系、Drive 或对象写入随后失败时，交换也随 checkpoint/事务整体回滚，不存在半提交的转手
-- 交换后的候选世界仍参与 Storylet 条件求值，所以“甲真正通过交易取得钥匙”可以同轮改变可用叙事机会
+- 交易提交后取得钥匙会改变权威世界状态，下一批次的 Storylet 条件检查据此触发事件
 - 完整 exchange bundle 只进入 GM episodic memory；Rendering 和普通角色记忆依赖可见 resolved actions，不接收私下的 bundle 明细
 
 示例：
@@ -484,8 +483,8 @@ NeedConfig(
 
 - 秘密与信念通过显式 `knowledge_updates` 从 source 传播到 target
 - `told` 模式要求 source 的私有 Cognition 中此前确实存在该陈述
-- source 与 target 必须同地点，且本轮必须有 source 的已结算传递行动
-- 有效更新只写入 target 的私有 belief，并记录 `told_by:<source>` 与 confidence
+- source 必须有本轮已结算交流行动，target 按该行动已确认的 recipients 判断送达。历史及离线消息沿用同场投影。
+- 表达作为带说话人来源的 experience 交付；Claim 的发现与转述记录 receipts，已有角色立场保持原值。新收到命题的 uncertain/0.5 是尚无主观立场的存储默认值。
 - 同场旁观者不会因为一次定向传递自动获得知识；公开传播需要为每个接收者提供受支持更新
 - 普通对白不会自动升级为世界真相，也不能实现异地心灵感应
 
@@ -580,21 +579,26 @@ Character
 
 ### SimulationSystem
 
-- 解析 Storylet 机会，并在候选后果形成后事后检测自然命中
-- 向 drama manager 申请导演指令
+- 将条件成立的 Storylet 编成 World 意图，结算并提交后记录生效与消费
 - 让 `SimulationControl` 返回结构化结算
 - 将结算写回 ECS 状态
 
 ### RenderingSystem
 
 - 调用 `NarrativeRenderer`
-- 把结果广播到各角色 `Observation`
+- 将已提交事实投影为玩家视角文本，并保存成功生成的消息；角色从自己的 Cognition / WorldEvent 获得反馈
+
+### StoryPlanningSystem
+
+- 在世界提交与玩家文本成功生成后记录玩家输入及世界回复，delivery retry 通过 turn id 去重。
+- 周期性调用具有独立持续会话和 `propose_storylet` 工具的导演 Agent。
+- 存储草案，结构校验通过后原子登记未来 Storylet；格式、重复标识或容量问题记录拒绝原因，登记异常保留待重试。导演可提出涉及角色参与的剧情方向，执行阶段区分世界变化与可拒绝的角色建议。
 
 ### MemorySystem
 
-- 归档本轮 `intents`
-- 归档结构化结算
-- 归档渲染文本
+- 归档宿主的已提交 intent、结构化结算与事件事实。
+- 角色通过自己的亲历事件归档，Hermes 自主管理原生记忆。
+- 导演独立记录玩家叙事上下文，玩家渲染文字保持在导演会话中。
 
 InputSystem 不再只用本轮措辞拼一个单一 query。`AgentMemoryContextBuilder` 从角色已经可见的结构化状态生成 `situation / goals / commitments / claims / social / reflection` 六条检索路线，批量查询角色自己的 Memory collection，再按内容去重并限制最多 6 条、单条 1800 字符、总计 9000 字符。检索 query 与结果都不会进入其他角色、语义 GM 或 Rendering；宿主只保留轻量 retrieval trace 供回归诊断。
 
@@ -606,7 +610,7 @@ MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低�
 
 - `ConsoleDriver` 仍然只暴露玩家在角色空闲决策点输入行动这类简单交互。
 - 中途审查、叙述后编辑、快照回退等导演式能力，还没有重新挂回现有权威事件循环。
-- Storylet 条件语言目前仍是最小实现，后面可以继续扩展成更丰富的状态查询表达式。
+- Storylet 启动条件支持自然语言 trigger，精确 conditions 保留为可选约束；后续推进由独立追踪会话判断。
 
 ### 地图知识与导航问题
 
@@ -615,3 +619,30 @@ MemorySystem 在归档时写入宿主拥有的 `salience`：普通行动较低�
 - 一次 communicate 也可携带 2..8 个不重复地点的 `route_path`；Input 逐边验证连续性，任一未知边使整条引用失效，Host 再以相同来源和时间原子传播所有边，避免多回合逐段指路的机械流程。
 - `stale_route/movement_blocked` 会生成角色私有、Host 权威的 `NavigationProblem`：保存失败边、Host `failure_rule`、目的地、发现位置/时间和角色已知地图中的备选路径。它只唤醒后台 Agent，不自动创建 Goal 或指定应对；备选路径不会读取 Host 隐藏拓扑。角色离开发现地点后，该局部问题即视为解决。
 - 非导航行动的 `fail/blocked` 结果不会制造永久世界实体，而是以带 Host action event id 的近期私有经历保留有限时间。Agent 候选可以引用 `action_failure` 来表达换方法；Host 只接受该角色自己的近期失败，并按经历年龄衰减贡献。成功事件、未知 ID 或其他角色的失败不能成为动机。Episode 可据此记录 `resolved_action <- action_failure`，避免把重复失败误认成合理的持续行动。
+
+
+### LLM 结算的提交校对
+
+生产 `SimulationControl` 先解释原始意图并产生结构化结算，宿主在现有事务副本中应用权限、对象生命周期和其他必需的结构约束，再让同一结算模型校对提交前后事实。校对检查结果文字与实际状态是否一致，以及角色所有状态字段中的行为、选择和自主回应是否有该角色原始意图作为依据；外部事件导致受伤、摔倒等被动后果由模型判断因果关系。字段名保持开放，宿主只要求明确的有效判定后才发布事实。
+
+正常回合调用一次结算、一次提交校对。校对拒绝时，模型收到具体问题与未提交的候选结果，有一次完整修正机会；原世界与原始意图保持一致，角色 Agent、动作排队和世界时钟均不重复执行。修正仍被拒绝，或校对服务不可用、判定格式错误时，权威步骤失败并走现有整步回滚。失败候选结果不会进入事件通知、玩家叙事或角色记忆。
+
+该校对使用 `SimulationControl` 现有模型，不增加 Agent 或调度阶段。明确选择的离线 `HostRuleSimulationControl` 保持离线测试用途。导演剧情提案只做结构登记；自然语言启动条件、具体外部后果与角色建议统一由世界结算模型解释，提交校对审核实际候选世界与消息来源。
+
+### 生产路径的语义边界
+
+- 玩家与 Hermes 提交自然语言意图；Input 调用现有 SimulationControl 的行动解释接口，依据该主体的可见上下文得到行动类型、目标和正式引用，原意保持不变。解释发生在调度前，动作时长由已解释类型的宿主策略决定。主体各自的意图保持同时提交边界。
+- LegalityEngine 只读取已解释的结构字段，核验引用存在性、访问状态与已知道路；物理能力、否定、语言/行动区分、社会反应和世界因果由模型解释与提交校对负责。PhysicsRuleConfig.statement、capability 和 reason 是模型约束，keywords 仅保留旧内容注释。
+- 叙述模型校对实际将交付的最终文本；字数整理和玩家结果锚点在校对前完成。拒绝时语义修正一次并重新校对，持续失败进入已有交付重试。生产路径已删除引号台词匹配与文字替换。
+- 词表只用于明确选择的离线骨架，解析与目标匹配集中在 rules/offline_semantics.py、rules/offline_targets.py；生产流程不会调用它们。
+- 主体停滞记录使用行动类型与正式引用；宿主保持原始动作文本供语义理解，移除按文字猜动作压力和社会回应的逻辑。
+
+- 初始散文提取保留逐字 evidence 引文核验和实体引用校验；群体人数、性格/目标释义和秘密创作许可由同一初始编译模型做来源语义校对，移除人数词表与秘密授权的正则判断。来源校对拒绝时按已有编译重试修正一次，持续失败或服务故障时停止创建会话。结构化 ScenarioConfig 和显式设定语法继续走原有加载路径。
+
+### 语义世界变化与动态物品
+
+生产路径保留模型提出的位移、交流结果和 private_result，对完整暂存世界统一检查因果、角色自主权和事实一致性。空间检查提供普通步行与同场互动的参考。角色自主选择来自原始意图，外力可以改变其他角色的身体和位置。离线 HostRuleSimulationControl 保留独立规则基线。
+
+动态物品 spawn.properties 可声明容器能力、affordances、数量和堆栈身份。宿主核验类型、身份引用、容量和容器循环等结构不变量；能力的存在必要性与物理合理性接受同一次语义校对。位置和拓扑字段保持专用生命周期与图命令通道。
+
+故事块 location 约束首次生效地点，continuation 可以在其他有效地点继续。玩家叙述允许忠实改写和合并结算摘要，事实完整性与来源由语义校对检查，长度根据作者配置由模型控制。玩家保留本人 private_result，他人的私有结果继续隔离。

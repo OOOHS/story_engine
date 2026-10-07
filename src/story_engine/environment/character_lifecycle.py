@@ -91,9 +91,7 @@ class CharacterLifecycle:
         state = deepcopy(raw_state)
         requested_location = request.get("location") or state.get("location")
         if requested_location not in scene_state.get_known_locations():
-            requested_location = (
-                scene_state.get_actor_location(player_name) if player_name else None
-            )
+            errors.append(f"spawn_character has unknown location: {requested_location}")
         if requested_location:
             state["location"] = requested_location
         if not state.get("location"):

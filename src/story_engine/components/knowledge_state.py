@@ -15,6 +15,7 @@ class ClaimKnowledgeRecord(BaseModel):
     learned_step: int = 0
     updated_step: int = 0
     evidence_refs: list[str] = Field(default_factory=list)
+    receipts: list[Dict[str, Any]] = Field(default_factory=list)
 
 
 class KnowledgeState(Component):
@@ -126,6 +127,22 @@ class KnowledgeState(Component):
 
     def knows(self, claim_id: Any) -> bool:
         return self._text(claim_id, 120) in self.claims
+
+    def record_receipt(self, *, claim_id: str, source: str, basis: str, step: int,
+                       asserted_stance: str, evidence_refs: Iterable[Any] = ()) -> ClaimKnowledgeRecord:
+        """Store received information while preserving the actor's authored position."""
+        record = self.claims.get(claim_id)
+        if record is None:
+            record = self.learn(claim_id=claim_id, stance="uncertain", confidence=0.5,
+                                source=source, basis=basis, step=step)
+        refs = list(dict.fromkeys(self._text(ref, 120) for ref in evidence_refs if self._text(ref, 120)))
+        receipt = {"source": source, "basis": basis, "step": step,
+                   "asserted_stance": asserted_stance, "evidence_refs": refs}
+        if receipt not in record.receipts:
+            record.receipts = (record.receipts + [receipt])[-32:]
+        record.evidence_refs = list(dict.fromkeys(record.evidence_refs + refs))[:32]
+        record.updated_step = step
+        return record
 
     def observe_location(self, scene_state: Any, location: Any) -> None:
         location_id = self._text(location, 120)

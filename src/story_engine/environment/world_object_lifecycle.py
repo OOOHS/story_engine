@@ -26,14 +26,6 @@ class WorldObjectLifecycle:
         "sub_location",
         "hidden",
         "portable",
-        "quantity",
-        "stack_key",
-        "affordances",
-        "is_container",
-        "container_capacity",
-        "container_size",
-        "container_open",
-        "container_opaque",
     }
     WORLD_ACTOR = "World"
 
@@ -287,8 +279,6 @@ class WorldObjectLifecycle:
             return
 
         kind = self._text(request.get("object_kind"), 80) or "item"
-        if kind.lower() in {"location", "room", "place", "area", "building", "zone"}:
-            errors.append(f"{prefix} cannot create spatial graph nodes")
         properties = request.get("properties", {})
         if not isinstance(properties, dict):
             errors.append(f"{prefix}.properties must be an object")

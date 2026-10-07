@@ -83,12 +83,14 @@ python web_main.py \
 - 通用 Storylet、因果规则、时间安排和宿主可见性 schema。
 - 可选的 `narration.guidance` 与单回合文本上限；不声明时核心 Narrator 保持中立，不替内容选择节奏或题材腔调。
 
+`description`、`environment` 和 `initial_state` 会用于玩家开场或叙述器输入，应只写玩家可以知道的内容。尚未公开的作者背景写在 `private_author_premise`；它只供语义 GM 和事后导演参考，具体秘密仍须用 Claim、对象和角色私有知识建成可验证状态。
+
 其中初始行为角色必须同时出现在 `characters` 与 `initial_actor_states`，名称一一对应，并具有指向 `initial_world_objects` 中已知地点的 `location`。仅仅为了让叙述提到某人，不应创建没有身体的 CharacterConfig；应把死者、历史人物或离场人物保存在 Claim、物品、事件或记忆种子中，直到宿主通过正式 Character Entry Authorization 让其成为可行动角色。同样也不能只在 actor states 中放一个由 GM 代演的“背景 NPC”。
 
 内容包不能：
 
 - 修改引擎系统来识别故事人物或地点名称；
-- 让 Agent/GM 直接写概率、资产、关系数值、目标完成或空间拓扑；
+- 让角色 Agent 直接写权威状态、随机数或目标完成；世界模型的物品和拓扑变化使用专用结构通道与完整暂存校对；
 - 依赖一个由引擎隐式加载的全局默认故事；
 - 把评测专用 seed 当成生产内容入口。
 
@@ -112,3 +114,13 @@ python web_main.py \
 ```bash
 python scripts/check_distribution_boundary.py
 ```
+
+导演配置：`story_planner_enabled` 控制导演的新故事块提案；共同叙事记录与已有故事块追踪继续运行；`story_planner_interval_turns` 默认 5 个已生成玩家世界消息的回合，`story_planner_interval_seconds` 可配置时间间隔。按时间的询问在下一次世界消息生成成功时检查，任一间隔到期即可触发。导演读取累计玩家叙事、作者私有设定、完整故事块目录和待审核草案，使用 `propose_storylet` 工具登记新草案。宿主检查结构与标识后登记动态 Storylet，未来由世界结算模型判断自然语言触发条件并落实具体影响。角色参与可以写在剧情方向中，实际行动仍由角色提交；需要角色配合的部分转为可拒绝的导演建议。
+
+旧 `drama` 配置保留读入兼容。Timeline 模块与日程接口已删除；世界时间与行动持续长度由 GameClock / ActionEventQueue 管理。
+
+Storylet 的 `intent` 描述未来剧情方向，可包含多人互动、宏大事件和期望的世界影响。`trigger` 是自然语言启动条件，由世界结算模型根据结算前权威事实判断；可选 conditions 保留精确状态约束。宿主提交带 source_storylet_id 的 World 意图，模型逐项返回结果：条件未成立用 inactive，等待角色选择用 deferred，具体外部事件用 success/partial/complication，矛盾后果用 blocked。deferred/inactive 结果隐藏且保持空事实文本；可选建议通过 director_suggestions 输出 recipient/source_storylet_id/text。生产模式中，首次事件或可选建议成功提交后，独立追踪会话持续推进该故事块；启动条件只约束启动，后续推进保持角色自主与世界一致性检查。追踪者输出 waiting/active/completed/abandoned、简短 progress 和下一步 advance 或 null。完成或放弃后会话停止调用；one_shot=True 在 completed 时登记 consumed_storylets，abandoned 单独保留于追踪状态。每个注册 id 对应一个追踪生命周期，再次开展新的剧情可注册新的故事块。明确缺少 StoryTracking 的离线测试宿主保留事件触发基线：一次性事件生效后消费，可重复事件等待条件失效后重新武装。
+
+Storylet 由内容、前置条件和执行后的世界影响组成；conditions 描述何时有资格生效，intent 描述面向未来的外部情境、事件及预期影响。事件实际需要的新人物、物品和地点由本轮结算模型补全，允许在同一个候选世界中交叉引用；每个新人物进入独立 Agent runtime。角色言论保留来源，未知真相延迟到外部结算实际依赖它时确定。程序保留必要身份、位置、容量、事务与存档约束。导演新草案经过结构校验后登记，具体后果经过世界提交校对；scene 条件路径从完整快照开始，例如 scene_flags.weather，actor/world_object 条件从指定 target 属性开始。
+
+生产动态物品可在 spawn.properties 声明容器和用途；topology_changes 支持已有通路的 connect/disconnect。communicate 填写实际 recipients，hidden 保护第三方视角，接收者获得有说话人来源的消息。连续故事块的后续事件可离开初始 location。

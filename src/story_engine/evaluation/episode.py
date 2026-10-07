@@ -85,15 +85,14 @@ class EpisodeRunner:
         "world_version",
         "last_action_batch",
         "day_phase",
-        "phase_turn",
-        "phase_schedule",
-        "upcoming_commitments",
         "quiet_turns_since_conflict",
-        "last_missed_commitment",
         "last_player_visible_snapshot",
         "last_relation_deltas",
         "recent_conflict_template_ids",
         "consumed_storylets",
+        "active_storylet_triggers",
+        "pending_story_planner_proposals",
+        "pending_story_planner_authorizations",
     }
 
     def run(
@@ -365,7 +364,6 @@ class EpisodeRunner:
                     "event_response:",
                     "modifier:",
                     "drive_need:",
-                    "timeline_commitment:",
                 )
             )
         ]
@@ -686,7 +684,8 @@ class EpisodeRunner:
             violations.append("unresolved_uncertain_outcomes_reached_episode_boundary")
         visible = context.get("visible_simulation_result", {})
         for action in visible.get("resolved_actions", []) if isinstance(visible, dict) else []:
-            if isinstance(action, dict) and action.get("private_result"):
+            if (isinstance(action, dict) and action.get("private_result")
+                    and action.get("actor") != context.get("player_pov", {}).get("viewer", getattr(session.scenario, "player_character_name", None))):
                 violations.append("private_result_leaked_to_visible_simulation")
         if not context.get("state_transaction", {}).get("committed") and result.get(
             "resolved_actions"
@@ -1114,35 +1113,6 @@ class EpisodeRunner:
                 edges.append(
                     f"world_event:{event_id}<-{source_kind}:{source_ref}"
                 )
-            if source_kind == "timeline_resolution" and source_ref:
-                resolution_node = f"timeline_resolution:{source_ref}"
-                occurred_step = int(fact.get("occurred_step", 0) or 0)
-                location = str(fact.get("location", "")).strip()
-                metadata = fact.get("metadata", {})
-                if not isinstance(metadata, dict):
-                    metadata = {}
-                commitment_id = source_ref.rsplit(":", 1)[0]
-                edges.append(
-                    f"{resolution_node}<-timeline_commitment:{commitment_id}"
-                )
-                edges.append(
-                    f"{resolution_node}<-clock:step:{occurred_step}"
-                )
-                if location:
-                    for actor in metadata.get("present_participants", []) or []:
-                        actor = str(actor).strip()
-                        if actor:
-                            edges.append(
-                                f"{resolution_node}"
-                                f"<-actor_presence:{actor}:{location}"
-                            )
-                    for actor in metadata.get("missing_participants", []) or []:
-                        actor = str(actor).strip()
-                        if actor:
-                            edges.append(
-                                f"{resolution_node}"
-                                f"<-actor_absence:{actor}:{location}"
-                            )
 
         for event_id, payload in after_events.items():
             current = payload.get("responses", {}).get("communications", []) or []

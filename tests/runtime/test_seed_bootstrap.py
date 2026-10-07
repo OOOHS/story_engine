@@ -11,7 +11,30 @@ from src.story_engine.session import (
 from src.story_engine.agents import default_offline_runtime_factories
 from src.story_engine.agents.actions import AgentAction
 from src.story_engine.agents.types import AgentPerception
-from src.story_engine.common.action_target import bind_action_target
+from src.story_engine.rules.offline_targets import bind_action_target
+
+
+def test_failed_bootstrap_closes_previously_created_subjects():
+    from src.story_engine.session import create_session
+
+    scenario = bind_play_profile(compile_scenario_seed(
+        "地点：大厅\n角色：甲|居民|谨慎||玩家|地点=大厅\n"
+        "角色：乙|居民|谨慎||地点=大厅"
+    ), "offline")
+    closed = []
+
+    class Runtime:
+        def close(self):
+            closed.append("甲")
+
+    def factory(entity, config):
+        if entity.name == "乙":
+            raise RuntimeError("second subject failed to start")
+        return Runtime()
+
+    with pytest.raises(RuntimeError, match="second subject failed"):
+        create_session(scenario, agent_runtime_factories={"offline": factory})
+    assert closed == ["甲"]
 
 
 def test_text_seed_compiles_only_explicit_facts():
@@ -74,6 +97,20 @@ def test_offline_profile_runs_a_real_first_turn_without_model_services():
         context = session.run_step(overrides={"玩家": "环顾客厅。"})
         assert context["step_committed"] is True
         assert context["simulation_result"]["resolved_actions"]
+        assert session.step_count == 1
+    finally:
+        session.close()
+
+
+def test_seed_session_helper_binds_offline_runtime_without_manual_factories():
+    session = create_session_from_seed(
+        "地点：小屋\n角色：甲|旅人|警觉|找出口|地点=小屋",
+        profile="offline",
+        random_seed="helper-offline",
+    )
+    try:
+        result = session.run_step(overrides={"甲": "观察小屋。"})
+        assert result["step_committed"] is True
         assert session.step_count == 1
     finally:
         session.close()

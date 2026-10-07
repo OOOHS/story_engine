@@ -67,7 +67,6 @@ logs/
 .codex/
 
 # ChromaDB
-chroma_data/
-
-# Hermes subject homes
 .story-hermes/
+# Whole-session saves (world and private subject context)
+*.storysave

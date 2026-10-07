@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, Tuple, Type
+from weakref import finalize
 
 from src.story_engine.core.component import Component
 from src.story_engine.core.entity import Entity
@@ -65,7 +66,7 @@ class RunnerStepCheckpoint:
             capture = getattr(runtime, "capture_subject_checkpoint", None)
             if callable(capture):
                 subject_checkpoints[name] = capture()
-        return cls(
+        checkpoint = cls(
             entities=tuple(entity_rows),
             agent_runtimes=runtimes,
             relation_bindings=runner.relation_registry.binding_snapshot(),
@@ -75,6 +76,23 @@ class RunnerStepCheckpoint:
             clock_time=runner.clock.current_time,
             subject_checkpoints=subject_checkpoints,
         )
+        cleanup = finalize(
+            checkpoint,
+            cls._release_subject_checkpoints,
+            runtimes,
+            subject_checkpoints,
+        )
+        cleanup.atexit = False
+        return checkpoint
+
+    @staticmethod
+    def _release_subject_checkpoints(
+        runtimes: Dict[str, Any], payloads: Dict[str, Any]
+    ) -> None:
+        for name, payload in payloads.items():
+            release = getattr(runtimes.get(name), "release_subject_checkpoint", None)
+            if callable(release):
+                release(payload)
 
     def restore(self, runner: Any) -> None:
         restored_entities: Dict[str, Entity] = {}

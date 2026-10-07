@@ -2,7 +2,7 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 from src.story_engine.components.knowledge_state import KnowledgeState
-from src.story_engine.common.observation_window import shares_action_location
+from src.story_engine.common.observation_window import receives_communication
 from src.story_engine.core.entity import Entity
 from src.story_engine.systems.system import System
 
@@ -145,21 +145,19 @@ class ClaimKnowledgeSystem(System):
                     item
                     for item in actions
                     if str(item.get("actor", "")).strip() == actor
-                    and str(item.get("action_kind", "")) == "observe"
-                    and str(item.get("outcome", ""))
+                                        and str(item.get("outcome", ""))
                     in {"success", "partial", "complication"}
                     and str(item.get("private_result", "")).strip()
                 ),
                 None,
             )
             if action is None:
-                errors.append(f"{prefix} lacks a resolved active observation")
+                errors.append(f"{prefix} lacks a resolved evidence acquisition")
             if any(error.startswith(prefix) for error in errors):
                 continue
-            record = states[actor].learn(
+            record = states[actor].record_receipt(
                 claim_id=claim_id,
-                stance=stance,
-                confidence=0.9,
+                asserted_stance=stance,
                 basis="observed",
                 source=f"evidence:{evidence_ref}",
                 step=step,
@@ -170,16 +168,13 @@ class ClaimKnowledgeSystem(System):
                     "operation": "discover",
                     "actor": actor,
                     "claim_id": claim_id,
-                    "stance": record.stance,
-                    "confidence": record.confidence,
+                    "evidence_relation": stance,
+                    "receipt": deepcopy(record.receipts[-1]),
                     "evidence_ref": evidence_ref,
                     "reason": reason,
                 }
             )
 
-        relationship_book = (
-            relation_registry.to_relationship_book() if relation_registry else None
-        )
         for index, transfer in enumerate(transfers):
             prefix = f"knowledge_updates.claim[{index}]"
             forbidden = set(transfer).intersection(
@@ -228,19 +223,8 @@ class ClaimKnowledgeSystem(System):
             )
             if action is None:
                 errors.append(f"{prefix} lacks a resolved communication action")
-            action_location = str(
-                action.get("location", "") if action else ""
-            ).strip()
-            if action is not None and not shares_action_location(
-                source,
-                target,
-                action_location,
-                scene_state,
-                observation_windows,
-            ):
-                errors.append(
-                    f"{prefix} communication location is not shared this turn"
-                )
+            if action is not None and not receives_communication(action, target, scene_state, observation_windows):
+                errors.append(f"{prefix} communication was not delivered to target")
             if source_record is not None:
                 unknown_citations = set(cited_evidence).difference(
                     source_record.evidence_refs
@@ -261,24 +245,10 @@ class ClaimKnowledgeSystem(System):
                     errors.append(f"{prefix} cited evidence is not presentable: {ref}")
             if any(error.startswith(prefix) for error in errors):
                 continue
-            trust = 0.0
-            if relationship_book is not None:
-                trust = float(
-                    relationship_book.get_metrics(target, source).get("trust", 0.0)
-                    or 0.0
-                )
-            confidence = 0.85 if shown_evidence else min(
-                0.9, max(0.2, 0.6 + trust * 0.05)
-            )
             stance = asserted_stance or source_record.stance
-            record = states[target].learn(
-                claim_id=claim_id,
-                stance=stance,
-                confidence=confidence,
-                basis="reported",
-                source=source,
-                step=step,
-                evidence_refs=shown_evidence,
+            record = states[target].record_receipt(
+                claim_id=claim_id, asserted_stance=stance, basis="reported",
+                source=source, step=step, evidence_refs=shown_evidence,
             )
             applied.append(
                 {
@@ -287,7 +257,7 @@ class ClaimKnowledgeSystem(System):
                     "target": target,
                     "claim_id": claim_id,
                     "asserted_stance": stance,
-                    "confidence": record.confidence,
+                    "receipt": deepcopy(record.receipts[-1]),
                     "cited_evidence": shown_evidence,
                     "reason": reason,
                 }

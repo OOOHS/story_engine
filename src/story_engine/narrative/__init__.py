@@ -1,9 +1,7 @@
-from .conflict import ConflictDirector
+from .conflict import ConflictPressure
 from .storylets import StoryletEngine
-from .timeline import TimelineEngine
 
 __all__ = [
-    "ConflictDirector",
+    "ConflictPressure",
     "StoryletEngine",
-    "TimelineEngine",
 ]

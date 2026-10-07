@@ -9,7 +9,6 @@ class ProposalArbiter:
         intents: List[Dict[str, Any]],
         player_name: Any,
         player_intent: Any,
-        timeline_packet: Dict[str, Any],
         reaction_context: Dict[str, Any],
     ) -> Dict[str, Any]:
         proposals = []
@@ -32,7 +31,7 @@ class ProposalArbiter:
                     "source": item.get("source", ""),
                     "activation_scope": item.get("activation_scope", "foreground"),
                     "batch_step": item.get("proposal_batch_step"),
-                    "must_reference": bool(item.get("source") in {"manual", "timeline", "injected"}),
+                    "must_reference": bool(item.get("source") in {"manual", "injected", "storylet"}),
                     "_order": index,
                 }
             )
@@ -69,10 +68,5 @@ class ProposalArbiter:
             "player_proposal_is_primary": bool(anchor),
             "proposal_semantics": "simultaneous",
             "proposals": proposals[:8],
-            "due_commitment_ids": [
-                str(item.get("commitment_id"))
-                for item in timeline_packet.get("due_commitments", [])
-                if isinstance(item, dict) and str(item.get("commitment_id", "")).strip()
-            ],
             "requires_same_scene_reaction": bool(reaction_context.get("requires_reaction")),
         }

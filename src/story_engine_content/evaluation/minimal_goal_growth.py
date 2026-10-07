@@ -93,7 +93,7 @@ def build_minimal_goal_growth_scenario() -> ScenarioConfig:
         # This harness swaps the GM to HostRuleSimulationControl after
         # session creation for deterministic evaluation; the director must
         # not sneak a live LLM call into an otherwise LLM-free host.
-        narrative_director_enabled=False,
+        story_planner_enabled=False,
         description="一个已完成目标自然产生下一步私人追求。",
         environment="一间有出口的封闭房间。",
         initial_state="旅人需要先取得旧钥匙。",

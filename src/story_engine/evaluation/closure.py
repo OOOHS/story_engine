@@ -15,7 +15,6 @@ class EpisodeClosurePolicy:
     require_empty_action_queue: bool = True
     require_no_active_agent_goals: bool = True
     require_no_active_navigation_problems: bool = True
-    require_no_active_timeline_commitments: bool = True
     require_no_pending_world_events: bool = True
     require_no_pending_event_responses: bool = True
     require_all_autonomous_agents_exercised: bool = True
@@ -36,9 +35,6 @@ class EpisodeClosurePolicy:
             ),
             require_no_active_navigation_problems=bool(
                 self.require_no_active_navigation_problems
-            ),
-            require_no_active_timeline_commitments=bool(
-                self.require_no_active_timeline_commitments
             ),
             require_no_pending_world_events=bool(
                 self.require_no_pending_world_events
@@ -97,7 +93,6 @@ class EpisodeClosureEvaluator:
         active_verifiable_goals = 0
         active_agent_goals = 0
         active_navigation_problems = 0
-        active_timeline_commitments = 0
         dormant_navigation_problems = 0
         pending_world_events = 0
         pending_event_responses = 0
@@ -141,17 +136,7 @@ class EpisodeClosureEvaluator:
             scene_state = entity.get_component("SceneState")
             if scene_state is not None and id(scene_state) not in seen_scene_states:
                 seen_scene_states.add(id(scene_state))
-                commitments = scene_state.get_scene_flag(
-                    "upcoming_commitments", []
-                )
-                if isinstance(commitments, list):
-                    active_timeline_commitments += sum(
-                        isinstance(record, dict)
-                        and bool(str(record.get("commitment_id", "")).strip())
-                        and str(record.get("status", "scheduled")).strip().lower()
-                        not in {"resolved", "missed", "cancelled"}
-                        for record in commitments
-                    )
+
             cognition = entity.get_component("Cognition")
             controller = entity.get_component("AgentController")
             dormant = bool(controller and not controller.autonomous)
@@ -224,11 +209,6 @@ class EpisodeClosureEvaluator:
             and active_navigation_problems
         ):
             blockers.append("active_navigation_problems")
-        if (
-            policy.require_no_active_timeline_commitments
-            and active_timeline_commitments
-        ):
-            blockers.append("active_timeline_commitments")
         if policy.require_no_pending_world_events and pending_world_events:
             blockers.append("pending_world_events")
         if (
@@ -262,7 +242,6 @@ class EpisodeClosureEvaluator:
                 "active_verifiable_goal_count": active_verifiable_goals,
                 "active_agent_goal_count": active_agent_goals,
                 "active_navigation_problem_count": active_navigation_problems,
-                "active_timeline_commitment_count": active_timeline_commitments,
                 "dormant_navigation_problem_count": dormant_navigation_problems,
                 "pending_world_event_count": pending_world_events,
                 "pending_event_response_count": pending_event_responses,

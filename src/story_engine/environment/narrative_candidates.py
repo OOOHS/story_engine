@@ -1,21 +1,15 @@
-"""Shared plumbing for every "new content enters the world" candidate kind.
+"""Bookkeeping for world additions and explicit author injections.
 
-Character entry, storylet definitions and topology growth all share the same
-shape: a Host-issued, one-time-consumable authorization (with a validity
-window) that a semantic candidate must cite before the Host will stage it.
-This module factors out the parts of that shape that do not depend on what
-is actually being created -- authorization identity/consumption/window
-checking, capped dynamic-name bookkeeping, and a single audit trail -- so
-each kind only has to write its own field-level compilation and world-effect
-code (see ``character_entries.py``/``character_lifecycle.py`` for the
-reference implementation this generalizes).
+Normal semantic settlement can complete characters, objects and locations
+when an external result requires them. Lifecycle staging and semantic commit
+validation govern that path. Explicit author injections of characters,
+locations and storylet definitions cite Host-issued consumable authorizations.
+This module supplies that injection gate, dynamic-name ledgers, candidate
+audit records and the director's pending storylet proposal records.
 
-Deliberately not unified: object introduction has no authorization gate at
-all (see ``world_object_lifecycle.py``), and storylet *hit detection* is a
-post-commit Host derivation with zero GM authorship (see
-``narrative/storylets.py``). Both still write to the shared audit trail here
-so every candidate kind's outcome is visible in one place, but neither goes
-through ``NarrativeCandidateAuthority``.
+Storylet conditions are evaluated against committed state; triggered events
+enter settlement before their effects and perceptible facts are committed.
+Director proposals pass structural registration; concrete effects cross semantic settlement.
 """
 
 from dataclasses import dataclass, field
@@ -26,13 +20,12 @@ CANDIDATE_AUDIT_FLAG = "narrative_candidate_audit"
 # without limit; recent entries are what matters for debugging a given step.
 CANDIDATE_AUDIT_MAX_ENTRIES = 200
 
-# NarrativeDirector runs strictly after this tick's commit (see
-# components/narrative_director.py), so anything it proposes can only ever
-# become a *next-step* authorization -- never a same-tick effect. This is the
-# same cross-step queueing shape as ``scene_state.queue_director_signal``,
-# generalized to the three authorization-gated candidate kinds.
-PENDING_DIRECTOR_AUTHORIZATIONS_FLAG = "pending_narrative_director_authorizations"
-DIRECTOR_AUTHORIZATION_WINDOW_STEPS = 20
+# Director drafts are structurally registered before their future content enters the pool.
+PENDING_STORY_PROPOSALS_FLAG = "pending_story_planner_proposals"
+STORY_REVIEW_STATUS = "structural"
+# Older saves used pending_review for the same durable queue.
+STORY_PENDING_STATUSES = ("pending_registration", "pending_review")
+STORY_PROPOSAL_CAP = 100
 
 
 @dataclass(frozen=True)
@@ -216,77 +209,22 @@ def record_candidate_audit(
     scene_state.update_scene_flags({CANDIDATE_AUDIT_FLAG: entries})
 
 
-def queue_director_authorization(
-    scene_state: Any,
-    *,
-    kind: str,
-    payload: Dict[str, Any],
-    current_step: int,
-    window: int = DIRECTOR_AUTHORIZATION_WINDOW_STEPS,
-) -> Dict[str, Any]:
-    """Turn one NarrativeDirector-proposed candidate into a next-step
-    authorization, queued the same way ``queue_director_signal`` queues a
-    suggestion: written now, only consumable from ``current_step + 1``
-    onward, by whichever kind-specific ``Authority.resolve()`` next runs.
-    """
-    if not scene_state:
-        return {}
-    pending = list(
-        scene_state.get_scene_flag(PENDING_DIRECTOR_AUTHORIZATIONS_FLAG, []) or []
-    )
-    authorization_id = f"director:{kind}:{int(current_step)}:{len(pending)}"
-    authorization = dict(payload)
-    authorization["authorization_id"] = authorization_id
-    authorization["kind"] = kind
-    authorization.setdefault("not_before_step", int(current_step) + 1)
-    authorization.setdefault("expires_step", int(current_step) + 1 + int(window))
-    pending.append(authorization)
-    scene_state.update_scene_flags({PENDING_DIRECTOR_AUTHORIZATIONS_FLAG: pending})
-    return authorization
-
-
-def drain_due_director_authorizations(
-    scene_state: Any,
-    *,
-    kind: str,
-    consumed_flag: str,
-    current_step: int,
-) -> List[Dict[str, Any]]:
-    """Surface director-queued authorizations of ``kind`` that are in their
-    validity window this step, pruning ones that expired or were already
-    consumed. Authorizations still in-window but not yet cited stay queued
-    for a later step instead of being dropped after one look.
-    """
-    if not scene_state:
-        return []
-    pending = list(
-        scene_state.get_scene_flag(PENDING_DIRECTOR_AUTHORIZATIONS_FLAG, []) or []
-    )
-    if not pending:
-        return []
-    consumed = set(CandidateLedger.normalized_names(scene_state, consumed_flag))
-    due: List[Dict[str, Any]] = []
-    remaining: List[Dict[str, Any]] = []
-    for item in pending:
-        if not isinstance(item, dict) or str(item.get("kind", "")) != kind:
-            remaining.append(item)
-            continue
-        authorization_id = str(item.get("authorization_id", "")).strip()
-        try:
-            expires_step = int(item.get("expires_step", current_step))
-        except (TypeError, ValueError):
-            expires_step = int(current_step)
-        if authorization_id in consumed or int(current_step) > expires_step:
-            continue
-        remaining.append(item)
-        try:
-            not_before_step = int(item.get("not_before_step", current_step))
-        except (TypeError, ValueError):
-            not_before_step = int(current_step)
-        if int(current_step) >= not_before_step:
-            due.append(item)
-    if remaining != pending:
-        scene_state.update_scene_flags(
-            {PENDING_DIRECTOR_AUTHORIZATIONS_FLAG: remaining}
-        )
-    return due
+def record_story_proposal(scene_state: Any, candidate: Dict[str, Any], *, turn_id: str) -> Dict[str, Any]:
+    """Record a draft for structural registration; retain a bounded recent history."""
+    pending = list(scene_state.get_scene_flag(PENDING_STORY_PROPOSALS_FLAG, []) or [])
+    if sum(p.get("status") in STORY_PENDING_STATUSES for p in pending) >= STORY_PROPOSAL_CAP:
+        return {"status": "rejected", "reason": "pending_proposal_cap"}
+    proposal = {
+        "proposal_id": f"story-proposal:{turn_id}:{len(pending)}",
+        **candidate,
+        "status": "pending_registration",
+        "review_status": STORY_REVIEW_STATUS,
+    }
+    pending.append(proposal)
+    while len(pending) > STORY_PROPOSAL_CAP:
+        removable = next((i for i, p in enumerate(pending) if p.get("status") not in STORY_PENDING_STATUSES), None)
+        if removable is None:
+            break
+        pending.pop(removable)
+    scene_state.update_scene_flags({PENDING_STORY_PROPOSALS_FLAG: pending})
+    return proposal

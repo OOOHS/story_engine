@@ -166,7 +166,7 @@ def test_gm_cannot_supply_probability_roll_or_numeric_modifiers():
     assert resolution.traces == []
 
 
-def test_uncertain_non_move_branches_cannot_write_actor_locations():
+def test_uncertain_non_move_branches_preserve_locations_for_commit_review():
     result = _result()
     for branch_name in ("success", "failure"):
         result["uncertain_outcomes"][0][branch_name]["state_updates"][
@@ -186,13 +186,11 @@ def test_uncertain_non_move_branches_cannot_write_actor_locations():
     )
 
     assert resolution.errors == []
-    assert resolution.result["state_updates"]["actor_states"] == {}
-    assert resolution.result["resolved_actions"][0]["location"] == "大厅"
-    assert len(resolution.rejected_writes) == 4
-    assert all(path.endswith(".location") for path in resolution.rejected_writes)
+    assert resolution.result["state_updates"]["actor_states"] == {"甲": {"location": "月球"}, "乙": {"location": "大厅"}}
+    assert resolution.rejected_writes == []
 
 
-def test_uncertain_move_branch_can_only_choose_origin_or_host_authorized_destination():
+def test_uncertain_move_branch_retains_chosen_candidate_location():
     scene = SceneState(
         world_objects={
             "大厅": {"connected_to": ["密室"]},
@@ -231,7 +229,6 @@ def test_uncertain_move_branch_can_only_choose_origin_or_host_authorized_destina
         ),
         current_step=2,
         world_version=1,
-        movement_authorizations={"甲": "密室"},
     )
 
     assert resolution.errors == []
@@ -244,7 +241,7 @@ def test_uncertain_move_branch_can_only_choose_origin_or_host_authorized_destina
     ] == expected_location
 
 
-def test_uncertain_move_branch_cannot_replace_authorized_destination():
+def test_uncertain_move_branch_preserves_candidate_destination_for_commit_review():
     scene = SceneState(
         world_objects={"大厅": {}, "密室": {}, "屋顶": {}},
         actor_states={"甲": {"location": "大厅"}},
@@ -271,13 +268,12 @@ def test_uncertain_move_branch_cannot_replace_authorized_destination():
         check_resolver=HostCheckResolver(DeterministicRandomStreams(3)),
         current_step=0,
         world_version=0,
-        movement_authorizations={"甲": "密室"},
     )
 
     assert resolution.errors == []
-    assert resolution.result["state_updates"]["actor_states"] == {}
-    assert resolution.result["resolved_actions"][0]["location"] == "大厅"
-    assert len(resolution.rejected_writes) == 2
+    assert resolution.result["state_updates"]["actor_states"] == {"甲": {"location": "屋顶"}}
+    assert resolution.result["resolved_actions"][0]["location"] == "屋顶"
+    assert resolution.rejected_writes == []
 
 
 def test_simulation_control_preserves_uncertain_check_without_fallback_action():
@@ -292,8 +288,9 @@ def test_simulation_control_preserves_uncertain_check_without_fallback_action():
     assert len(normalized["uncertain_outcomes"]) == 1
 
 
-def test_hard_legality_block_cancels_actor_uncertain_check():
-    control = EngineSimulationControl()
+def test_offline_hard_legality_block_cancels_actor_uncertain_check():
+    from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
+    control = HostRuleSimulationControl()
     payload = {
         "intents": _intents(),
         "player_pov": {"location": "大厅"},
@@ -347,7 +344,7 @@ def test_simulation_system_rolls_branch_before_authoritative_transaction():
     assert "uncertain_outcomes" not in context["simulation_result"]
 
 
-def test_simulation_system_audits_and_strips_uncertain_location_bypass():
+def test_simulation_system_rejects_unknown_branch_location_atomically():
     result = _result()
     for branch_name in ("success", "failure"):
         result["uncertain_outcomes"][0][branch_name]["state_updates"][
@@ -368,10 +365,9 @@ def test_simulation_system_audits_and_strips_uncertain_location_bypass():
 
     SimulationSystem().update({"WorldHost": gm, "甲": Entity("甲")}, context)
 
-    assert context["state_transaction"]["committed"] is True
+    assert context["state_transaction"]["committed"] is False
     assert scene.get_actor_location("甲") == "大厅"
-    rejected = context["semantic_authority_rejections"]
-    assert len([path for path in rejected if path.endswith(".location")]) == 2
+    assert any("unknown actor location" in error for error in context["state_transaction"]["errors"])
 
 
 def test_invalid_selected_branch_is_rejected_atomically():

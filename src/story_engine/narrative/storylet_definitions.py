@@ -1,16 +1,9 @@
-"""Runtime registration of brand-new storylets ("storylet_definition" candidates).
+"""Register future conditional narrative content from explicit authorization.
 
-``scenario.storylets`` is otherwise entirely static (see ``storylets.py``);
-this module is the one new *capability* this candidate-registration effort
-adds, not just a refactor of something that already existed. It follows the
-exact two-phase shape ``CharacterEntryAuthority``/``CharacterLifecycle``
-established: a Host-issued authorization must be cited, ``prepare()``
-validates the compiled payload against the scenario/staged pool, and
-``stage()`` re-checks the narrower staging-time invariants before writing.
-
-Governance is deliberately as strict as character entry (pre-authorization
-required) because a new storylet is a permanent structural addition to the
-scenario's opportunity space, not an ephemeral world fact.
+The planner submits prospective content to structural lifecycle registration.
+Author-issued storylet definitions use Authority -> prepare -> stage -> commit.
+World entity completion has its own semantic commit check and reuses the same
+world transaction and identity ledgers.
 """
 
 from dataclasses import dataclass, field
@@ -94,7 +87,9 @@ class StoryletDefinitionAuthority:
         payload = {
             "storylet_id": self._text(authorization.get("storylet_id"), 120),
             "intent": self._text(authorization.get("intent"), 600),
+            "location": self._text(authorization.get("location"), 160),
             "conditions": conditions,
+            "trigger": self._text(authorization.get("trigger"), 1200),
             "priority": authorization.get("priority", 0),
             "one_shot": bool(authorization.get("one_shot", False)),
             "tags": self._text_list(authorization.get("tags", []), 12, 60),

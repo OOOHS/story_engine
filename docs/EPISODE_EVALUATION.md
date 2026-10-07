@@ -28,7 +28,7 @@ report = EpisodeRunner().run(
 )
 ```
 
-完结资格只由权威状态推导：已有的可验证 Goal 已结算、没有尚未出席/错过/取消的 Timeline commitment、没有可自动处理的活动 NavigationProblem、动作队列为空，并且没有尚未交付给可自动运行角色策略的 WorldEvent 或 event response。默认不强迫内容包预写至少一个可验证 Goal，因此纯世界种子可以在所有自然生长的线程真正平息后结束；传统任务式评测可用 `require_goal_anchor=True` 或 launcher 的 `--require-goal-anchor` 明确要求人工目标锚点。每个 autonomous 的角色还必须至少真正获得过一次决策机会；`AgentController.decision_count` 是可回滚的 Host 状态，离屏角色仍按错峰 schedule 运行，但 closure 不会抢在其第一次背景 turn 前发生。章节式审计若确实允许忽略尚未运行的远端角色，可使用 `require_all_autonomous_agents_exercised=False` 或 `--allow-unexercised-agents`。显式 `autonomous=False`（唯一的"完全不运行"开关，`activation_policy` 本身只有 `foreground`/`background` 两档且只影响运行节奏）角色的旧 pending attention 和 NavigationProblem 会单独计入诊断，但不会永久阻塞 closure，因为它只能由人工恢复；新事件仍进入其 belief/experience，却不会越过策略创建自动 interrupt。临界 Drive need 只有在角色当前 POV 中存在 Host 已验证、available 且确实降低同一 need 的对象能力时才阻塞 closure；普通压力漂移、当前没有结构化解决办法的压力和 `autonomous=False` 角色的压力只进入诊断，避免永久卡死。章节式截断可用 `require_no_actionable_critical_needs=False` 或 `--allow-actionable-critical-needs-closure` 放宽。资格必须连续保持 `stable_steps`，且默认这些步骤不能继续产生 `scene / relationship / goal / knowledge / navigation / claim / world_event` 结构变化；最终目标刚结算、物品刚转手或角色仍在形成新 Claim knowledge 的那一步不会被误算作安静尾声。持续 Drive 漂移、记忆归档等低层变化不单独阻塞；章节式评估若有意在重大变化后立即截断，可设置 `require_stable_material_state=False` 或 launcher 的 `--allow-material-change-closure`。Agent 与 GM 都不能输出 `story_complete=true` 来绕过这些条件。
+完结资格只由权威状态推导：已有的可验证 Goal 已结算、没有可自动处理的活动 NavigationProblem、动作队列为空，并且没有尚未交付给可自动运行角色策略的 WorldEvent 或 event response。默认不强迫内容包预写至少一个可验证 Goal，因此纯世界种子可以在所有自然生长的线程真正平息后结束；传统任务式评测可用 `require_goal_anchor=True` 或 launcher 的 `--require-goal-anchor` 明确要求人工目标锚点。每个 autonomous 的角色还必须至少真正获得过一次决策机会；`AgentController.decision_count` 是可回滚的 Host 状态，离屏角色仍按错峰 schedule 运行，但 closure 不会抢在其第一次背景 turn 前发生。章节式审计若确实允许忽略尚未运行的远端角色，可使用 `require_all_autonomous_agents_exercised=False` 或 `--allow-unexercised-agents`。显式 `autonomous=False`（唯一的"完全不运行"开关，`activation_policy` 本身只有 `foreground`/`background` 两档且只影响运行节奏）角色的旧 pending attention 和 NavigationProblem 会单独计入诊断，但不会永久阻塞 closure，因为它只能由人工恢复；新事件仍进入其 belief/experience，却不会越过策略创建自动 interrupt。临界 Drive need 只有在角色当前 POV 中存在 Host 已验证、available 且确实降低同一 need 的对象能力时才阻塞 closure；普通压力漂移、当前没有结构化解决办法的压力和 `autonomous=False` 角色的压力只进入诊断，避免永久卡死。章节式截断可用 `require_no_actionable_critical_needs=False` 或 `--allow-actionable-critical-needs-closure` 放宽。资格必须连续保持 `stable_steps`，且默认这些步骤不能继续产生 `scene / relationship / goal / knowledge / navigation / claim / world_event` 结构变化；最终目标刚结算、物品刚转手或角色仍在形成新 Claim knowledge 的那一步不会被误算作安静尾声。持续 Drive 漂移、记忆归档等低层变化不单独阻塞；章节式评估若有意在重大变化后立即截断，可设置 `require_stable_material_state=False` 或 launcher 的 `--allow-material-change-closure`。Agent 与 GM 都不能输出 `story_complete=true` 来绕过这些条件。
 
 Episode 完结不等于世界关闭。它只是说明本次评估已经形成一个可停止的叙事边界；同一个 Session 仍可继续运行，角色也可以保留感谢、怨恨、伤痛等未消退状态。未传 `closure_policy` 时，运行器仍精确执行 `steps` 轮。
 
@@ -106,7 +106,6 @@ Episode 完结不等于世界关闭。它只是说明本次评估已经形成一
 
 Event pending 数量按宿主优先 attention queue 的实际可消费记录计算。队列容量会先保留警报、销毁和社会回应，再保留普通移动/阶段噪声；因此 closure 不会因 FIFO 截断恰好丢失关键后果，也不会把 `autonomous=False` 角色的不可自动消费账本算作 blocker。
 
-Timeline commitment 是世界级未决种子，默认同样阻塞 closure。`scheduled` 与 `due` 都计入 `active_timeline_commitment_count`；只有 TimelineEngine 根据真实时间和角色位置结算为 `resolved / missed / cancelled` 后才释放。策略可显式关闭 `require_no_active_timeline_commitments`，用于故意截取一个仍有未来日程的章节边界。
 - `closure_reached` / `steps_to_closure`：是否在步数上限前达到稳定完结，以及实际用时。
 - `agent_goal_adoption_count` / `active_agent_goal_count`：角色是否从已发生后果继续形成新目标，以及 Episode 结束时仍有多少这类追求。
 - `agent_goal_refinement_count` / `active_open_agent_goal_count`：开放目标有多少真正成熟为 Host 可验证目标，以及 Episode 结束时还有多少自主目标仍只有动机、没有具体完成路径。refine 以 `goal_refinement:<actor>:<goal>:step:<n>` 进入因果图；后续 Goal resolution 指向该节点，而不是假装目标从创建起就已经具体。
@@ -122,10 +121,7 @@ exchange WorldEvent 保留 exchange id 作为事件 identity，来源指向
 `resolved_action:step:<n>:actors:<sorted parties>`。因此 `exchange:<id>` 不再作为
 没有父节点的伪因果根。
 
-Timeline 出席/缺席事件指向 `timeline_resolution:<commitment>:<status>`。该节点的
-显式 parents 包括 `timeline_commitment:<id>`、`clock:step:<n>`，以及约定地点上的
-`actor_presence/actor_absence`。因此 `Timeline seed → 时间/位置结算 → WorldEvent →
-event response → Goal` 可以作为完整链进入深度和 replay 审计。
+Storylet 的条件触发生成带来源 id 的 World 意图，提交后形成 WorldEvent。事件 id 保留故事块 id 和世界 step，因此后续角色知识、回应和目标可以追溯到已提交的事件。
 
 KnowledgeState 中 Claim 首次出现或 updated step 改变会形成
 `claim_knowledge_learned/revised:<actor>:<claim>`。observed 记录生成
@@ -145,6 +141,6 @@ actor-qualified ClaimKnowledge。缺少对应边时报告标记
 
 测试中的最小 Episode 只有两个独立 Agent、一个房间和各自目标，没有 Storylet 或人物专属核心逻辑。四轮后由真实互动惰性形成 Pair Relationship、双向 Sentiment 和角色经验，用来防止引擎退化成“单轮文本生成器”。
 
-另一个无 Storylet 的最小事件响应 Episode 从一次 Timeline 缺席开始：宿主创建 Event Entity，离屏当事人被 pending observation 唤醒并形成 `respond_to_event(explain)` 目标，真实解释写入权威 response ledger；接收者先作出 acknowledge，再形成可验证的移动目标。新事件和回应已经消费后，接收者仍会在受限间隔后单独以 `agent_goal:<id>` 醒来并前往现场。这个回归用于证明“世界变化 → 局部知识 → 自主社会回应 → 私有评价/关系后果 → 多步目标续行动 → 稳定 closure”可以完整走通。
+另一个无 Storylet 的最小事件响应 Episode 从初始设定中已确认的仪式缺席事实开始：宿主加载 Event Entity，离屏当事人被 pending observation 唤醒并形成 `respond_to_event(explain)` 目标，真实解释写入权威 response ledger；接收者先作出 acknowledge，再形成可验证的移动目标。新事件和回应已经消费后，接收者仍会在受限间隔后单独以 `agent_goal:<id>` 醒来并前往现场。这个回归用于证明“世界变化 → 局部知识 → 自主社会回应 → 私有评价/关系后果 → 多步目标续行动 → 稳定 closure”可以完整走通。
 
 单 seed 报告之上还提供 `EpisodeSweepRunner` 和宿主 launcher，用于汇总多随机种子的停滞率、僵局率、目标结算率、动作轨迹多样性与 replay 一致性。完整协议见 [EPISODE_SWEEPS.md](EPISODE_SWEEPS.md)。

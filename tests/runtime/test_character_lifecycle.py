@@ -65,7 +65,7 @@ def test_dynamic_character_enters_entity_world_and_agent_registry_together():
     assert entities["信使"].get_component("Cognition").beliefs[0]["statement"] == "有人正在追赶自己"
 
 
-def test_invalid_spawn_location_falls_back_to_player_location():
+def test_invalid_spawn_location_is_rejected_before_birth():
     scene = SceneState(
         world_objects={"酒馆": {}},
         actor_states={"玩家": {"location": "酒馆"}},
@@ -78,8 +78,8 @@ def test_invalid_spawn_location_falls_back_to_player_location():
         agent_runtime="llm",
     )
 
-    assert prepared.errors == []
-    assert prepared.plan.actor_state["location"] == "酒馆"
+    assert prepared.errors == ["spawn_character has unknown location: 不存在的月球基地"]
+    assert prepared.plan is None
     assert "陌生人" not in scene.actor_states
 
 
@@ -118,7 +118,7 @@ def test_spawn_without_any_valid_location_is_rejected():
     )
 
     assert prepared.plan is None
-    assert "spawn_character has no valid location" in prepared.errors
+    assert "spawn_character has unknown location: 不存在" in prepared.errors
     assert "幽灵" not in scene.actor_states
 
 

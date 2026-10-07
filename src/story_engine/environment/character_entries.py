@@ -14,12 +14,13 @@ class CharacterEntryResolution:
 
 
 class CharacterEntryAuthority:
-    """Compile a semantic spawn request from a host-issued entry capability.
+    """Compile an author's explicit spawn request from an entry capability.
 
     The authorization envelope itself (id uniqueness, consumption, validity
     window) is delegated to ``NarrativeCandidateAuthority``, the same gate
     shared with the ``storylet_definition``/``topology`` candidate kinds.
-    This method only owns the character-specific field compilation.
+    Normal model world completion directly uses CharacterLifecycle and the
+    semantic commit check. This gate preserves explicit author injection.
     """
 
     def __init__(self) -> None:

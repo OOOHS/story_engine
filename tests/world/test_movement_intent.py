@@ -1,6 +1,7 @@
-from src.story_engine.common.movement_intent import extract_move_target_from_intent
+from src.story_engine.rules.offline_semantics import extract_move_target_from_intent
 from src.story_engine.components.scene_state import SceneState
 from src.story_engine.components.simulation_control import SimulationControl
+from src.story_engine.components.host_rule_simulation import HostRuleSimulationControl
 from src.story_engine.systems.simulation import SimulationSystem
 
 
@@ -47,7 +48,7 @@ def test_movement_legality_does_not_rewrite_negated_move():
         }
     )
 
-    verdict = system._assess_movement_legality(
+    verdict = system.legality.assess_movement(
         scene_state=scene,
         actor="林见微",
         intent="我不去餐厅，我就在这儿看着",
@@ -56,8 +57,8 @@ def test_movement_legality_does_not_rewrite_negated_move():
     assert verdict is None
 
 
-def test_legal_move_location_is_committed_by_host_even_if_semantic_result_omits_it():
-    control = SimulationControl()
+def test_offline_legal_move_location_is_committed_by_host():
+    control = HostRuleSimulationControl()
     payload = {
         "player_name": "甲",
         "player_pov": {"location": "大厅"},
@@ -112,7 +113,7 @@ def test_legal_move_location_is_committed_by_host_even_if_semantic_result_omits_
     assert enforced["resolved_actions"][0]["location"] == "走廊"
 
 
-def test_semantic_result_cannot_move_actor_without_host_movement_verdict():
+def test_semantic_position_candidate_is_preserved_for_commit_review():
     control = SimulationControl()
     payload = {
         "player_name": "甲",
@@ -160,10 +161,5 @@ def test_semantic_result_cannot_move_actor_without_host_movement_verdict():
         payload,
     )
 
-    enforced = control._enforce_legality(normalized, payload)
-
-    assert enforced["state_updates"]["actor_states"] == {}
-    assert any(
-        "没有宿主移动裁定" in note
-        for note in enforced["simulation_notes"]
-    )
+    assert normalized["state_updates"]["actor_states"] == {"甲": {"location": "走廊"}}
+    assert normalized["simulation_notes"] == []

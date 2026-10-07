@@ -25,21 +25,9 @@ class SocialDynamics:
             "visible_relations": relations,
         }
 
-    def build_reaction_context(self, player_name, pov, player_intent, social, timeline):
+    def build_reaction_context(self, player_name, pov, player_intent, social):
         states = dict(pov.get("visible_actor_states", {}) or {})
-        transition = timeline.get("transition_pressure", {}) if isinstance(timeline, dict) else {}
-        transition_states = transition.get("carrier_states", {}) if isinstance(transition, dict) else {}
-        for name, state in transition_states.items() if isinstance(transition_states, dict) else []:
-            if name != player_name and name not in states and isinstance(state, dict):
-                states[name] = state
         visible = [name for name in pov.get("visible_actors", []) if name and name != player_name]
-        transition_watchers = [
-            str(name).strip() for name in transition.get("carrier_actors", [])
-            if str(name).strip() and str(name).strip() != str(player_name)
-        ] if isinstance(transition, dict) else []
-        for name in transition_watchers:
-            if name not in visible:
-                visible.append(name)
         relation_map = {
             str(item.get("actor", "")).strip(): item
             for item in social.get("visible_relations", [])
@@ -65,15 +53,11 @@ class SocialDynamics:
             ):
                 hostile.append(name)
         action = player_intent.get("intent", "") if isinstance(player_intent, dict) else ""
-        pressure = self.classify_action_pressure(action, bool(transition_watchers))
         return {
             "location": pov.get("location"),
             "visible_watchers": visible,
             "hostile_watchers": hostile,
-            "transition_watchers": transition_watchers,
-            "transition_requires_backlash": bool(transition.get("requires_human_backlash")),
             "player_action": action,
-            "action_pressure": pressure,
             "requires_reaction": bool(action and visible),
         }
 
@@ -84,7 +68,6 @@ class SocialDynamics:
         viewer,
         pov,
         social,
-        timeline,
         entities=None,
         relationship_book=None,
     ):
@@ -95,12 +78,6 @@ class SocialDynamics:
             for name in pov.get("visible_actors", [])
             if name in scene_state.actor_states
         }
-        transition = timeline.get("transition_pressure", {}) if isinstance(timeline, dict) else {}
-        transition_states = transition.get("carrier_states", {}) if isinstance(transition, dict) else {}
-        if isinstance(transition_states, dict):
-            for name, state in transition_states.items():
-                if name != viewer and name not in states and isinstance(state, dict):
-                    states[name] = state
         characters = {
             getattr(item, "name", ""): item
             for item in getattr(scenario, "characters", [])
@@ -112,7 +89,6 @@ class SocialDynamics:
             if isinstance(item, dict) and str(item.get("actor", "")).strip()
         } if isinstance(social, dict) else {}
         pressures = []
-        original_visible = set(pov.get("visible_actors", []) or [])
         for name, state in states.items():
             if name == viewer or not isinstance(state, dict):
                 continue
@@ -144,7 +120,6 @@ class SocialDynamics:
                     "signature_templates": list(state.get("signature_templates", []) or []),
                     "toward_viewer_states": relation_states,
                     "pressure_score": self.score_pressure(state, relation_metrics),
-                    "transitional": name in transition_states and name not in original_visible,
                 }
             )
         pressures.sort(key=lambda item: item["pressure_score"], reverse=True)
@@ -328,12 +303,3 @@ class SocialDynamics:
         score += int(malice) if malice > 0 else 0
         score += abs(int(trust)) if trust < 0 else 0
         return score
-
-    def classify_action_pressure(self, action: str, has_transition_watchers: bool) -> str:
-        if any(token in action for token in ["不去", "不肯", "不愿", "拒绝", "不坐", "不回"]):
-            return "high" if has_transition_watchers else "medium"
-        if any(token in action for token in ["观察", "沉默", "先看", "不说话", "站着", "等等"]):
-            return "low"
-        if any(token in action for token in ["问", "质问", "反驳", "去", "拿", "碰", "坐", "说"]):
-            return "medium"
-        return "high"

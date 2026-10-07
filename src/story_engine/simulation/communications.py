@@ -4,20 +4,10 @@ from typing import Any, Dict, FrozenSet, Iterable, List, Tuple
 
 @dataclass(frozen=True)
 class CommunicationResolution:
-    """Deterministic host settlement for every ``communicate`` proposal.
+    """Deterministic speech results for the explicit offline rule baseline.
 
-    Speaking is not a judgment call. Legality already decides, mechanically,
-    whether a character can reach her target (co-located, not blocked); once
-    that is true the words leave her mouth exactly as proposed. Whether a
-    listener believes a Claim, whether anyone cares -- that is settled
-    downstream by trust-weighted belief formation, never by a narrative
-    "did this communication succeed" verdict.
-
-    The semantic GM still *sees* ``communicate`` intents (it may still
-    contribute ``knowledge_updates``/``social_impacts`` -- content-level
-    interpretation of what was said has no other pathway), but it no longer
-    has a say in whether the utterance itself landed: any resolved_action it
-    writes for these actors is discarded here and replaced unconditionally.
+    Production SimulationControl supplies semantically resolved delivery,
+    recipients and visibility; SimulationSystem preserves those results.
     """
 
     resolved_actions: Tuple[Dict[str, Any], ...] = ()
@@ -25,16 +15,10 @@ class CommunicationResolution:
 
 
 class CommunicationResolver:
-    """Settles every legality-allowed ``communicate`` proposal without the
-    semantic GM.
+    """Resolve ordinary co-located speech for HostRuleSimulationControl.
 
-    Blocked communicate proposals (target not co-located, etc.) are left
-    alone here -- ``SimulationControl._enforce_legality`` already turns a
-    ``block`` verdict into a deterministic ``blocked`` resolved_action for
-    any actor with no matching entry, regardless of whether the GM ever saw
-    that actor's intent. This resolver only has to cover the case that used
-    to require an LLM: "legality allows it, so what happened?" The answer is
-    always the same -- she said exactly what she proposed.
+    The offline legality pass settles blocked proposals. This helper emits
+    literal utterances for the remaining allowed proposals.
     """
 
     def resolve(

@@ -532,21 +532,20 @@ def test_public_scene_flag_change_becomes_global_event_but_private_flag_does_not
     assert not any("secret_clock" in name for name in entities)
 
 
-def test_timeline_phase_transition_becomes_global_observation_once():
+def test_committed_scene_change_becomes_global_observation_once():
     entities, scene = _world()
     entities["丙"].get_component("AgentController").autonomous = False
     context = {
         "clock": SimpleNamespace(current_step=5),
-        "timeline": {
-            "phase_transition": {"from": "afternoon", "to": "night"}
-        },
+        "state_transaction": {"committed": True},
+        "simulation_result": {"scene_state_changes": [{"path": "day_phase", "value": "night"}]},
     }
 
     system = WorldEventSystem()
     system.update(entities, context)
     system.update(entities, context)
 
-    event_id = "scene-phase:5:afternoon->night"
+    event_id = "scene-state:5:0:day_phase"
     assert f"WorldEvent:{event_id}" in entities
     for actor in ("甲", "乙", "丙"):
         cognition = entities[actor].get_component("Cognition")

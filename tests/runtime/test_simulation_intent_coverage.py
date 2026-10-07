@@ -5,7 +5,7 @@ from src.story_engine.components.simulation_control import SimulationControl
 from src.story_engine.core.entity import Entity
 
 
-def _control(*, fallback_mode: str = "fail_closed"):
+def _control():
     gm = Entity("WorldHost")
     gm.add_component(
         SceneState(
@@ -19,7 +19,7 @@ def _control(*, fallback_mode: str = "fail_closed"):
             },
         )
     )
-    control = SimulationControl(llm_config={}, fallback_mode=fallback_mode)
+    control = SimulationControl(llm_config={})
     gm.add_component(control)
     return control
 
@@ -68,34 +68,12 @@ def _payload():
     }
 
 
-def test_host_fallback_resolves_each_agent_omitted_from_a_batch():
-    control = _control(fallback_mode="rule")
-    payload = _payload()
-
-    result = control._normalize_result(
-        {
-            "resolved_actions": [
-                {
-                    "actor": "甲",
-                    "intent": "GM 改写的文本不具有权威性",
-                    "outcome": "success",
-                    "result": "甲等待。",
-                }
-            ]
-        },
-        payload,
-    )
-    result = control._enforce_legality(result, payload)
-
-    by_actor = {item["actor"]: item for item in result["resolved_actions"]}
-    assert set(by_actor) == {"甲", "乙"}
-    assert by_actor["甲"]["intent"] == payload["intents"][0]["intent"]
-    assert by_actor["乙"]["action_kind"] == "move"
-    assert by_actor["乙"]["outcome"] == "success"
-    assert result["state_updates"]["actor_states"]["乙"]["location"] == "走廊"
-    assert result["simulation_notes"] == [
-        "Host 为语义结算遗漏的 Agent 动作应用了显式规则回退：乙。"
-    ]
+def test_production_has_no_rule_fallback_for_omitted_actions():
+    control = _control()
+    result = control._normalize_result({"resolved_actions": [{"actor": "甲", "result": "甲等待。"}]}, _payload())
+    assert result["simulation_error"]["kind"] == "unresolved_intents"
+    assert result["simulation_error"]["actors"] == ["乙"]
+    assert result["state_updates"].get("actor_states", {}) == {}
 
 
 def test_default_fail_closed_reports_unresolved_intents_instead_of_synthesizing():
